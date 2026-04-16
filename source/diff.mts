@@ -4,16 +4,36 @@ export interface DiffResult {
 	files: PRFile[]
 }
 
+async function streamToString(stream: ReadableStream<Uint8Array>): Promise<string> {
+	const reader = stream.getReader()
+	const chunks: Uint8Array[] = []
+	while (true) {
+		const { done, value } = await reader.read()
+		if (done) break
+		chunks.push(value)
+	}
+	const decoder = new TextDecoder()
+	let result = ""
+	for (const chunk of chunks) {
+		result += decoder.decode(chunk)
+	}
+	return result
+}
+
 export async function generateLocalDiff(baseCommit: string, headCommit: string): Promise<DiffResult> {
 	// Get list of changed files
-	const fileListProcess = await Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit])
+	const fileListProcess = await Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], {
+		stderr: "pipe",
+	})
 	if (fileListProcess.exitCode !== 0) {
-		const stderr = fileListProcess.stderr as Buffer | null | undefined
-		throw new Error(`Failed to get file list: ${stderr?.toString() ?? "Unknown error"}`)
+		const stderrText = await streamToString(fileListProcess.stderr)
+		const stdoutText = await streamToString(fileListProcess.stdout)
+		const errorOutput = stderrText || stdoutText || "Unknown error"
+		throw new Error(`Failed to get file list: ${errorOutput}`)
 	}
 
-	const fileList = fileListProcess.stdout.toString().trim()
-	if (!fileList) {
+	const fileList = await streamToString(fileListProcess.stdout)
+	if (!fileList.trim()) {
 		return { files: [] }
 	}
 
@@ -44,7 +64,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 			filename,
 		])
 
-		const patch = patchProcess.stdout.toString()
+		const patch = await streamToString(patchProcess.stdout)
 
 		// Count additions and deletions from the patch
 		let additions = 0

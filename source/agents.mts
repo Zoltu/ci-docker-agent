@@ -77,20 +77,18 @@ async function loadUserAgents(): Promise<Agent[]> {
 async function loadUserAgentsInternal(): Promise<Agent[]> {
 	const agents: Agent[] = []
 
-	try {
-		const entries = fs.readdirSync(USER_AGENTS_DIR)
-		for (const entry of entries) {
-			if (entry.toLowerCase().endsWith(".md")) {
-				const filePath = `${USER_AGENTS_DIR}/${entry}`
-				const name = entry.replace(/\.md$/i, "")
-				const content = await Bun.file(filePath).text()
-				agents.push({ name, prompt: content })
-			}
-		}
-	} catch (error) {
-		// Directory may not exist, that's ok
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-			console.warn(`Warning: Could not read user agents directory: ${error}`)
+	// Check if directory exists before attempting to read
+	if (!fs.existsSync(USER_AGENTS_DIR)) {
+		return agents
+	}
+
+	const entries = fs.readdirSync(USER_AGENTS_DIR)
+	for (const entry of entries) {
+		if (entry.toLowerCase().endsWith(".md")) {
+			const filePath = `${USER_AGENTS_DIR}/${entry}`
+			const name = entry.replace(/\.md$/i, "")
+			const content = await Bun.file(filePath).text()
+			agents.push({ name, prompt: content })
 		}
 	}
 
@@ -106,18 +104,20 @@ async function loadBuiltinAgents(): Promise<Agent[]> {
 async function loadBuiltinAgentsInternal(): Promise<Agent[]> {
 	const agents: Agent[] = []
 
-	try {
-		const entries = fs.readdirSync(BUILTIN_AGENTS_DIR)
-		for (const entry of entries) {
-			if (entry.toLowerCase().endsWith(".md")) {
-				const filePath = `${BUILTIN_AGENTS_DIR}/${entry}`
-				const name = entry.replace(/\.md$/i, "")
-				const content = await Bun.file(filePath).text()
-				agents.push({ name, prompt: content })
-			}
+	// Check if directory exists before attempting to read
+	if (!fs.existsSync(BUILTIN_AGENTS_DIR)) {
+		console.warn(`Warning: Builtin agents directory does not exist: ${BUILTIN_AGENTS_DIR}`)
+		return agents
+	}
+
+	const entries = fs.readdirSync(BUILTIN_AGENTS_DIR)
+	for (const entry of entries) {
+		if (entry.toLowerCase().endsWith(".md")) {
+			const filePath = `${BUILTIN_AGENTS_DIR}/${entry}`
+			const name = entry.replace(/\.md$/i, "")
+			const content = await Bun.file(filePath).text()
+			agents.push({ name, prompt: content })
 		}
-	} catch (error) {
-		console.warn(`Warning: Could not read builtin agents directory: ${error}`)
 	}
 
 	return agents
