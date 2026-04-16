@@ -1,0 +1,33 @@
+name: CI Agent
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  ci-agent:
+    runs-on: ubuntu-latest
+    container:
+      image: ci-agent:latest
+      options: --user root
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run CI Agent
+        run: bun /github/workspace/ci-agent/index.mts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_API_URL: https://api.github.com
+          PR_NUMBER: ${{ github.event.issue?.number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          EVENT_TYPE: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment?.body }}

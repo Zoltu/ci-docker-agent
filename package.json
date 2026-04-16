@@ -1,0 +1,10 @@
+{
+	"devDependencies": {
+		"typescript": "6.0.2",
+		"@types/bun": "1.3.12"
+	},
+	"scripts": {
+		"setup": "bun install --frozen-lockfile",
+		"typecheck": "bun --bun tsc --noEmit"
+	}
+}

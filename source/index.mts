@@ -1,0 +1,50 @@
+import type { PRFile } from "./github-types.mts"
+import { parseEnvironment } from "./environment.mts"
+import { shouldRunCI } from "./trigger.mts"
+import { fetchPRFiles, submitReview } from "./github.mts"
+import { generateLocalDiff } from "./diff.mts"
+import { createPlaceholderAIClient } from "./ai.mts"
+import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
+
+async function main(): Promise<void> {
+	const config = parseEnvironment()
+
+	console.log("CI Agent started")
+	console.log("Mode:", config.mode)
+	console.log("Event type:", config.eventType)
+
+	if (!shouldRunCI(config.eventType, config.commentBody)) {
+		console.log("No trigger found, skipping CI checks")
+		return
+	}
+
+	let files: PRFile[] = []
+
+	if (config.mode === "github" && config.github) {
+		console.log("Repository:", config.github.repo)
+		console.log("PR Number:", config.github.prNumber)
+		files = await fetchPRFiles(config.github)
+	} else if (config.mode === "local-diff" && config.localDiff) {
+		console.log("Base commit:", config.localDiff.baseCommit)
+		console.log("Head commit:", config.localDiff.headCommit)
+		const diffResult = await generateLocalDiff(
+			config.localDiff.baseCommit,
+			config.localDiff.headCommit
+		)
+		files = diffResult.files
+	}
+
+	const aiClient = createPlaceholderAIClient()
+	const aiResult = await aiClient.analyze(files)
+
+	if (config.mode === "github" && config.github) {
+		const reviewPayload = buildReviewPayload(aiResult)
+		await submitReview(config.github, reviewPayload)
+		console.log("PR review submitted successfully")
+	} else {
+		const consoleOutput = formatReviewForConsole(aiResult, files)
+		console.log("\n" + consoleOutput)
+	}
+}
+
+main()
