@@ -1,17 +1,9 @@
-import type { PRFile } from "./github-types.mts"
-import { readdir, access, constants } from "node:fs/promises"
+import type { PrFile } from "./github-types.mts"
+import { readdir } from "node:fs/promises"
+import { existsSync } from "node:fs"
 
 const USER_AGENTS_DIR = "/github/workspace/.ci-agents"
 const BUILTIN_AGENTS_DIR = "/github/workspace/agents"
-
-async function directoryExists(path: string): Promise<boolean> {
-	try {
-		await access(path, constants.F_OK | constants.R_OK)
-		return true
-	} catch {
-		return false
-	}
-}
 
 export interface Agent {
 	name: string
@@ -47,16 +39,17 @@ export async function loadAgents(agentNames: string[]): Promise<Agent[]> {
 	const builtinAgents = await loadBuiltinAgents()
 
 	// If no agents specified, use all user agents or Default if none exist
-	if (agentNames.length === 0) {
+	let resolvedNames = agentNames
+	if (resolvedNames.length === 0) {
 		if (userAgents.length > 0) {
-			agentNames = userAgents.map(a => a.name)
+			resolvedNames = userAgents.map(a => a.name)
 		} else {
-			agentNames = ["Default"]
+			resolvedNames = ["Default"]
 		}
 	}
 
 	// Load each requested agent
-	for (const name of agentNames) {
+	for (const name of resolvedNames) {
 		// Check user agents first (case-sensitive)
 		const userAgent = userAgents.find(a => a.name === name)
 		if (userAgent) {
@@ -87,7 +80,7 @@ async function loadUserAgentsInternal(): Promise<Agent[]> {
 	const agents: Agent[] = []
 
 	// Check if directory exists before attempting to read
-	if (!(await directoryExists(USER_AGENTS_DIR))) {
+	if (!existsSync(USER_AGENTS_DIR)) {
 		return agents
 	}
 
@@ -114,7 +107,7 @@ async function loadBuiltinAgentsInternal(): Promise<Agent[]> {
 	const agents: Agent[] = []
 
 	// Check if directory exists before attempting to read
-	if (!(await directoryExists(BUILTIN_AGENTS_DIR))) {
+	if (!existsSync(BUILTIN_AGENTS_DIR)) {
 		console.warn(`Warning: Builtin agents directory does not exist: ${BUILTIN_AGENTS_DIR}`)
 		return agents
 	}
@@ -132,7 +125,7 @@ async function loadBuiltinAgentsInternal(): Promise<Agent[]> {
 	return agents
 }
 
-export async function runAgent(agent: Agent, files: PRFile[], agentInputs?: Map<string, string>): Promise<AgentResult> {
+export async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): Promise<AgentResult> {
 	// Build the prompt with context
 	let prompt = agent.prompt
 
@@ -168,7 +161,7 @@ export async function runAgent(agent: Agent, files: PRFile[], agentInputs?: Map<
 	}
 }
 
-export async function runAgents(agents: Agent[], aggregator: Agent | null, files: PRFile[]): Promise<AgentResult[]> {
+export async function runAgents(agents: Agent[], aggregator: Agent | null, files: PrFile[]): Promise<AgentResult[]> {
 	const results: AgentResult[] = []
 	const agentInputs = new Map<string, string>()
 

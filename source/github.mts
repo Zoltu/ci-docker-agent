@@ -1,6 +1,27 @@
-import type { PRFile, GitHubReviewPayload, GitHubConfig } from "./github-types.mts"
+import type { PrFile, GitHubReviewPayload, GitHubConfig } from "./github-types.mts"
 
-export async function fetchPRFiles(config: GitHubConfig): Promise<PRFile[]> {
+function isPrFile(value: unknown): value is PrFile {
+	if (typeof value !== "object") return false
+	if (value === null) return false
+	const obj = value
+	if (!("filename" in obj) || typeof obj.filename !== "string") return false
+	if (!("status" in obj) || typeof obj.status !== "string") return false
+	if (!("additions" in obj) || typeof obj.additions !== "number") return false
+	if (!("deletions" in obj) || typeof obj.deletions !== "number") return false
+	if (!("changes" in obj) || typeof obj.changes !== "number") return false
+	if (!("blob_url" in obj) || typeof obj.blob_url !== "string") return false
+	if (!("raw_url" in obj) || typeof obj.raw_url !== "string") return false
+	if (!("contents_url" in obj) || typeof obj.contents_url !== "string") return false
+	if ("patch" in obj && typeof obj.patch !== "string") return false
+	return true
+}
+
+function isPrFileArray(value: unknown): value is PrFile[] {
+	if (!Array.isArray(value)) return false
+	return value.every(isPrFile)
+}
+
+export async function fetchPrFiles(config: GitHubConfig): Promise<PrFile[]> {
 	const { apiUrl, token, repo, prNumber } = config
 	const [owner, repoName] = repo.split("/")
 
@@ -15,7 +36,12 @@ export async function fetchPRFiles(config: GitHubConfig): Promise<PRFile[]> {
 		throw new Error(`Failed to fetch PR files: ${response.statusText}`)
 	}
 
-	return response.json()
+	const data: unknown = await response.json()
+	if (!isPrFileArray(data)) {
+		throw new Error("Invalid response from GitHub API: expected array of PR files")
+	}
+
+	return data
 }
 
 export async function submitReview(config: GitHubConfig, review: GitHubReviewPayload): Promise<void> {

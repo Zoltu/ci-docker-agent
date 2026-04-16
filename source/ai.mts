@@ -1,14 +1,14 @@
-import type { PRFile } from "./github-types.mts"
-import type { AIReviewResult } from "./review.mts"
+import type { PrFile } from "./github-types.mts"
+import type { AiReviewResult } from "./review.mts"
 import { loadAgents, loadAggregator, runAgents } from "./agents.mts"
 
-export interface AIClient {
-	analyze(files: PRFile[], agentNames?: string[]): Promise<AIReviewResult>
+export interface AiClient {
+	analyze(files: PrFile[], agentNames?: string[]): Promise<AiReviewResult>
 }
 
-export function createPlaceholderAIClient(): AIClient {
+export function createPlaceholderAiClient(): AiClient {
 	return {
-		async analyze(files: PRFile[], agentNames = []): Promise<AIReviewResult> {
+		async analyze(files: PrFile[], agentNames = []): Promise<AiReviewResult> {
 			console.log(`Analyzing ${files.length} files...`)
 			console.log(`Using agents: ${agentNames.length > 0 ? agentNames.join(", ") : "Default"}`)
 

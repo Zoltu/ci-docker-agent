@@ -1,6 +1,6 @@
 // GitHub API types for PR reviews
 
-export interface PRFile {
+export interface PrFile {
 	filename: string
 	status: string
 	additions: number

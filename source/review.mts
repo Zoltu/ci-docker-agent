@@ -1,6 +1,6 @@
-import type { PRFile, GitHubReviewPayload } from "./github-types.mts"
+import type { PrFile, GitHubReviewPayload } from "./github-types.mts"
 
-export interface AIReviewResult {
+export interface AiReviewResult {
 	summary: string
 	lineComments: Array<{
 		path: string
@@ -10,7 +10,7 @@ export interface AIReviewResult {
 	}>
 }
 
-export function buildReviewPayload(aiResult: AIReviewResult): GitHubReviewPayload {
+export function buildReviewPayload(aiResult: AiReviewResult): GitHubReviewPayload {
 	return {
 		event: "COMMENT",
 		body: `## CI Agent Review\n\n${aiResult.summary}`,
@@ -23,7 +23,7 @@ export function buildReviewPayload(aiResult: AIReviewResult): GitHubReviewPayloa
 	}
 }
 
-export function formatReviewForConsole(aiResult: AIReviewResult, files: PRFile[]): string {
+export function formatReviewForConsole(aiResult: AiReviewResult, files: PrFile[]): string {
 	const lines = [
 		"## CI Agent Review",
 		"",

@@ -1,20 +1,11 @@
-import type { PRFile } from "./github-types.mts"
-import { access, constants } from "node:fs/promises"
+import type { PrFile } from "./github-types.mts"
+import { existsSync } from "node:fs"
 
 export interface DiffResult {
-	files: PRFile[]
+	files: PrFile[]
 }
 
 const WORKSPACE_DIR = "/github/workspace"
-
-async function directoryExists(path: string): Promise<boolean> {
-	try {
-		await access(path, constants.F_OK | constants.R_OK)
-		return true
-	} catch {
-		return false
-	}
-}
 
 async function streamToString(stream: ReadableStream<Uint8Array>): Promise<string> {
 	const reader = stream.getReader()
@@ -30,7 +21,7 @@ async function streamToString(stream: ReadableStream<Uint8Array>): Promise<strin
 
 async function validateGitEnvironment(baseCommit: string, headCommit: string): Promise<void> {
 	// Check if .git directory exists
-	if (!(await directoryExists(`${WORKSPACE_DIR}/.git`))) {
+	if (!existsSync(`${WORKSPACE_DIR}/.git`)) {
 		throw new Error(
 			`No git repository found at ${WORKSPACE_DIR}\n` +
 			`Please ensure you are mounting a git repository to /github/workspace\n` +
@@ -84,7 +75,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 		return { files: [] }
 	}
 
-	const files: PRFile[] = []
+	const files: PrFile[] = []
 	const fileLines = fileList.split("\n")
 
 	for (const line of fileLines) {

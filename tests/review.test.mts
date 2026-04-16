@@ -1,10 +1,10 @@
 import { describe, it, expect } from "bun:test"
-import { buildReviewPayload, formatReviewForConsole, type AIReviewResult } from "../source/review.mts"
-import type { PRFile } from "../source/github-types.mts"
+import { buildReviewPayload, formatReviewForConsole, type AiReviewResult } from "../source/review.mts"
+import type { PrFile } from "../source/github-types.mts"
 
 describe("buildReviewPayload", () => {
 	it("creates a review payload with COMMENT event", () => {
-		const aiResult: AIReviewResult = {
+		const aiResult: AiReviewResult = {
 			summary: "Test summary",
 			lineComments: [],
 		}
@@ -18,7 +18,7 @@ describe("buildReviewPayload", () => {
 	})
 
 	it("includes line comments in the payload", () => {
-		const aiResult: AIReviewResult = {
+		const aiResult: AiReviewResult = {
 			summary: "Test summary",
 			lineComments: [
 				{
@@ -56,12 +56,12 @@ describe("buildReviewPayload", () => {
 
 describe("formatReviewForConsole", () => {
 	it("formats review with no line comments and no files", () => {
-		const aiResult: AIReviewResult = {
+		const aiResult: AiReviewResult = {
 			summary: "Test summary",
 			lineComments: [],
 		}
 
-		const files: PRFile[] = []
+		const files: PrFile[] = []
 		const output = formatReviewForConsole(aiResult, files)
 
 		expect(output).toContain("## CI Agent Review")
@@ -71,7 +71,7 @@ describe("formatReviewForConsole", () => {
 	})
 
 	it("formats review with line comments", () => {
-		const aiResult: AIReviewResult = {
+		const aiResult: AiReviewResult = {
 			summary: "Test summary",
 			lineComments: [
 				{
@@ -83,7 +83,7 @@ describe("formatReviewForConsole", () => {
 			],
 		}
 
-		const files: PRFile[] = []
+		const files: PrFile[] = []
 		const output = formatReviewForConsole(aiResult, files)
 
 		expect(output).toContain("## CI Agent Review")
@@ -93,7 +93,7 @@ describe("formatReviewForConsole", () => {
 	})
 
 	it("formats multiple line comments", () => {
-		const aiResult: AIReviewResult = {
+		const aiResult: AiReviewResult = {
 			summary: "Test summary",
 			lineComments: [
 				{
@@ -111,7 +111,7 @@ describe("formatReviewForConsole", () => {
 			],
 		}
 
-		const files: PRFile[] = []
+		const files: PrFile[] = []
 		const output = formatReviewForConsole(aiResult, files)
 
 		expect(output).toContain("file1.ts:1 (RIGHT): Comment 1")
@@ -119,12 +119,12 @@ describe("formatReviewForConsole", () => {
 	})
 
 	it("includes file summary in output", () => {
-		const aiResult: AIReviewResult = {
+		const aiResult: AiReviewResult = {
 			summary: "Test summary",
 			lineComments: [],
 		}
 
-		const files: PRFile[] = [
+		const files: PrFile[] = [
 			{
 				filename: "src/file.ts",
 				status: "modified",

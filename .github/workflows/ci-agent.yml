@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run CI Agent
-        run: bun /github/workspace/ci-agent/index.mts
+        run: bun /ci-agent/source/index.mts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_API_URL: https://api.github.com
