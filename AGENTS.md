@@ -130,6 +130,44 @@ if (isErrnoException(error) && error.code === 'ENOENT') {
 
 ---
 
+## Testing Policy
+
+Code should be structured so that most business logic falls into a **testable surface area** — pure functions that accept their dependencies as parameters rather than reaching for globals. The goal is to maximize the ratio of testable logic to untested integration glue.
+
+### Testable (write tests for)
+
+Pure functions and logic that can be exercised by passing inputs and asserting outputs. This includes parsing, validation, formatting, transformation, and decision-making logic.
+
+### Not testable (don't write tests for)
+
+Thin integration layers that wire dependencies to the outside world. This includes GitHub API calls, filesystem reads, subprocess spawning, and the main orchestration that composes everything together. These are inherently coupled to external systems and should be kept as thin as possible so they contain minimal logic worth testing.
+
+### Making dependencies injectable
+
+Functions that need environment variables, filesystem paths, or API clients should accept them as parameters with sensible defaults. The default uses the real dependency (for production), while tests pass controlled values. The untested integration layer is just the call site where the defaults are accepted.
+
+**Wrong:**
+```typescript
+// Coupled to global - untestable
+export function parseConfig(): Config {
+	const value = Bun.env.MY_VAR
+	// ... logic ...
+}
+```
+
+**Right:**
+```typescript
+// Dependency injected - testable
+export function parseConfig(env: Record<string, string | undefined> = Bun.env): Config {
+	const value = env.MY_VAR
+	// ... logic ...
+}
+
+// Tests can call: parseConfig({ MY_VAR: "test" })
+```
+
+---
+
 ## General Principles
 
 1. **TypeScript should catch errors at compile time, not runtime**
