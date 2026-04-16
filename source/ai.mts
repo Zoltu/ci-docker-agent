@@ -1,6 +1,6 @@
 import type { PRFile } from "./github-types.mts"
 import type { AIReviewResult } from "./review.mts"
-import { loadAgents, runAgents } from "./agents.mts"
+import { loadAgents, loadAggregator, runAgents } from "./agents.mts"
 
 export interface AIClient {
 	analyze(files: PRFile[], agentNames?: string[]): Promise<AIReviewResult>
@@ -12,11 +12,15 @@ export function createPlaceholderAIClient(): AIClient {
 			console.log(`Analyzing ${files.length} files...`)
 			console.log(`Using agents: ${agentNames.length > 0 ? agentNames.join(", ") : "Default"}`)
 
-			// Load and run agents
+			// Load agents and aggregator separately
 			const agents = await loadAgents(agentNames)
+			const aggregator = await loadAggregator()
 			console.log(`Loaded ${agents.length} agents: ${agents.map(a => a.name).join(", ")}`)
+			if (aggregator) {
+				console.log(`Using aggregator: ${aggregator.name}`)
+			}
 
-			const results = await runAgents(agents, files)
+			const results = await runAgents(agents, aggregator, files)
 
 			// Find the aggregator result (or use the last result if no aggregator)
 			const aggregatorResult = results.find(r => r.name.toLowerCase() === "aggregator")
@@ -42,4 +46,4 @@ export function createPlaceholderAIClient(): AIClient {
 	}
 }
 
-export { loadAgents, runAgents, type Agent, type AgentResult } from "./agents.mts"
+export { loadAgents, loadAggregator, runAgents, type Agent, type AgentResult } from "./agents.mts"

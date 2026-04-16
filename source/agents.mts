@@ -14,6 +14,24 @@ export interface AgentResult {
 	output: string
 }
 
+export async function loadAggregator(): Promise<Agent | null> {
+	// Check user agents for Aggregator (case-insensitive)
+	const userAgents = await loadUserAgentsInternal()
+	const userAggregator = userAgents.find(a => a.name.toLowerCase() === "aggregator")
+	if (userAggregator) {
+		return userAggregator
+	}
+
+	// Fall back to builtin Aggregator
+	const builtinAgents = await loadBuiltinAgentsInternal()
+	const builtinAggregator = builtinAgents.find(a => a.name.toLowerCase() === "aggregator")
+	if (builtinAggregator) {
+		return builtinAggregator
+	}
+
+	return null
+}
+
 export async function loadAgents(agentNames: string[]): Promise<Agent[]> {
 	const agents: Agent[] = []
 	const userAgents = await loadUserAgents()
@@ -22,12 +40,8 @@ export async function loadAgents(agentNames: string[]): Promise<Agent[]> {
 	// If no agents specified, use all user agents or Default if none exist
 	if (agentNames.length === 0) {
 		if (userAgents.length > 0) {
-			// Use all user agents except Aggregator
-			agentNames = userAgents
-				.filter(a => a.name.toLowerCase() !== "aggregator")
-				.map(a => a.name)
+			agentNames = userAgents.map(a => a.name)
 		} else {
-			// No user agents, use Default
 			agentNames = ["Default"]
 		}
 	}
@@ -51,26 +65,16 @@ export async function loadAgents(agentNames: string[]): Promise<Agent[]> {
 		console.warn(`Warning: Agent "${name}" not found, skipping`)
 	}
 
-	// Always include Aggregator (case-insensitive check)
-	const aggregatorName = agentNames.find(n => n.toLowerCase() === "aggregator")
-	if (!aggregatorName) {
-		// Check user agents for Aggregator (case-insensitive)
-		const userAggregator = userAgents.find(a => a.name.toLowerCase() === "aggregator")
-		if (userAggregator) {
-			agents.push(userAggregator)
-		} else {
-			// Fall back to builtin Aggregator
-			const builtinAggregator = builtinAgents.find(a => a.name.toLowerCase() === "aggregator")
-			if (builtinAggregator) {
-				agents.push(builtinAggregator)
-			}
-		}
-	}
-
 	return agents
 }
 
 async function loadUserAgents(): Promise<Agent[]> {
+	const allAgents = await loadUserAgentsInternal()
+	// Filter out Aggregator (case-insensitive)
+	return allAgents.filter(a => a.name.toLowerCase() !== "aggregator")
+}
+
+async function loadUserAgentsInternal(): Promise<Agent[]> {
 	const agents: Agent[] = []
 
 	try {
@@ -94,6 +98,12 @@ async function loadUserAgents(): Promise<Agent[]> {
 }
 
 async function loadBuiltinAgents(): Promise<Agent[]> {
+	const allAgents = await loadBuiltinAgentsInternal()
+	// Filter out Aggregator (case-insensitive)
+	return allAgents.filter(a => a.name.toLowerCase() !== "aggregator")
+}
+
+async function loadBuiltinAgentsInternal(): Promise<Agent[]> {
 	const agents: Agent[] = []
 
 	try {
@@ -149,17 +159,13 @@ export async function runAgent(agent: Agent, files: PRFile[], agentInputs?: Map<
 	}
 }
 
-export async function runAgents(agents: Agent[], files: PRFile[]): Promise<AgentResult[]> {
+export async function runAgents(agents: Agent[], aggregator: Agent | null, files: PRFile[]): Promise<AgentResult[]> {
 	const results: AgentResult[] = []
 	const agentInputs = new Map<string, string>()
 
-	// Separate aggregator from other agents
-	const aggregatorIndex = agents.findIndex(a => a.name.toLowerCase() === "aggregator")
-	const reviewAgents = aggregatorIndex >= 0 ? agents.filter((_, i) => i !== aggregatorIndex) : agents
-
 	// Run all review agents in parallel
 	const reviewResults = await Promise.all(
-		reviewAgents.map(agent => runAgent(agent, files))
+		agents.map(agent => runAgent(agent, files))
 	)
 
 	results.push(...reviewResults)
@@ -170,12 +176,9 @@ export async function runAgents(agents: Agent[], files: PRFile[]): Promise<Agent
 	}
 
 	// Run aggregator if present
-	if (aggregatorIndex >= 0) {
-		const aggregator = agents[aggregatorIndex]
-		if (aggregator) {
-			const aggregatorResult = await runAgent(aggregator, files, agentInputs)
-			results.push(aggregatorResult)
-		}
+	if (aggregator) {
+		const aggregatorResult = await runAgent(aggregator, files, agentInputs)
+		results.push(aggregatorResult)
 	}
 
 	return results
