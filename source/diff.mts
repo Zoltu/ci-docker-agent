@@ -1,30 +1,77 @@
 import type { PRFile } from "./github-types.mts"
+import { access, constants } from "node:fs/promises"
 
 export interface DiffResult {
 	files: PRFile[]
 }
 
+const WORKSPACE_DIR = "/github/workspace"
+
+async function directoryExists(path: string): Promise<boolean> {
+	try {
+		await access(path, constants.F_OK | constants.R_OK)
+		return true
+	} catch {
+		return false
+	}
+}
+
 async function streamToString(stream: ReadableStream<Uint8Array>): Promise<string> {
 	const reader = stream.getReader()
-	const chunks: Uint8Array[] = []
+	const decoder = new TextDecoder()
+	const chunks: string[] = []
 	while (true) {
 		const { done, value } = await reader.read()
 		if (done) break
-		chunks.push(value)
+		chunks.push(decoder.decode(value))
 	}
-	const decoder = new TextDecoder()
-	let result = ""
-	for (const chunk of chunks) {
-		result += decoder.decode(chunk)
+	return chunks.join("")
+}
+
+async function validateGitEnvironment(baseCommit: string, headCommit: string): Promise<void> {
+	// Check if .git directory exists
+	if (!(await directoryExists(`${WORKSPACE_DIR}/.git`))) {
+		throw new Error(
+			`No git repository found at ${WORKSPACE_DIR}\n` +
+			`Please ensure you are mounting a git repository to /github/workspace\n` +
+			`Example: docker run -v "$(pwd)":/github/workspace ci-agent:latest`
+		)
 	}
-	return result
+
+	// Verify base commit exists
+	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { stderr: "pipe" })
+	await baseCheck.exited
+	if (baseCheck.exitCode !== 0) {
+		const stderrText = await streamToString(baseCheck.stderr)
+		throw new Error(
+			`Base commit "${baseCommit}" not found in repository\n` +
+			`Please ensure the commit hash is valid and exists in the mounted repository\n` +
+			`Error: ${stderrText.trim()}`
+		)
+	}
+
+	// Verify head commit exists
+	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { stderr: "pipe" })
+	await headCheck.exited
+	if (headCheck.exitCode !== 0) {
+		const stderrText = await streamToString(headCheck.stderr)
+		throw new Error(
+			`Head commit "${headCommit}" not found in repository\n` +
+			`Please ensure the commit hash is valid and exists in the mounted repository\n` +
+			`Error: ${stderrText.trim()}`
+		)
+	}
 }
 
 export async function generateLocalDiff(baseCommit: string, headCommit: string): Promise<DiffResult> {
+	// Validate git environment before proceeding
+	await validateGitEnvironment(baseCommit, headCommit)
+
 	// Get list of changed files
-	const fileListProcess = await Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], {
+	const fileListProcess = Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], {
 		stderr: "pipe",
 	})
+	await fileListProcess.exited
 	if (fileListProcess.exitCode !== 0) {
 		const stderrText = await streamToString(fileListProcess.stderr)
 		const stdoutText = await streamToString(fileListProcess.stdout)
@@ -54,7 +101,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 		}
 
 		// Get the patch for this file
-		const patchProcess = await Bun.spawn([
+		const patchProcess = Bun.spawn([
 			"git",
 			"diff",
 			"--unified=0",
@@ -63,6 +110,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 			"--",
 			filename,
 		])
+		await patchProcess.exited
 
 		const patch = await streamToString(patchProcess.stdout)
 

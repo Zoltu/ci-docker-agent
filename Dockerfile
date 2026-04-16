@@ -30,6 +30,9 @@ RUN <<EOF
 	rm -rf /var/lib/apt/lists/*
 EOF
 
+# Configure git to trust the workspace directory (for bun user)
+RUN git config --global --add safe.directory /github/workspace
+
 WORKDIR /github/workspace
 
 COPY --from=builder /ci-agent/agents/ /ci-agent/agents/

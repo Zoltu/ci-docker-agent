@@ -1,8 +1,17 @@
 import type { PRFile } from "./github-types.mts"
-import * as fs from "node:fs"
+import { readdir, access, constants } from "node:fs/promises"
 
 const USER_AGENTS_DIR = "/github/workspace/.ci-agents"
 const BUILTIN_AGENTS_DIR = "/github/workspace/agents"
+
+async function directoryExists(path: string): Promise<boolean> {
+	try {
+		await access(path, constants.F_OK | constants.R_OK)
+		return true
+	} catch {
+		return false
+	}
+}
 
 export interface Agent {
 	name: string
@@ -78,11 +87,11 @@ async function loadUserAgentsInternal(): Promise<Agent[]> {
 	const agents: Agent[] = []
 
 	// Check if directory exists before attempting to read
-	if (!fs.existsSync(USER_AGENTS_DIR)) {
+	if (!(await directoryExists(USER_AGENTS_DIR))) {
 		return agents
 	}
 
-	const entries = fs.readdirSync(USER_AGENTS_DIR)
+	const entries = await readdir(USER_AGENTS_DIR)
 	for (const entry of entries) {
 		if (entry.toLowerCase().endsWith(".md")) {
 			const filePath = `${USER_AGENTS_DIR}/${entry}`
@@ -105,12 +114,12 @@ async function loadBuiltinAgentsInternal(): Promise<Agent[]> {
 	const agents: Agent[] = []
 
 	// Check if directory exists before attempting to read
-	if (!fs.existsSync(BUILTIN_AGENTS_DIR)) {
+	if (!(await directoryExists(BUILTIN_AGENTS_DIR))) {
 		console.warn(`Warning: Builtin agents directory does not exist: ${BUILTIN_AGENTS_DIR}`)
 		return agents
 	}
 
-	const entries = fs.readdirSync(BUILTIN_AGENTS_DIR)
+	const entries = await readdir(BUILTIN_AGENTS_DIR)
 	for (const entry of entries) {
 		if (entry.toLowerCase().endsWith(".md")) {
 			const filePath = `${BUILTIN_AGENTS_DIR}/${entry}`
