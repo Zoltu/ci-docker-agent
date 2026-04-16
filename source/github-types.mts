@@ -31,8 +31,3 @@ export interface GitHubConfig {
 	repo: string
 	prNumber: number
 }
-
-export interface LocalDiffConfig {
-	baseCommit: string
-	headCommit: string
-}

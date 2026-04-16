@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { shouldRunCI } from "../source/trigger.mts"
+import { shouldRunCI, extractAgentNames } from "../source/trigger.mts"
 
 describe("shouldRunCI", () => {
 	describe("pull_request_target event", () => {
@@ -79,5 +79,39 @@ describe("shouldRunCI", () => {
 			expect(result.shouldRun).toBe(true)
 			expect(result.agentNames).toEqual(["SecurityAgent"])
 		})
+	})
+})
+
+describe("extractAgentNames", () => {
+	it("extracts agent names from comma-separated list", () => {
+		expect(extractAgentNames("/review SecurityAgent, StyleAgent")).toEqual(["SecurityAgent", "StyleAgent"])
+	})
+
+	it("extracts single agent name", () => {
+		expect(extractAgentNames("/review SecurityAgent")).toEqual(["SecurityAgent"])
+	})
+
+	it("returns empty array when no agents specified", () => {
+		expect(extractAgentNames("/review")).toEqual([])
+	})
+
+	it("handles trailing comma", () => {
+		expect(extractAgentNames("/review SecurityAgent,")).toEqual(["SecurityAgent"])
+	})
+
+	it("handles agents with spaces in names", () => {
+		expect(extractAgentNames("/review Security Agent, Style Agent")).toEqual(["Security Agent", "Style Agent"])
+	})
+
+	it("only extracts agents from the first line after the command", () => {
+		expect(extractAgentNames("/review SecurityAgent\nStyleAgent")).toEqual(["SecurityAgent"])
+	})
+
+	it("trims whitespace from agent names", () => {
+		expect(extractAgentNames("/review  SecurityAgent  ,  StyleAgent  ")).toEqual(["SecurityAgent", "StyleAgent"])
+	})
+
+	it("returns empty array when comment body has no trigger command", () => {
+		expect(extractAgentNames("hello world")).toEqual([])
 	})
 })

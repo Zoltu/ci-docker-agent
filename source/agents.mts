@@ -2,8 +2,8 @@ import type { PrFile } from "./github-types.mts"
 import { readdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
 
-const USER_AGENTS_DIR = "/github/workspace/.ci-agents"
-const BUILTIN_AGENTS_DIR = "/github/workspace/agents"
+const DEFAULT_USER_AGENTS_DIR = "/github/workspace/.ci-agents"
+const DEFAULT_BUILTIN_AGENTS_DIR = "/github/workspace/agents"
 
 export interface Agent {
 	name: string
@@ -15,17 +15,51 @@ export interface AgentResult {
 	output: string
 }
 
-export async function loadAggregator(): Promise<Agent | null> {
-	// Check user agents for Aggregator (case-insensitive)
-	const userAgents = await loadUserAgentsInternal()
-	const userAggregator = userAgents.find(a => a.name.toLowerCase() === "aggregator")
+export interface AgentDirs {
+	userAgentsDir: string
+	builtinAgentsDir: string
+}
+
+async function loadAgentsFromDir(dir: string, warnOnMissing = false): Promise<Agent[]> {
+	const agents: Agent[] = []
+
+	if (!existsSync(dir)) {
+		if (warnOnMissing) {
+			console.warn(`Warning: Builtin agents directory does not exist: ${dir}`)
+		}
+		return agents
+	}
+
+	const entries = await readdir(dir)
+	for (const entry of entries) {
+		if (entry.toLowerCase().endsWith(".md")) {
+			const filePath = `${dir}/${entry}`
+			const name = entry.replace(/\.md$/i, "")
+			const content = await Bun.file(filePath).text()
+			agents.push({ name, prompt: content })
+		}
+	}
+
+	return agents
+}
+
+function filterOutAggregator(agents: Agent[]): Agent[] {
+	return agents.filter(a => a.name.toLowerCase() !== "aggregator")
+}
+
+function findAggregator(agents: Agent[]): Agent | null {
+	return agents.find(a => a.name.toLowerCase() === "aggregator") ?? null
+}
+
+export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: DEFAULT_USER_AGENTS_DIR, builtinAgentsDir: DEFAULT_BUILTIN_AGENTS_DIR }): Promise<Agent | null> {
+	const userAgents = await loadAgentsFromDir(dirs.userAgentsDir)
+	const userAggregator = findAggregator(userAgents)
 	if (userAggregator) {
 		return userAggregator
 	}
 
-	// Fall back to builtin Aggregator
-	const builtinAgents = await loadBuiltinAgentsInternal()
-	const builtinAggregator = builtinAgents.find(a => a.name.toLowerCase() === "aggregator")
+	const builtinAgents = await loadAgentsFromDir(dirs.builtinAgentsDir, true)
+	const builtinAggregator = findAggregator(builtinAgents)
 	if (builtinAggregator) {
 		return builtinAggregator
 	}
@@ -33,12 +67,13 @@ export async function loadAggregator(): Promise<Agent | null> {
 	return null
 }
 
-export async function loadAgents(agentNames: string[]): Promise<Agent[]> {
-	const agents: Agent[] = []
-	const userAgents = await loadUserAgents()
-	const builtinAgents = await loadBuiltinAgents()
+export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userAgentsDir: DEFAULT_USER_AGENTS_DIR, builtinAgentsDir: DEFAULT_BUILTIN_AGENTS_DIR }): Promise<Agent[]> {
+	const allUserAgents = await loadAgentsFromDir(dirs.userAgentsDir)
+	const allBuiltinAgents = await loadAgentsFromDir(dirs.builtinAgentsDir, true)
 
-	// If no agents specified, use all user agents or Default if none exist
+	const userAgents = filterOutAggregator(allUserAgents)
+	const builtinAgents = filterOutAggregator(allBuiltinAgents)
+
 	let resolvedNames = agentNames
 	if (resolvedNames.length === 0) {
 		if (userAgents.length > 0) {
@@ -48,16 +83,14 @@ export async function loadAgents(agentNames: string[]): Promise<Agent[]> {
 		}
 	}
 
-	// Load each requested agent
+	const agents: Agent[] = []
 	for (const name of resolvedNames) {
-		// Check user agents first (case-sensitive)
 		const userAgent = userAgents.find(a => a.name === name)
 		if (userAgent) {
 			agents.push(userAgent)
 			continue
 		}
 
-		// Check builtin agents (case-sensitive)
 		const builtinAgent = builtinAgents.find(a => a.name === name)
 		if (builtinAgent) {
 			agents.push(builtinAgent)
@@ -70,66 +103,9 @@ export async function loadAgents(agentNames: string[]): Promise<Agent[]> {
 	return agents
 }
 
-async function loadUserAgents(): Promise<Agent[]> {
-	const allAgents = await loadUserAgentsInternal()
-	// Filter out Aggregator (case-insensitive)
-	return allAgents.filter(a => a.name.toLowerCase() !== "aggregator")
-}
-
-async function loadUserAgentsInternal(): Promise<Agent[]> {
-	const agents: Agent[] = []
-
-	// Check if directory exists before attempting to read
-	if (!existsSync(USER_AGENTS_DIR)) {
-		return agents
-	}
-
-	const entries = await readdir(USER_AGENTS_DIR)
-	for (const entry of entries) {
-		if (entry.toLowerCase().endsWith(".md")) {
-			const filePath = `${USER_AGENTS_DIR}/${entry}`
-			const name = entry.replace(/\.md$/i, "")
-			const content = await Bun.file(filePath).text()
-			agents.push({ name, prompt: content })
-		}
-	}
-
-	return agents
-}
-
-async function loadBuiltinAgents(): Promise<Agent[]> {
-	const allAgents = await loadBuiltinAgentsInternal()
-	// Filter out Aggregator (case-insensitive)
-	return allAgents.filter(a => a.name.toLowerCase() !== "aggregator")
-}
-
-async function loadBuiltinAgentsInternal(): Promise<Agent[]> {
-	const agents: Agent[] = []
-
-	// Check if directory exists before attempting to read
-	if (!existsSync(BUILTIN_AGENTS_DIR)) {
-		console.warn(`Warning: Builtin agents directory does not exist: ${BUILTIN_AGENTS_DIR}`)
-		return agents
-	}
-
-	const entries = await readdir(BUILTIN_AGENTS_DIR)
-	for (const entry of entries) {
-		if (entry.toLowerCase().endsWith(".md")) {
-			const filePath = `${BUILTIN_AGENTS_DIR}/${entry}`
-			const name = entry.replace(/\.md$/i, "")
-			const content = await Bun.file(filePath).text()
-			agents.push({ name, prompt: content })
-		}
-	}
-
-	return agents
-}
-
-export async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): Promise<AgentResult> {
-	// Build the prompt with context
+export function buildAgentPrompt(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): string {
 	let prompt = agent.prompt
 
-	// Add agent inputs if provided (for Aggregator)
 	if (agentInputs && agentInputs.size > 0) {
 		prompt += "\n\n=== Agent Feedback ===\n"
 		for (const [name, output] of agentInputs.entries()) {
@@ -137,7 +113,6 @@ export async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<
 		}
 	}
 
-	// Add file context
 	prompt += "\n\n=== Files Changed ===\n"
 	for (const file of files) {
 		prompt += `\nFile: ${file.filename}\nStatus: ${file.status}\n`
@@ -147,13 +122,17 @@ export async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<
 		}
 	}
 
-	// Placeholder: In the future, this would call an AI API
+	return prompt
+}
+
+export async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): Promise<AgentResult> {
+	buildAgentPrompt(agent, files, agentInputs)
+
+	// Placeholder: In the future, the prompt from buildAgentPrompt would be sent to an AI API
 	// For now, return a placeholder response
 	console.log(`Running agent: ${agent.name}`)
 
-	// This is where the AI call would happen
-	// For scaffolding, we return a placeholder
-	const placeholderOutput = `[${agent.name} placeholder output - AI integration not yet implemented]`
+	const placeholderOutput = JSON.stringify({ summary: `${agent.name} placeholder output - AI integration not yet implemented`, lineComments: [] })
 
 	return {
 		name: agent.name,
@@ -165,19 +144,16 @@ export async function runAgents(agents: Agent[], aggregator: Agent | null, files
 	const results: AgentResult[] = []
 	const agentInputs = new Map<string, string>()
 
-	// Run all review agents in parallel
 	const reviewResults = await Promise.all(
 		agents.map(agent => runAgent(agent, files))
 	)
 
 	results.push(...reviewResults)
 
-	// Collect outputs for aggregator
 	for (const result of reviewResults) {
 		agentInputs.set(result.name, result.output)
 	}
 
-	// Run aggregator if present
 	if (aggregator) {
 		const aggregatorResult = await runAgent(aggregator, files, agentInputs)
 		results.push(aggregatorResult)

@@ -27,18 +27,16 @@ export function shouldRunCI(eventType: string, commentBody: string | null): Trig
 	return { shouldRun: false, agentNames: [] }
 }
 
-function extractAgentNames(commentBody: string): string[] {
-	const agentNames: string[] = []
-
-	// Find agent names after trigger command: /review agent1, agent2
-	const commandMatch = commentBody.match(new RegExp(`${TRIGGER_COMMAND}\\s+(.+)$`, "m"))
-	if (commandMatch?.[1]) {
-		// Get the rest of the line after the command
-		const rest = commandMatch[1].trim()
-		// Split by comma and trim whitespace
-		const names = rest.split(",").map(n => n.trim()).filter(n => n.length > 0)
-		agentNames.push(...names)
+export function extractAgentNames(commentBody: string): string[] {
+	const afterCommand = commentBody.split(TRIGGER_COMMAND)[1]
+	if (!afterCommand) {
+		return []
 	}
 
-	return agentNames
+	const rest = afterCommand.split("\n")[0]!.trim()
+	if (rest.length === 0) {
+		return []
+	}
+
+	return rest.split(",").map(n => n.trim()).filter(n => n.length > 0)
 }

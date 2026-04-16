@@ -84,12 +84,8 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 			continue
 		}
 
-		const status = parts[0]
-		const filename = parts[1]
-
-		if (status === undefined || filename === undefined) {
-			continue
-		}
+		const status = parts[0]!
+		const filename = parts[1]!
 
 		// Get the patch for this file
 		const patchProcess = Bun.spawn([

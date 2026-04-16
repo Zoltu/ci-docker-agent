@@ -1,4 +1,4 @@
-import type { GitHubConfig, LocalDiffConfig } from "./github-types.mts"
+import type { GitHubConfig } from "./github-types.mts"
 
 export type ExecutionMode = "github" | "local-diff"
 
@@ -7,29 +7,27 @@ export interface EnvironmentConfig {
 	eventType: string
 	commentBody: string | null
 	github?: GitHubConfig
-	localDiff?: LocalDiffConfig
+	localDiff?: {
+		baseCommit: string
+		headCommit: string
+	}
 	agents: string[]
 }
 
-export function parseEnvironment(): EnvironmentConfig {
-	const githubToken = Bun.env.GITHUB_TOKEN
-	const githubApiUrl = Bun.env.GITHUB_API_URL ?? "https://api.github.com"
-	const prNumberStr = Bun.env.PR_NUMBER
-	const repo = Bun.env.REPO
-	const eventType = Bun.env.EVENT_TYPE ?? "unknown"
-	const commentBody = Bun.env.COMMENT_BODY ?? null
+export function parseEnvironment(env: Record<string, string | undefined> = Bun.env): EnvironmentConfig {
+	const githubToken = env.GITHUB_TOKEN
+	const githubApiUrl = env.GITHUB_API_URL ?? "https://api.github.com"
+	const prNumberStr = env.PR_NUMBER
+	const repo = env.REPO
+	const eventType = env.EVENT_TYPE ?? "unknown"
+	const commentBody = env.COMMENT_BODY ?? null
 
-	const baseCommit = Bun.env.BASE_COMMIT
-	const headCommit = Bun.env.HEAD_COMMIT
+	const baseCommit = env.BASE_COMMIT
+	const headCommit = env.HEAD_COMMIT
 
-	// Parse agents from environment variable (comma-separated list)
-	const agentsEnv = Bun.env.AGENTS
-	let agents: string[] = []
-	if (agentsEnv) {
-		agents = agentsEnv.split(",").map(a => a.trim()).filter(a => a.length > 0)
-	}
+	const agentsEnv = env.AGENTS
+	const agents = agentsEnv ? agentsEnv.split(",").map(a => a.trim()).filter(a => a.length > 0) : []
 
-	// Check for local diff mode (two commit hashes provided)
 	if (baseCommit && headCommit) {
 		return {
 			mode: "local-diff",
@@ -43,7 +41,6 @@ export function parseEnvironment(): EnvironmentConfig {
 		}
 	}
 
-	// Check for GitHub PR mode (PR link and token provided)
 	if (githubToken && prNumberStr && repo) {
 		const prNumber = Number.parseInt(prNumberStr, 10)
 		if (Number.isNaN(prNumber)) {
@@ -69,7 +66,6 @@ export function parseEnvironment(): EnvironmentConfig {
 		}
 	}
 
-	// No valid configuration provided
 	throw new Error(
 		"Invalid configuration. Provide either:\n" +
 		"  - GITHUB_TOKEN, PR_NUMBER, and REPO for GitHub PR mode\n" +
