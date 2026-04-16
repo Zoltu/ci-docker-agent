@@ -5,8 +5,7 @@ A containerized CI tool that analyzes pull or git diffs, and provides feedback v
 ## Building
 
 ```bash
-cd ci-agent
-docker build -t ci-agent:latest ..
+docker image build --tag='ci-agent:latest' .
 ```
 
 ## Usage
@@ -15,39 +14,30 @@ docker build -t ci-agent:latest ..
 
 Analyze the difference between two git commits locally. The output is printed to stdout.
 
-**Requirements:**
+#### Requirements
 - A git repository in the mounted volume
 - Two valid commit hashes (base and head)
 
-**Example:**
+#### Example
 
 ```bash
-# Get commit hashes
-BASE=$(git rev-parse HEAD~1)
-HEAD=$(git rev-parse HEAD)
-
-# Run the container
-docker run -it \
-  -v "$(pwd)":/github/workspace \
-  -w /github/workspace \
-  -e BASE_COMMIT="$BASE" \
-  -e HEAD_COMMIT="$HEAD" \
-  ci-agent:latest
+docker container run --rm -it --mount="type=bind,source=$(pwd),target=/github/workspace" --workdir='/github/workspace' --env="BASE_COMMIT=$(git rev-parse HEAD~1)" --env="HEAD_COMMIT=$(git rev-parse HEAD)" ci-agent:latest
 ```
 
-**Environment Variables:**
+#### Environment Variables
 - `BASE_COMMIT` - The base commit hash (required)
 - `HEAD_COMMIT` - The head commit hash (required)
+- `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 
 ### Mode 2: GitHub PR Review
 
 Fetch a pull request from GitHub and submit a review with AI-generated feedback.
 
-**Requirements:**
+#### Requirements
 - A GitHub access token with `pull_requests` scope
 - The repository owner/name and PR number
 
-**Example:**
+#### Example
 
 ```bash
 docker run -it \
@@ -57,18 +47,75 @@ docker run -it \
   ci-agent:latest
 ```
 
-**Environment Variables:**
+#### Environment Variables
 - `GITHUB_TOKEN` - Your GitHub personal access token (required)
 - `PR_NUMBER` - The pull request number (required)
 - `REPO` - The repository in `owner/name` format (required)
 - `GITHUB_API_URL` - Custom GitHub API URL (optional, defaults to `https://api.github.com`)
+- `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 
 ### Trigger Commands (GitHub Mode)
 
-When running in GitHub Actions, the agent can be triggered via PR comments with these commands:
-- `/ci` - Run CI analysis
-- `/check` - Run CI analysis
-- `/test` - Run CI analysis
+When running in GitHub Actions, the agent can be triggered via PR comments:
+
+- `/review` - Run CI analysis
+- `/review SecurityAgent, StyleAgent` - Run specific agents (comma-separated)
+- `/review` - Run all user-provided agents or Default if none exist
+
+## Agents
+
+The CI Agent uses a multi-agent architecture where each agent provides feedback in prose form, and an `Aggregator` agent consolidates the results.
+
+### Adding Custom Agents
+
+To add custom agents, create markdown files in `/github/workspace/.ci-agents/`:
+
+```
+/github/workspace/.ci-agents/
+├── SecurityAgent.md
+├── StyleAgent.md
+└── PerformanceAgent.md
+```
+
+Each markdown file should contain instructions for that agent. The filename (without `.md`) becomes the agent's name.
+
+### Agent Resolution
+
+Agents are resolved in the following order:
+1. User-provided agents in `/github/workspace/.ci-agents/` (case-sensitive)
+2. Builtin agents in `/github/workspace/agents/` (case-sensitive)
+
+If an agent is not found, a warning is logged and it is skipped.
+
+### The Aggregator Agent
+
+The `Aggregator` agent is responsible for consolidating feedback from all other agents and producing the final output. It is always run last.
+
+You can override the default aggregator by providing your own `Aggregator.md` file (case-insensitive) in `/github/workspace/.ci-agents/`.
+
+### Default Agent
+
+The `Default` agent is used only when:
+- No agents are specified via environment variable or comment trigger, AND
+- No user-provided agents exist in `/github/workspace/.ci-agents/`
+
+If user-provided agents exist, they are all used by default (except `Aggregator`).
+
+### Specifying Agents
+
+#### Via Environment Variable
+
+```bash
+AGENTS="SecurityAgent,StyleAgent" docker run ...
+```
+
+#### Via PR Comment
+
+```
+/review SecurityAgent, StyleAgent
+```
+
+Agents specified in comments are merged with agents from the environment variable.
 
 ## Output
 
@@ -105,6 +152,6 @@ The workflow triggers on:
 - `issue_comment` events (when trigger commands are detected)
 - Manual `workflow_dispatch`
 
-## AI Reviewer Instructions
+## AI Agent Instructions
 
-See `REVIEWER.md` for detailed instructions on how the AI should format its output.
+See `agents/Aggregator.md` for detailed instructions on how the Aggregator consolidates feedback from multiple agents.

@@ -8,6 +8,7 @@ export interface EnvironmentConfig {
 	commentBody: string | null
 	github?: GitHubConfig
 	localDiff?: LocalDiffConfig
+	agents: string[]
 }
 
 export function parseEnvironment(): EnvironmentConfig {
@@ -21,6 +22,13 @@ export function parseEnvironment(): EnvironmentConfig {
 	const baseCommit = Bun.env.BASE_COMMIT
 	const headCommit = Bun.env.HEAD_COMMIT
 
+	// Parse agents from environment variable (comma-separated list)
+	const agentsEnv = Bun.env.AGENTS
+	let agents: string[] = []
+	if (agentsEnv) {
+		agents = agentsEnv.split(",").map(a => a.trim()).filter(a => a.length > 0)
+	}
+
 	// Check for local diff mode (two commit hashes provided)
 	if (baseCommit && headCommit) {
 		return {
@@ -31,6 +39,7 @@ export function parseEnvironment(): EnvironmentConfig {
 				baseCommit,
 				headCommit,
 			},
+			agents,
 		}
 	}
 
@@ -56,6 +65,7 @@ export function parseEnvironment(): EnvironmentConfig {
 				repo,
 				prNumber,
 			},
+			agents,
 		}
 	}
 

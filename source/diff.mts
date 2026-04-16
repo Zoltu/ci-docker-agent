@@ -8,7 +8,8 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 	// Get list of changed files
 	const fileListProcess = await Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit])
 	if (fileListProcess.exitCode !== 0) {
-		throw new Error(`Failed to get file list: ${fileListProcess.stderr.toString()}`)
+		const stderr = fileListProcess.stderr as Buffer | null | undefined
+		throw new Error(`Failed to get file list: ${stderr?.toString() ?? "Unknown error"}`)
 	}
 
 	const fileList = fileListProcess.stdout.toString().trim()

@@ -1,0 +1,182 @@
+import type { PRFile } from "./github-types.mts"
+import * as fs from "node:fs"
+
+const USER_AGENTS_DIR = "/github/workspace/.ci-agents"
+const BUILTIN_AGENTS_DIR = "/github/workspace/agents"
+
+export interface Agent {
+	name: string
+	prompt: string
+}
+
+export interface AgentResult {
+	name: string
+	output: string
+}
+
+export async function loadAgents(agentNames: string[]): Promise<Agent[]> {
+	const agents: Agent[] = []
+	const userAgents = await loadUserAgents()
+	const builtinAgents = await loadBuiltinAgents()
+
+	// If no agents specified, use all user agents or Default if none exist
+	if (agentNames.length === 0) {
+		if (userAgents.length > 0) {
+			// Use all user agents except Aggregator
+			agentNames = userAgents
+				.filter(a => a.name.toLowerCase() !== "aggregator")
+				.map(a => a.name)
+		} else {
+			// No user agents, use Default
+			agentNames = ["Default"]
+		}
+	}
+
+	// Load each requested agent
+	for (const name of agentNames) {
+		// Check user agents first (case-sensitive)
+		const userAgent = userAgents.find(a => a.name === name)
+		if (userAgent) {
+			agents.push(userAgent)
+			continue
+		}
+
+		// Check builtin agents (case-sensitive)
+		const builtinAgent = builtinAgents.find(a => a.name === name)
+		if (builtinAgent) {
+			agents.push(builtinAgent)
+			continue
+		}
+
+		console.warn(`Warning: Agent "${name}" not found, skipping`)
+	}
+
+	// Always include Aggregator (case-insensitive check)
+	const aggregatorName = agentNames.find(n => n.toLowerCase() === "aggregator")
+	if (!aggregatorName) {
+		// Check user agents for Aggregator (case-insensitive)
+		const userAggregator = userAgents.find(a => a.name.toLowerCase() === "aggregator")
+		if (userAggregator) {
+			agents.push(userAggregator)
+		} else {
+			// Fall back to builtin Aggregator
+			const builtinAggregator = builtinAgents.find(a => a.name.toLowerCase() === "aggregator")
+			if (builtinAggregator) {
+				agents.push(builtinAggregator)
+			}
+		}
+	}
+
+	return agents
+}
+
+async function loadUserAgents(): Promise<Agent[]> {
+	const agents: Agent[] = []
+
+	try {
+		const entries = fs.readdirSync(USER_AGENTS_DIR)
+		for (const entry of entries) {
+			if (entry.toLowerCase().endsWith(".md")) {
+				const filePath = `${USER_AGENTS_DIR}/${entry}`
+				const name = entry.replace(/\.md$/i, "")
+				const content = await Bun.file(filePath).text()
+				agents.push({ name, prompt: content })
+			}
+		}
+	} catch (error) {
+		// Directory may not exist, that's ok
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+			console.warn(`Warning: Could not read user agents directory: ${error}`)
+		}
+	}
+
+	return agents
+}
+
+async function loadBuiltinAgents(): Promise<Agent[]> {
+	const agents: Agent[] = []
+
+	try {
+		const entries = fs.readdirSync(BUILTIN_AGENTS_DIR)
+		for (const entry of entries) {
+			if (entry.toLowerCase().endsWith(".md")) {
+				const filePath = `${BUILTIN_AGENTS_DIR}/${entry}`
+				const name = entry.replace(/\.md$/i, "")
+				const content = await Bun.file(filePath).text()
+				agents.push({ name, prompt: content })
+			}
+		}
+	} catch (error) {
+		console.warn(`Warning: Could not read builtin agents directory: ${error}`)
+	}
+
+	return agents
+}
+
+export async function runAgent(agent: Agent, files: PRFile[], agentInputs?: Map<string, string>): Promise<AgentResult> {
+	// Build the prompt with context
+	let prompt = agent.prompt
+
+	// Add agent inputs if provided (for Aggregator)
+	if (agentInputs && agentInputs.size > 0) {
+		prompt += "\n\n=== Agent Feedback ===\n"
+		for (const [name, output] of agentInputs.entries()) {
+			prompt += `\n=== Agent: ${name} ===\n${output}\n`
+		}
+	}
+
+	// Add file context
+	prompt += "\n\n=== Files Changed ===\n"
+	for (const file of files) {
+		prompt += `\nFile: ${file.filename}\nStatus: ${file.status}\n`
+		prompt += `Additions: +${file.additions}, Deletions: -${file.deletions}\n`
+		if (file.patch) {
+			prompt += `\nPatch:\n${file.patch}\n`
+		}
+	}
+
+	// Placeholder: In the future, this would call an AI API
+	// For now, return a placeholder response
+	console.log(`Running agent: ${agent.name}`)
+
+	// This is where the AI call would happen
+	// For scaffolding, we return a placeholder
+	const placeholderOutput = `[${agent.name} placeholder output - AI integration not yet implemented]`
+
+	return {
+		name: agent.name,
+		output: placeholderOutput,
+	}
+}
+
+export async function runAgents(agents: Agent[], files: PRFile[]): Promise<AgentResult[]> {
+	const results: AgentResult[] = []
+	const agentInputs = new Map<string, string>()
+
+	// Separate aggregator from other agents
+	const aggregatorIndex = agents.findIndex(a => a.name.toLowerCase() === "aggregator")
+	const reviewAgents = aggregatorIndex >= 0 ? agents.filter((_, i) => i !== aggregatorIndex) : agents
+
+	// Run all review agents in parallel
+	const reviewResults = await Promise.all(
+		reviewAgents.map(agent => runAgent(agent, files))
+	)
+
+	results.push(...reviewResults)
+
+	// Collect outputs for aggregator
+	for (const result of reviewResults) {
+		agentInputs.set(result.name, result.output)
+	}
+
+	// Run aggregator if present
+	if (aggregatorIndex >= 0) {
+		const aggregator = agents[aggregatorIndex]
+		if (aggregator) {
+			const aggregatorResult = await runAgent(aggregator, files, agentInputs)
+			results.push(aggregatorResult)
+		}
+	}
+
+	return results
+}

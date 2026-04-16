@@ -12,10 +12,19 @@ async function main(): Promise<void> {
 	console.log("CI Agent started")
 	console.log("Mode:", config.mode)
 	console.log("Event type:", config.eventType)
+	console.log("Agents from env:", config.agents.length > 0 ? config.agents.join(", ") : "Default")
 
-	if (!shouldRunCI(config.eventType, config.commentBody)) {
+	const triggerResult = shouldRunCI(config.eventType, config.commentBody)
+
+	if (!triggerResult.shouldRun) {
 		console.log("No trigger found, skipping CI checks")
 		return
+	}
+
+	// Merge agents from env var with agents from trigger comment
+	const agentNames = [...config.agents, ...triggerResult.agentNames]
+	if (agentNames.length > 0) {
+		console.log("Agents to run:", agentNames.join(", "))
 	}
 
 	let files: PRFile[] = []
@@ -35,7 +44,7 @@ async function main(): Promise<void> {
 	}
 
 	const aiClient = createPlaceholderAIClient()
-	const aiResult = await aiClient.analyze(files)
+	const aiResult = await aiClient.analyze(files, agentNames)
 
 	if (config.mode === "github" && config.github) {
 		const reviewPayload = buildReviewPayload(aiResult)
