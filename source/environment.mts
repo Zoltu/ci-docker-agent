@@ -60,6 +60,8 @@ export function parseEnvironment(env: Record<string, string | undefined> = Bun.e
 				token: githubToken,
 				apiUrl: githubApiUrl,
 				repo,
+				owner,
+				repoName,
 				prNumber,
 			},
 			agents,

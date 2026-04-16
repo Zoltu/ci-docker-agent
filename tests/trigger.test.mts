@@ -12,6 +12,16 @@ describe("shouldRunCI", () => {
 		})
 	})
 
+	describe("workflow_dispatch event", () => {
+		it("returns true for workflow_dispatch event", () => {
+			expect(shouldRunCI("workflow_dispatch", null)).toEqual({ shouldRun: true, agentNames: [] })
+		})
+
+		it("returns true for workflow_dispatch event with comment", () => {
+			expect(shouldRunCI("workflow_dispatch", "some comment")).toEqual({ shouldRun: true, agentNames: [] })
+		})
+	})
+
 	describe("issue_comment event", () => {
 		it("returns false when comment body is null", () => {
 			expect(shouldRunCI("issue_comment", null)).toEqual({ shouldRun: false, agentNames: [] })

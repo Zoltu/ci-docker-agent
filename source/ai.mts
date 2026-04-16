@@ -1,24 +1,55 @@
 import type { PrFile } from "./github-types.mts"
 import type { AiReviewResult } from "./review.mts"
-import { loadAgents, loadAggregator, runAgents } from "./agents.mts"
-import type { AgentResult, AgentDirs } from "./agents.mts"
+import { loadAgents, loadAggregator, buildAgentPrompt, type Agent, type AgentDirs } from "./agents.mts"
+
+export interface AgentResult {
+	name: string
+	output: string
+}
 
 export interface AiClient {
 	analyze(files: PrFile[], agentNames?: string[]): Promise<AiReviewResult>
 }
 
-function extractAggregatorOutput(results: AgentResult[]): string | null {
-	if (results.length === 0) {
-		return null
+async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): Promise<AgentResult> {
+	buildAgentPrompt(agent, files, agentInputs)
+
+	console.log(`Running agent: ${agent.name}`)
+
+	const placeholderOutput = JSON.stringify({ summary: `${agent.name} placeholder output - AI integration not yet implemented`, lineComments: [] })
+
+	return {
+		name: agent.name,
+		output: placeholderOutput,
+	}
+}
+
+async function runAgents(agents: Agent[], aggregator: Agent, files: PrFile[]): Promise<AgentResult[]> {
+	const results: AgentResult[] = []
+	const agentInputs = new Map<string, string>()
+
+	const reviewResults = await Promise.all(
+		agents.map(agent => runAgent(agent, files))
+	)
+
+	results.push(...reviewResults)
+
+	for (const result of reviewResults) {
+		agentInputs.set(result.name, result.output)
 	}
 
+	const aggregatorResult = await runAgent(aggregator, files, agentInputs)
+	results.push(aggregatorResult)
+
+	return results
+}
+
+function extractAggregatorOutput(results: AgentResult[]): string {
 	const aggregatorResult = results.find(r => r.name.toLowerCase() === "aggregator")
-	if (aggregatorResult) {
-		return aggregatorResult.output
+	if (!aggregatorResult) {
+		throw new Error("No aggregator result found in agent outputs")
 	}
-
-	const lastResult = results[results.length - 1]
-	return lastResult?.output ?? null
+	return aggregatorResult.output
 }
 
 function isValidAiReviewResult(data: unknown): data is AiReviewResult {
@@ -46,21 +77,16 @@ export function createPlaceholderAiClient(dirs?: AgentDirs): AiClient {
 
 			const agents = await loadAgents(agentNames, dirs)
 			const aggregator = await loadAggregator(dirs)
-			console.log(`Loaded ${agents.length} agents: ${agents.map(a => a.name).join(", ")}`)
-			if (aggregator) {
-				console.log(`Using aggregator: ${aggregator.name}`)
+			if (!aggregator) {
+				throw new Error("No aggregator agent found. A builtin Aggregator.md must exist in the agents directory.")
 			}
+
+			console.log(`Loaded ${agents.length} agents: ${agents.map(a => a.name).join(", ")}`)
+			console.log(`Using aggregator: ${aggregator.name}`)
 
 			const results = await runAgents(agents, aggregator, files)
 
 			const finalOutput = extractAggregatorOutput(results)
-			if (finalOutput === null) {
-				console.warn("Warning: No agent results produced")
-				return {
-					summary: "No analysis results produced.",
-					lineComments: [],
-				}
-			}
 
 			console.log("Agent analysis complete")
 
@@ -68,5 +94,3 @@ export function createPlaceholderAiClient(dirs?: AgentDirs): AiClient {
 		},
 	}
 }
-
-

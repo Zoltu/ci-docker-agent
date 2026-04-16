@@ -22,8 +22,7 @@ function isPrFileArray(value: unknown): value is PrFile[] {
 }
 
 export async function fetchPrFiles(config: GitHubConfig): Promise<PrFile[]> {
-	const { apiUrl, token, repo, prNumber } = config
-	const [owner, repoName] = repo.split("/")
+	const { apiUrl, token, owner, repoName, prNumber } = config
 
 	const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/files`, {
 		headers: {
@@ -45,8 +44,7 @@ export async function fetchPrFiles(config: GitHubConfig): Promise<PrFile[]> {
 }
 
 export async function submitReview(config: GitHubConfig, review: GitHubReviewPayload): Promise<void> {
-	const { apiUrl, token, repo, prNumber } = config
-	const [owner, repoName] = repo.split("/")
+	const { apiUrl, token, owner, repoName, prNumber } = config
 
 	const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/reviews`, {
 		method: "POST",

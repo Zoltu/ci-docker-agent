@@ -6,7 +6,7 @@ export interface TriggerResult {
 }
 
 export function shouldRunCI(eventType: string, commentBody: string | null): TriggerResult {
-	if (eventType === "pull_request_target") {
+	if (eventType === "pull_request_target" || eventType === "workflow_dispatch") {
 		return { shouldRun: true, agentNames: [] }
 	}
 

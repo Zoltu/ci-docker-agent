@@ -93,6 +93,8 @@ describe("parseEnvironment", () => {
 				token: "my-token",
 				apiUrl: "https://api.github.com",
 				repo: "owner/repo",
+				owner: "owner",
+				repoName: "repo",
 				prNumber: 42,
 			})
 			expect(config.localDiff).toBeUndefined()

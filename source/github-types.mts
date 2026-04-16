@@ -29,5 +29,7 @@ export interface GitHubConfig {
 	token: string
 	apiUrl: string
 	repo: string
+	owner: string
+	repoName: string
 	prNumber: number
 }

@@ -1,18 +1,11 @@
 import type { PrFile } from "./github-types.mts"
 import { readdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
-
-const DEFAULT_USER_AGENTS_DIR = "/github/workspace/.ci-agents"
-const DEFAULT_BUILTIN_AGENTS_DIR = "/github/workspace/agents"
+import { USER_AGENTS_DIR, BUILTIN_AGENTS_DIR } from "./paths.mts"
 
 export interface Agent {
 	name: string
 	prompt: string
-}
-
-export interface AgentResult {
-	name: string
-	output: string
 }
 
 export interface AgentDirs {
@@ -51,7 +44,7 @@ function findAggregator(agents: Agent[]): Agent | null {
 	return agents.find(a => a.name.toLowerCase() === "aggregator") ?? null
 }
 
-export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: DEFAULT_USER_AGENTS_DIR, builtinAgentsDir: DEFAULT_BUILTIN_AGENTS_DIR }): Promise<Agent | null> {
+export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }): Promise<Agent | null> {
 	const userAgents = await loadAgentsFromDir(dirs.userAgentsDir)
 	const userAggregator = findAggregator(userAgents)
 	if (userAggregator) {
@@ -67,7 +60,7 @@ export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: DEFAULT_
 	return null
 }
 
-export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userAgentsDir: DEFAULT_USER_AGENTS_DIR, builtinAgentsDir: DEFAULT_BUILTIN_AGENTS_DIR }): Promise<Agent[]> {
+export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }): Promise<Agent[]> {
 	const allUserAgents = await loadAgentsFromDir(dirs.userAgentsDir)
 	const allBuiltinAgents = await loadAgentsFromDir(dirs.builtinAgentsDir, true)
 
@@ -123,41 +116,4 @@ export function buildAgentPrompt(agent: Agent, files: PrFile[], agentInputs?: Ma
 	}
 
 	return prompt
-}
-
-export async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): Promise<AgentResult> {
-	buildAgentPrompt(agent, files, agentInputs)
-
-	// Placeholder: In the future, the prompt from buildAgentPrompt would be sent to an AI API
-	// For now, return a placeholder response
-	console.log(`Running agent: ${agent.name}`)
-
-	const placeholderOutput = JSON.stringify({ summary: `${agent.name} placeholder output - AI integration not yet implemented`, lineComments: [] })
-
-	return {
-		name: agent.name,
-		output: placeholderOutput,
-	}
-}
-
-export async function runAgents(agents: Agent[], aggregator: Agent | null, files: PrFile[]): Promise<AgentResult[]> {
-	const results: AgentResult[] = []
-	const agentInputs = new Map<string, string>()
-
-	const reviewResults = await Promise.all(
-		agents.map(agent => runAgent(agent, files))
-	)
-
-	results.push(...reviewResults)
-
-	for (const result of reviewResults) {
-		agentInputs.set(result.name, result.output)
-	}
-
-	if (aggregator) {
-		const aggregatorResult = await runAgent(aggregator, files, agentInputs)
-		results.push(aggregatorResult)
-	}
-
-	return results
 }

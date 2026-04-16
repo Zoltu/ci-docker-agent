@@ -1,11 +1,11 @@
 import type { PrFile } from "./github-types.mts"
 import { existsSync } from "node:fs"
+import { WORKSPACE_DIR } from "./paths.mts"
 
 export interface DiffResult {
 	files: PrFile[]
 }
 
-const WORKSPACE_DIR = "/github/workspace"
 
 async function streamToString(stream: ReadableStream<Uint8Array>): Promise<string> {
 	const reader = stream.getReader()
@@ -30,7 +30,7 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string): P
 	}
 
 	// Verify base commit exists
-	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { stderr: "pipe" })
+	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { cwd: WORKSPACE_DIR, stderr: "pipe" })
 	await baseCheck.exited
 	if (baseCheck.exitCode !== 0) {
 		const stderrText = await streamToString(baseCheck.stderr)
@@ -42,7 +42,7 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string): P
 	}
 
 	// Verify head commit exists
-	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { stderr: "pipe" })
+	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { cwd: WORKSPACE_DIR, stderr: "pipe" })
 	await headCheck.exited
 	if (headCheck.exitCode !== 0) {
 		const stderrText = await streamToString(headCheck.stderr)
@@ -60,6 +60,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 
 	// Get list of changed files
 	const fileListProcess = Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], {
+		cwd: WORKSPACE_DIR,
 		stderr: "pipe",
 	})
 	await fileListProcess.exited
@@ -96,7 +97,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 			headCommit,
 			"--",
 			filename,
-		])
+		], { cwd: WORKSPACE_DIR })
 		await patchProcess.exited
 
 		const patch = await streamToString(patchProcess.stdout)
