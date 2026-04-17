@@ -144,14 +144,16 @@ export function mapGitStatus(status: string): string {
 	switch (status[0] ?? "") {
 		case "A":
 			return "added"
+		case "C":
+			return "copied"
 		case "D":
 			return "deleted"
 		case "M":
 			return "modified"
 		case "R":
 			return "renamed"
-		case "C":
-			return "copied"
+		case "T":
+			return "modified"
 		default:
 			return "modified"
 	}

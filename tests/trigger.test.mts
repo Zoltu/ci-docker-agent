@@ -51,15 +51,9 @@ describe("shouldRunCI", () => {
 		})
 	})
 
-	describe("unknown event (local-diff mode)", () => {
-		it("returns true for unknown event", () => {
-			expect(shouldRunCI("unknown", null)).toEqual({ shouldRun: true, agentNames: [] })
-		})
-	})
-
-	describe("other events", () => {
-		it("returns false for other unknown event types", () => {
-			expect(shouldRunCI("some_other_event", null)).toEqual({ shouldRun: false, agentNames: [] })
+	describe("local event (local-diff mode)", () => {
+		it("returns true for local event", () => {
+			expect(shouldRunCI("local", null)).toEqual({ shouldRun: true, agentNames: [] })
 		})
 	})
 

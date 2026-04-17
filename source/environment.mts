@@ -2,9 +2,19 @@ import type { GitHubConfig } from "./github-types.mts"
 
 export type ExecutionMode = "github" | "local-diff"
 
+export type EventType = "pull_request_target" | "workflow_dispatch" | "issue_comment" | "local"
+
+const VALID_EVENT_TYPES: readonly EventType[] = ["pull_request_target", "workflow_dispatch", "issue_comment", "local"]
+
+function parseEventType(value: string | undefined): EventType {
+	if (!value) return "local"
+	if (VALID_EVENT_TYPES.includes(value as EventType)) return value as EventType
+	throw new Error(`EVENT_TYPE must be one of: ${VALID_EVENT_TYPES.join(", ")}. Got: ${value}`)
+}
+
 export interface EnvironmentConfig {
 	mode: ExecutionMode
-	eventType: string
+	eventType: EventType
 	commentBody: string | null
 	github?: GitHubConfig
 	localDiff?: {
@@ -19,7 +29,7 @@ export function parseEnvironment(env: Record<string, string | undefined> = Bun.e
 	const githubApiUrl = env.GITHUB_API_URL ?? "https://api.github.com"
 	const prNumberStr = env.PR_NUMBER
 	const repo = env.REPO
-	const eventType = env.EVENT_TYPE ?? "unknown"
+	const eventType = parseEventType(env.EVENT_TYPE)
 	const commentBody = env.COMMENT_BODY ?? null
 
 	const baseCommit = env.BASE_COMMIT

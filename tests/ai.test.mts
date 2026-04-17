@@ -74,8 +74,49 @@ describe("parseAggregatorOutput", () => {
 		)
 	})
 
+	it("throws when body is empty string", () => {
+		const output = JSON.stringify({ body: "", comments: [] })
+
+		expect(() => parseAggregatorOutput(output)).toThrow(
+			"Parsed output does not match expected AiReviewResult shape"
+		)
+	})
+
 	it("throws when body is missing", () => {
 		const output = JSON.stringify({ comments: [] })
+
+		expect(() => parseAggregatorOutput(output)).toThrow(
+			"Parsed output does not match expected AiReviewResult shape"
+		)
+	})
+
+	it("rejects line number zero", () => {
+		const output = JSON.stringify({
+			body: "test",
+			comments: [{ path: "src/file.ts", line: 0, side: "RIGHT", body: "comment" }],
+		})
+
+		expect(() => parseAggregatorOutput(output)).toThrow(
+			"Parsed output does not match expected AiReviewResult shape"
+		)
+	})
+
+	it("rejects negative line number", () => {
+		const output = JSON.stringify({
+			body: "test",
+			comments: [{ path: "src/file.ts", line: -1, side: "RIGHT", body: "comment" }],
+		})
+
+		expect(() => parseAggregatorOutput(output)).toThrow(
+			"Parsed output does not match expected AiReviewResult shape"
+		)
+	})
+
+	it("rejects non-integer line number", () => {
+		const output = JSON.stringify({
+			body: "test",
+			comments: [{ path: "src/file.ts", line: 1.5, side: "RIGHT", body: "comment" }],
+		})
 
 		expect(() => parseAggregatorOutput(output)).toThrow(
 			"Parsed output does not match expected AiReviewResult shape"

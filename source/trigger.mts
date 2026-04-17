@@ -3,7 +3,9 @@ export interface TriggerResult {
 	agentNames: string[]
 }
 
-export function shouldRunCI(eventType: string, commentBody: string | null): TriggerResult {
+import type { EventType } from "./environment.mts"
+
+export function shouldRunCI(eventType: EventType, commentBody: string | null): { shouldRun: boolean, agentNames: string[] } {
 	if (eventType === "pull_request_target" || eventType === "workflow_dispatch") {
 		return { shouldRun: true, agentNames: [] }
 	}
@@ -16,7 +18,7 @@ export function shouldRunCI(eventType: string, commentBody: string | null): Trig
 		}
 	}
 
-	if (eventType === "unknown") {
+	if (eventType === "local") {
 		return { shouldRun: true, agentNames: [] }
 	}
 

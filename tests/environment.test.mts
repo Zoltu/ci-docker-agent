@@ -29,13 +29,13 @@ describe("parseEnvironment", () => {
 			expect(config.agents).toEqual(["SecurityAgent", "StyleAgent"])
 		})
 
-		it("defaults eventType to unknown in local-diff mode", () => {
+		it("defaults eventType to local in local-diff mode", () => {
 			const config = parseEnvironment({
 				BASE_COMMIT: "abc123",
 				HEAD_COMMIT: "def456",
 			})
 
-			expect(config.eventType).toBe("unknown")
+			expect(config.eventType).toBe("local")
 		})
 
 		it("parses eventType and commentBody in local-diff mode", () => {
@@ -198,6 +198,27 @@ describe("parseEnvironment", () => {
 
 			expect(config.mode).toBe("local-diff")
 			expect(config.github).toBeUndefined()
+		})
+	})
+
+	describe("EVENT_TYPE validation", () => {
+		it("accepts valid event types", () => {
+			for (const eventType of ["pull_request_target", "workflow_dispatch", "issue_comment", "local"] as const) {
+				const config = parseEnvironment({
+					BASE_COMMIT: "abc123",
+					HEAD_COMMIT: "def456",
+					EVENT_TYPE: eventType,
+				})
+				expect(config.eventType).toBe(eventType)
+			}
+		})
+
+		it("throws for invalid EVENT_TYPE", () => {
+			expect(() => parseEnvironment({
+				BASE_COMMIT: "abc123",
+				HEAD_COMMIT: "def456",
+				EVENT_TYPE: "bogus",
+			})).toThrow("EVENT_TYPE must be one of")
 		})
 	})
 

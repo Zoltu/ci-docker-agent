@@ -16,12 +16,9 @@ async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<string,
 
 	console.log(`Running agent: ${agent.name}`)
 
-	const placeholderOutput = JSON.stringify({ body: `${agent.name} placeholder output - AI integration not yet implemented`, comments: [] })
+	const output = JSON.stringify({ body: `${agent.name} placeholder output - AI integration not yet implemented`, comments: [] })
 
-	return {
-		name: agent.name,
-		output: placeholderOutput,
-	}
+	return { name: agent.name, output }
 }
 
 async function runAgents(agents: Agent[], aggregator: Agent, files: PrFile[]): Promise<AgentResult[]> {
@@ -55,21 +52,19 @@ function extractAggregatorOutput(results: AgentResult[]): string {
 function isValidLineComment(value: unknown): value is LineComment {
 	if (typeof value !== "object") return false
 	if (value === null) return false
-	const obj = value
-	if (!("path" in obj) || typeof obj.path !== "string") return false
-	if (!("line" in obj) || typeof obj.line !== "number") return false
-	if (!("side" in obj) || (obj.side !== "LEFT" && obj.side !== "RIGHT")) return false
-	if (!("body" in obj) || typeof obj.body !== "string") return false
+	if (!("path" in value) || typeof value.path !== "string") return false
+	if (!("line" in value) || typeof value.line !== "number" || !Number.isInteger(value.line) || value.line < 1) return false
+	if (!("side" in value) || (value.side !== "LEFT" && value.side !== "RIGHT")) return false
+	if (!("body" in value) || typeof value.body !== "string") return false
 	return true
 }
 
 function isValidAiReviewResult(data: unknown): data is AiReviewResult {
 	if (typeof data !== "object") return false
 	if (data === null) return false
-	const obj = data
-	if (!("body" in obj) || typeof obj.body !== "string") return false
-	if (!("comments" in obj) || !Array.isArray(obj.comments)) return false
-	if (!obj.comments.every(isValidLineComment)) return false
+	if (!("body" in data) || typeof data.body !== "string" || data.body === "") return false
+	if (!("comments" in data) || !Array.isArray(data.comments)) return false
+	if (!data.comments.every(isValidLineComment)) return false
 	return true
 }
 

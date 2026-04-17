@@ -181,6 +181,10 @@ describe("mapGitStatus", () => {
 		expect(mapGitStatus("C080")).toBe("copied")
 	})
 
+	it("maps T to modified", () => {
+		expect(mapGitStatus("T")).toBe("modified")
+	})
+
 	it("maps unknown status to modified", () => {
 		expect(mapGitStatus("X")).toBe("modified")
 	})

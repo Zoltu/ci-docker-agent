@@ -29,13 +29,11 @@ async function main(): Promise<void> {
 
 	const { agents: loadedAgents, unresolvedNames } = await loadAgents(agentNames)
 
-	if (config.mode === "github" && config.github?.commentId) {
-		const unresolvedFromComment = triggerResult.agentNames.filter(name => unresolvedNames.includes(name))
-		if (unresolvedFromComment.length > 0) {
-			console.log(`Unresolved agents from comment: ${unresolvedFromComment.join(", ")}`)
+	if (unresolvedNames.length > 0) {
+		if (config.mode === "github" && config.github?.commentId) {
 			await reactToComment(config.github, config.github.commentId, "-1")
-			return
 		}
+		throw new Error(`Unresolved agents: ${unresolvedNames.join(", ")}`)
 	}
 
 	const aggregator = await loadAggregator()
