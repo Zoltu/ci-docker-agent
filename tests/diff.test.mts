@@ -42,14 +42,7 @@ async function gitCommit(dir: string, message: string): Promise<string> {
 	expect(commitProc.exitCode).toBe(0)
 	const revProc = Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: dir, stderr: "pipe", stdout: "pipe" })
 	await revProc.exited
-	const reader = revProc.stdout.getReader()
-	const chunks: string[] = []
-	while (true) {
-		const { done, value } = await reader.read()
-		if (done) break
-		chunks.push(new TextDecoder().decode(value))
-	}
-	return chunks.join("").trim()
+	return (await Bun.readableStreamToText(revProc.stdout)).trim()
 }
 
 describe("parseUnifiedDiff", () => {

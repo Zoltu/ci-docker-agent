@@ -102,12 +102,12 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 export function parseUnifiedDiff(output: string): Map<string, string> {
 	const files = new Map<string, string>()
 	const lines = output.split("\n")
-	let currentFile: string | null = null
-	const currentPatch: string[] = []
+	let filename: string | null = null
+	const patch: string[] = []
 
 	function saveCurrentFile(): void {
-		if (currentFile !== null) {
-			files.set(currentFile, currentPatch.join("\n"))
+		if (filename !== null) {
+			files.set(filename, patch.join("\n"))
 		}
 	}
 
@@ -115,21 +115,23 @@ export function parseUnifiedDiff(output: string): Map<string, string> {
 		const fromMatch = /^--- (?:a\/(.+)|\/dev\/null)$/.exec(line)
 		if (fromMatch) {
 			saveCurrentFile()
-			currentFile = fromMatch[1] ?? null
-			currentPatch.length = 0
-			currentPatch.push(line)
+			// For deleted files (where +++ is /dev/null), this is the only filename we get. For added/modified files, the +++ line below will overwrite this with the canonical "to" path.
+			filename = fromMatch[1] ?? null
+			patch.length = 0
+			patch.push(line)
 			continue
 		}
 
 		const toMatch = /^\+\+\+ b\/(.+)$/.exec(line)
 		if (toMatch) {
-			currentFile = toMatch[1]!
-			currentPatch.push(line)
+			// Always use the "to" path as the canonical key. This handles renames where --- and +++ reference different filenames.
+			filename = toMatch[1]!
+			patch.push(line)
 			continue
 		}
 
-		if (currentFile !== null) {
-			currentPatch.push(line)
+		if (filename !== null) {
+			patch.push(line)
 		}
 	}
 

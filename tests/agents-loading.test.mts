@@ -162,6 +162,21 @@ describe("loadAgents", () => {
 		expect(result.unresolvedNames).toEqual(["Default"])
 	})
 
+	it("resolves agent names case-insensitively", async () => {
+		const dirs: AgentDirs = {
+			userAgentsDir: tmpDir("user"),
+			builtinAgentsDir: tmpDir("builtins"),
+		}
+		await createAgentFile(dirs.userAgentsDir, "SecurityAgent", "Security prompt")
+		await createDir(dirs.builtinAgentsDir)
+
+		const result = await loadAgents(["securityagent"], dirs)
+
+		expect(result.agents).toHaveLength(1)
+		expect(result.agents[0]!.name).toBe("SecurityAgent")
+		expect(result.unresolvedNames).toEqual([])
+	})
+
 	it("only loads .md files", async () => {
 		const dirs: AgentDirs = {
 			userAgentsDir: tmpDir("user"),

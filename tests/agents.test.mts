@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { buildAgentPrompt } from "../source/agents.mts"
+import { buildAgentPrompt, resolveAgents } from "../source/agents.mts"
 import type { Agent } from "../source/agents.mts"
 import type { PrFile } from "../source/github-types.mts"
 import { existsSync } from "node:fs"
@@ -115,5 +115,84 @@ describe("required builtin agents", () => {
 
 	it("has an Aggregator.md agent in the agents directory", () => {
 		expect(existsSync(join(PROJECT_ROOT, "agents", "Aggregator.md"))).toBe(true)
+	})
+})
+
+describe("resolveAgents", () => {
+	it("defaults to Default when no names requested and no user agents", () => {
+		const defaultAgent = makeAgent({ name: "Default" })
+		const result = resolveAgents([], [], [defaultAgent])
+
+		expect(result.agents).toHaveLength(1)
+		expect(result.agents[0]!.name).toBe("Default")
+		expect(result.unresolvedNames).toEqual([])
+	})
+
+	it("defaults to all user agents when no names requested and user agents exist", () => {
+		const security = makeAgent({ name: "SecurityAgent" })
+		const style = makeAgent({ name: "StyleAgent" })
+		const result = resolveAgents([], [security, style], [])
+
+		expect(result.agents).toHaveLength(2)
+		expect(result.agents.map(a => a.name)).toEqual(["SecurityAgent", "StyleAgent"])
+	})
+
+	it("resolves named agents from user agents first", () => {
+		const userAgent = makeAgent({ name: "SecurityAgent", prompt: "user" })
+		const builtinAgent = makeAgent({ name: "SecurityAgent", prompt: "builtin" })
+		const result = resolveAgents(["SecurityAgent"], [userAgent], [builtinAgent])
+
+		expect(result.agents).toHaveLength(1)
+		expect(result.agents[0]!.prompt).toBe("user")
+	})
+
+	it("resolves named agents from builtins when not in user agents", () => {
+		const builtinAgent = makeAgent({ name: "Default", prompt: "builtin" })
+		const result = resolveAgents(["Default"], [], [builtinAgent])
+
+		expect(result.agents).toHaveLength(1)
+		expect(result.agents[0]!.prompt).toBe("builtin")
+	})
+
+	it("reports unresolved names while returning resolved agents", () => {
+		const security = makeAgent({ name: "SecurityAgent" })
+		const result = resolveAgents(["SecurityAgent", "NonExistent"], [security], [])
+
+		expect(result.agents).toHaveLength(1)
+		expect(result.agents[0]!.name).toBe("SecurityAgent")
+		expect(result.unresolvedNames).toEqual(["NonExistent"])
+	})
+
+	it("resolves names case-insensitively", () => {
+		const security = makeAgent({ name: "SecurityAgent" })
+		const result = resolveAgents(["securityagent"], [security], [])
+
+		expect(result.agents).toHaveLength(1)
+		expect(result.agents[0]!.name).toBe("SecurityAgent")
+	})
+
+	it("filters out Aggregator from user agents", () => {
+		const aggregator = makeAgent({ name: "Aggregator" })
+		const security = makeAgent({ name: "SecurityAgent" })
+		const result = resolveAgents([], [aggregator, security], [])
+
+		expect(result.agents).toHaveLength(1)
+		expect(result.agents[0]!.name).toBe("SecurityAgent")
+	})
+
+	it("filters out Aggregator from builtin agents", () => {
+		const aggregator = makeAgent({ name: "Aggregator" })
+		const defaultAgent = makeAgent({ name: "Default" })
+		const result = resolveAgents([], [], [aggregator, defaultAgent])
+
+		expect(result.agents).toHaveLength(1)
+		expect(result.agents[0]!.name).toBe("Default")
+	})
+
+	it("reports Default as unresolved when not found anywhere", () => {
+		const result = resolveAgents([], [], [])
+
+		expect(result.agents).toEqual([])
+		expect(result.unresolvedNames).toEqual(["Default"])
 	})
 })

@@ -60,17 +60,19 @@ export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: USER_AGE
 	return null
 }
 
-export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }): Promise<{ agents: Agent[], unresolvedNames: string[] }> {
-	const allUserAgents = await loadAgentsFromDir(dirs.userAgentsDir)
-	const allBuiltinAgents = await loadAgentsFromDir(dirs.builtinAgentsDir, true)
+export interface ResolveResult {
+	agents: Agent[]
+	unresolvedNames: string[]
+}
 
-	const userAgents = filterOutAggregator(allUserAgents)
-	const builtinAgents = filterOutAggregator(allBuiltinAgents)
+export function resolveAgents(requestedNames: string[], userAgents: Agent[], builtinAgents: Agent[]): ResolveResult {
+	const filteredUserAgents = filterOutAggregator(userAgents)
+	const filteredBuiltinAgents = filterOutAggregator(builtinAgents)
 
-	let resolvedNames = agentNames
+	let resolvedNames = requestedNames
 	if (resolvedNames.length === 0) {
-		if (userAgents.length > 0) {
-			resolvedNames = userAgents.map(a => a.name)
+		if (filteredUserAgents.length > 0) {
+			resolvedNames = filteredUserAgents.map(a => a.name)
 		} else {
 			resolvedNames = ["Default"]
 		}
@@ -79,23 +81,35 @@ export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userA
 	const agents: Agent[] = []
 	const unresolvedNames: string[] = []
 	for (const name of resolvedNames) {
-		const userAgent = userAgents.find(a => a.name === name)
+		const userAgent = filteredUserAgents.find(a => a.name.toLowerCase() === name.toLowerCase())
 		if (userAgent) {
 			agents.push(userAgent)
 			continue
 		}
 
-		const builtinAgent = builtinAgents.find(a => a.name === name)
+		const builtinAgent = filteredBuiltinAgents.find(a => a.name.toLowerCase() === name.toLowerCase())
 		if (builtinAgent) {
 			agents.push(builtinAgent)
 			continue
 		}
 
-		console.warn(`Warning: Agent "${name}" not found, skipping`)
 		unresolvedNames.push(name)
 	}
 
 	return { agents, unresolvedNames }
+}
+
+export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }): Promise<ResolveResult> {
+	const allUserAgents = await loadAgentsFromDir(dirs.userAgentsDir)
+	const allBuiltinAgents = await loadAgentsFromDir(dirs.builtinAgentsDir, true)
+
+	const result = resolveAgents(agentNames, allUserAgents, allBuiltinAgents)
+
+	for (const name of result.unresolvedNames) {
+		console.warn(`Warning: Agent "${name}" not found, skipping`)
+	}
+
+	return result
 }
 
 export function buildAgentPrompt(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): string {
