@@ -60,7 +60,7 @@ export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: USER_AGE
 	return null
 }
 
-export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }): Promise<Agent[]> {
+export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }): Promise<{ agents: Agent[], unresolvedNames: string[] }> {
 	const allUserAgents = await loadAgentsFromDir(dirs.userAgentsDir)
 	const allBuiltinAgents = await loadAgentsFromDir(dirs.builtinAgentsDir, true)
 
@@ -77,6 +77,7 @@ export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userA
 	}
 
 	const agents: Agent[] = []
+	const unresolvedNames: string[] = []
 	for (const name of resolvedNames) {
 		const userAgent = userAgents.find(a => a.name === name)
 		if (userAgent) {
@@ -91,9 +92,10 @@ export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userA
 		}
 
 		console.warn(`Warning: Agent "${name}" not found, skipping`)
+		unresolvedNames.push(name)
 	}
 
-	return agents
+	return { agents, unresolvedNames }
 }
 
 export function buildAgentPrompt(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): string {

@@ -131,9 +131,6 @@ describe("formatReviewForConsole", () => {
 				additions: 10,
 				deletions: 5,
 				changes: 15,
-				blob_url: "",
-				raw_url: "",
-				contents_url: "",
 			},
 			{
 				filename: "README.md",
@@ -141,9 +138,6 @@ describe("formatReviewForConsole", () => {
 				additions: 50,
 				deletions: 0,
 				changes: 50,
-				blob_url: "",
-				raw_url: "",
-				contents_url: "",
 			},
 		]
 

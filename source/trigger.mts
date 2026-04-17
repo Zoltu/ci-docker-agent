@@ -1,5 +1,3 @@
-const TRIGGER_COMMAND = "/review" as const
-
 export interface TriggerResult {
 	shouldRun: boolean
 	agentNames: string[]
@@ -11,15 +9,13 @@ export function shouldRunCI(eventType: string, commentBody: string | null): Trig
 	}
 
 	if (eventType === "issue_comment" && commentBody) {
-		if (commentBody.includes(TRIGGER_COMMAND)) {
-			// Extract agent names from the comment
-			// Format: /review agent1, agent2
-			const agentNames = extractAgentNames(commentBody)
+		const match = /^\/review\s*(.*)/m.exec(commentBody)
+		if (match) {
+			const agentNames = parseAgentList(match[1]!.trim())
 			return { shouldRun: true, agentNames }
 		}
 	}
 
-	// For local-diff mode, always run
 	if (eventType === "unknown") {
 		return { shouldRun: true, agentNames: [] }
 	}
@@ -27,16 +23,19 @@ export function shouldRunCI(eventType: string, commentBody: string | null): Trig
 	return { shouldRun: false, agentNames: [] }
 }
 
-export function extractAgentNames(commentBody: string): string[] {
-	const afterCommand = commentBody.split(TRIGGER_COMMAND)[1]
-	if (!afterCommand) {
-		return []
-	}
-
-	const rest = afterCommand.split("\n")[0]!.trim()
+function parseAgentList(rest: string): string[] {
 	if (rest.length === 0) {
 		return []
 	}
 
 	return rest.split(",").map(n => n.trim()).filter(n => n.length > 0)
+}
+
+export function extractAgentNames(commentBody: string): string[] {
+	const match = /^\/review\s*(.*)/m.exec(commentBody)
+	if (!match) {
+		return []
+	}
+
+	return parseAgentList(match[1]!.trim())
 }

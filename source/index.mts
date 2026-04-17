@@ -1,9 +1,10 @@
 import type { PrFile } from "./github-types.mts"
 import { parseEnvironment } from "./environment.mts"
 import { shouldRunCI } from "./trigger.mts"
-import { fetchPrFiles, submitReview } from "./github.mts"
+import { fetchPrFiles, submitReview, reactToComment } from "./github.mts"
 import { generateLocalDiff } from "./diff.mts"
 import { createPlaceholderAiClient } from "./ai.mts"
+import { loadAgents, loadAggregator } from "./agents.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 
 async function main(): Promise<void> {
@@ -21,11 +22,29 @@ async function main(): Promise<void> {
 		return
 	}
 
-	// Merge agents from env var with agents from trigger comment
 	const agentNames = [...config.agents, ...triggerResult.agentNames]
 	if (agentNames.length > 0) {
 		console.log("Agents to run:", agentNames.join(", "))
 	}
+
+	const { agents: loadedAgents, unresolvedNames } = await loadAgents(agentNames)
+
+	if (config.mode === "github" && config.github?.commentId) {
+		const unresolvedFromComment = triggerResult.agentNames.filter(name => unresolvedNames.includes(name))
+		if (unresolvedFromComment.length > 0) {
+			console.log(`Unresolved agents from comment: ${unresolvedFromComment.join(", ")}`)
+			await reactToComment(config.github, config.github.commentId, "-1")
+			return
+		}
+	}
+
+	const aggregator = await loadAggregator()
+	if (!aggregator) {
+		throw new Error("No aggregator agent found. A builtin Aggregator.md must exist in the agents directory.")
+	}
+
+	console.log(`Loaded ${loadedAgents.length} agents: ${loadedAgents.map(a => a.name).join(", ")}`)
+	console.log(`Using aggregator: ${aggregator.name}`)
 
 	let files: PrFile[] = []
 
@@ -36,15 +55,11 @@ async function main(): Promise<void> {
 	} else if (config.mode === "local-diff" && config.localDiff) {
 		console.log("Base commit:", config.localDiff.baseCommit)
 		console.log("Head commit:", config.localDiff.headCommit)
-		const diffResult = await generateLocalDiff(
-			config.localDiff.baseCommit,
-			config.localDiff.headCommit
-		)
-		files = diffResult.files
+		files = await generateLocalDiff(config.localDiff.baseCommit, config.localDiff.headCommit)
 	}
 
 	const aiClient = createPlaceholderAiClient()
-	const aiResult = await aiClient.analyze(files, agentNames)
+	const aiResult = await aiClient.analyze(files, loadedAgents, aggregator)
 
 	if (config.mode === "github" && config.github) {
 		const reviewPayload = buildReviewPayload(aiResult)
@@ -56,4 +71,7 @@ async function main(): Promise<void> {
 	}
 }
 
-main()
+main().catch(error => {
+	console.error("CI Agent failed:", error)
+	process.exit(1)
+})

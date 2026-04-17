@@ -1,14 +1,14 @@
 import type { PrFile } from "./github-types.mts"
 import type { AiReviewResult } from "./review.mts"
-import { loadAgents, loadAggregator, buildAgentPrompt, type Agent, type AgentDirs } from "./agents.mts"
+import { buildAgentPrompt, type Agent } from "./agents.mts"
 
-export interface AgentResult {
+interface AgentResult {
 	name: string
 	output: string
 }
 
 export interface AiClient {
-	analyze(files: PrFile[], agentNames?: string[]): Promise<AiReviewResult>
+	analyze(files: PrFile[], agents: Agent[], aggregator: Agent): Promise<AiReviewResult>
 }
 
 async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): Promise<AgentResult> {
@@ -52,12 +52,24 @@ function extractAggregatorOutput(results: AgentResult[]): string {
 	return aggregatorResult.output
 }
 
+function isValidLineComment(value: unknown): value is AiReviewResult["lineComments"][number] {
+	if (typeof value !== "object") return false
+	if (value === null) return false
+	const obj = value
+	if (!("path" in obj) || typeof obj.path !== "string") return false
+	if (!("line" in obj) || typeof obj.line !== "number") return false
+	if (!("side" in obj) || (obj.side !== "LEFT" && obj.side !== "RIGHT")) return false
+	if (!("comment" in obj) || typeof obj.comment !== "string") return false
+	return true
+}
+
 function isValidAiReviewResult(data: unknown): data is AiReviewResult {
 	if (typeof data !== "object") return false
 	if (data === null) return false
 	const obj = data
 	if (!("summary" in obj) || typeof obj.summary !== "string") return false
 	if (!("lineComments" in obj) || !Array.isArray(obj.lineComments)) return false
+	if (!obj.lineComments.every(isValidLineComment)) return false
 	return true
 }
 
@@ -69,19 +81,11 @@ export function parseAggregatorOutput(output: string): AiReviewResult {
 	return parsed
 }
 
-export function createPlaceholderAiClient(dirs?: AgentDirs): AiClient {
+export function createPlaceholderAiClient(): AiClient {
 	return {
-		async analyze(files: PrFile[], agentNames = []): Promise<AiReviewResult> {
+		async analyze(files: PrFile[], agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
 			console.log(`Analyzing ${files.length} files...`)
-			console.log(`Using agents: ${agentNames.length > 0 ? agentNames.join(", ") : "Default"}`)
-
-			const agents = await loadAgents(agentNames, dirs)
-			const aggregator = await loadAggregator(dirs)
-			if (!aggregator) {
-				throw new Error("No aggregator agent found. A builtin Aggregator.md must exist in the agents directory.")
-			}
-
-			console.log(`Loaded ${agents.length} agents: ${agents.map(a => a.name).join(", ")}`)
+			console.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 			console.log(`Using aggregator: ${aggregator.name}`)
 
 			const results = await runAgents(agents, aggregator, files)

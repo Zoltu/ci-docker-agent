@@ -96,6 +96,7 @@ describe("parseEnvironment", () => {
 				owner: "owner",
 				repoName: "repo",
 				prNumber: 42,
+				commentId: undefined,
 			})
 			expect(config.localDiff).toBeUndefined()
 		})
@@ -144,6 +145,36 @@ describe("parseEnvironment", () => {
 			})
 
 			expect(config.agents).toEqual(["SecurityAgent"])
+		})
+
+		it("parses COMMENT_ID when provided", () => {
+			const config = parseEnvironment({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo",
+				COMMENT_ID: "12345",
+			})
+
+			expect(config.github?.commentId).toBe(12345)
+		})
+
+		it("throws when COMMENT_ID is not a valid number", () => {
+			expect(() => parseEnvironment({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo",
+				COMMENT_ID: "not-a-number",
+			})).toThrow("COMMENT_ID must be a valid number, got: not-a-number")
+		})
+
+		it("defaults commentId to undefined when not provided", () => {
+			const config = parseEnvironment({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo",
+			})
+
+			expect(config.github?.commentId).toBeUndefined()
 		})
 	})
 

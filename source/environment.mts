@@ -52,6 +52,12 @@ export function parseEnvironment(env: Record<string, string | undefined> = Bun.e
 			throw new Error(`REPO must be in format 'owner/repo', got: ${repo}`)
 		}
 
+		const commentIdStr = env.COMMENT_ID
+		const commentId = commentIdStr ? Number.parseInt(commentIdStr, 10) : undefined
+		if (commentId !== undefined && Number.isNaN(commentId)) {
+			throw new Error(`COMMENT_ID must be a valid number, got: ${commentIdStr}`)
+		}
+
 		return {
 			mode: "github",
 			eventType,
@@ -63,6 +69,7 @@ export function parseEnvironment(env: Record<string, string | undefined> = Bun.e
 				owner,
 				repoName,
 				prNumber,
+				commentId,
 			},
 			agents,
 		}

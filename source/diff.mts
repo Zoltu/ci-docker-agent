@@ -1,11 +1,5 @@
 import type { PrFile } from "./github-types.mts"
 import { existsSync } from "node:fs"
-import { WORKSPACE_DIR } from "./paths.mts"
-
-export interface DiffResult {
-	files: PrFile[]
-}
-
 
 async function streamToString(stream: ReadableStream<Uint8Array>): Promise<string> {
 	const reader = stream.getReader()
@@ -19,18 +13,16 @@ async function streamToString(stream: ReadableStream<Uint8Array>): Promise<strin
 	return chunks.join("")
 }
 
-async function validateGitEnvironment(baseCommit: string, headCommit: string): Promise<void> {
-	// Check if .git directory exists
-	if (!existsSync(`${WORKSPACE_DIR}/.git`)) {
+async function validateGitEnvironment(baseCommit: string, headCommit: string, workspaceDir: string): Promise<void> {
+	if (!existsSync(`${workspaceDir}/.git`)) {
 		throw new Error(
-			`No git repository found at ${WORKSPACE_DIR}\n` +
+			`No git repository found at ${workspaceDir}\n` +
 			`Please ensure you are mounting a git repository to /github/workspace\n` +
 			`Example: docker run -v "$(pwd)":/github/workspace ci-agent:latest`
 		)
 	}
 
-	// Verify base commit exists
-	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { cwd: WORKSPACE_DIR, stderr: "pipe" })
+	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { cwd: workspaceDir, stderr: "pipe" })
 	await baseCheck.exited
 	if (baseCheck.exitCode !== 0) {
 		const stderrText = await streamToString(baseCheck.stderr)
@@ -41,8 +33,7 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string): P
 		)
 	}
 
-	// Verify head commit exists
-	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { cwd: WORKSPACE_DIR, stderr: "pipe" })
+	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { cwd: workspaceDir, stderr: "pipe" })
 	await headCheck.exited
 	if (headCheck.exitCode !== 0) {
 		const stderrText = await streamToString(headCheck.stderr)
@@ -54,30 +45,38 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string): P
 	}
 }
 
-export async function generateLocalDiff(baseCommit: string, headCommit: string): Promise<DiffResult> {
-	// Validate git environment before proceeding
-	await validateGitEnvironment(baseCommit, headCommit)
+export async function generateLocalDiff(baseCommit: string, headCommit: string, workspaceDir = "/github/workspace"): Promise<PrFile[]> {
+	await validateGitEnvironment(baseCommit, headCommit, workspaceDir)
 
-	// Get list of changed files
-	const fileListProcess = Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], {
-		cwd: WORKSPACE_DIR,
-		stderr: "pipe",
-	})
-	await fileListProcess.exited
-	if (fileListProcess.exitCode !== 0) {
-		const stderrText = await streamToString(fileListProcess.stderr)
-		const stdoutText = await streamToString(fileListProcess.stdout)
+	const nameStatusProcess = Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], { cwd: workspaceDir, stderr: "pipe" })
+	await nameStatusProcess.exited
+	if (nameStatusProcess.exitCode !== 0) {
+		const stderrText = await streamToString(nameStatusProcess.stderr)
+		const stdoutText = await streamToString(nameStatusProcess.stdout)
 		const errorOutput = stderrText || stdoutText || "Unknown error"
 		throw new Error(`Failed to get file list: ${errorOutput}`)
 	}
 
-	const fileList = await streamToString(fileListProcess.stdout)
-	if (!fileList.trim()) {
-		return { files: [] }
+	const nameStatusOutput = await streamToString(nameStatusProcess.stdout)
+	if (!nameStatusOutput.trim()) {
+		return []
 	}
 
+	const unifiedProcess = Bun.spawn(["git", "diff", "--unified=0", baseCommit, headCommit], {
+		cwd: workspaceDir,
+		stderr: "pipe",
+	})
+	await unifiedProcess.exited
+	if (unifiedProcess.exitCode !== 0) {
+		const stderrText = await streamToString(unifiedProcess.stderr)
+		throw new Error(`Failed to get unified diff: ${stderrText.trim()}`)
+	}
+
+	const unifiedOutput = await streamToString(unifiedProcess.stdout)
+	const patchByFile = parseUnifiedDiff(unifiedOutput)
+
 	const files: PrFile[] = []
-	const fileLines = fileList.split("\n")
+	const fileLines = nameStatusOutput.split("\n")
 
 	for (const line of fileLines) {
 		const parts = line.split("\t")
@@ -86,23 +85,9 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 		}
 
 		const status = parts[0]!
-		const filename = parts[1]!
+		const filename = parts.length >= 3 ? parts[2]! : parts[1]!
+		const patch = patchByFile.get(filename) ?? ""
 
-		// Get the patch for this file
-		const patchProcess = Bun.spawn([
-			"git",
-			"diff",
-			"--unified=0",
-			baseCommit,
-			headCommit,
-			"--",
-			filename,
-		], { cwd: WORKSPACE_DIR })
-		await patchProcess.exited
-
-		const patch = await streamToString(patchProcess.stdout)
-
-		// Count additions and deletions from the patch
 		let additions = 0
 		let deletions = 0
 		for (const patchLine of patch.split("\n")) {
@@ -119,17 +104,44 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string):
 			additions,
 			deletions,
 			changes: additions + deletions,
-			blob_url: "",
-			raw_url: "",
-			contents_url: "",
-			patch,
+			patch: patch || undefined,
 		})
 	}
 
-	return { files }
+	return files
 }
 
-function mapGitStatus(status: string): string {
+function parseUnifiedDiff(output: string): Map<string, string> {
+	const files = new Map<string, string>()
+	const lines = output.split("\n")
+	let currentFile: string | null = null
+	const currentPatch: string[] = []
+
+	for (const line of lines) {
+		const match = /^--- a\/(.+)$/.exec(line)
+		if (match) {
+			if (currentFile !== null) {
+				files.set(currentFile, currentPatch.join("\n"))
+			}
+			currentFile = match[1]!
+			currentPatch.length = 0
+			currentPatch.push(line)
+			continue
+		}
+
+		if (currentFile !== null) {
+			currentPatch.push(line)
+		}
+	}
+
+	if (currentFile !== null) {
+		files.set(currentFile, currentPatch.join("\n"))
+	}
+
+	return files
+}
+
+export function mapGitStatus(status: string): string {
 	switch (status) {
 		case "A":
 			return "added"

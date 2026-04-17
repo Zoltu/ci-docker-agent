@@ -1,7 +1,11 @@
 import { describe, it, expect } from "bun:test"
 import { buildAgentPrompt } from "../source/agents.mts"
-import type { Agent, AgentDirs } from "../source/agents.mts"
+import type { Agent } from "../source/agents.mts"
 import type { PrFile } from "../source/github-types.mts"
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+
+const PROJECT_ROOT = join(import.meta.dir, "..")
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
 	return { name: "TestAgent", prompt: "Review the code.", ...overrides }
@@ -14,9 +18,6 @@ function makePrFile(overrides: Partial<PrFile> = {}): PrFile {
 		additions: 5,
 		deletions: 2,
 		changes: 7,
-		blob_url: "",
-		raw_url: "",
-		contents_url: "",
 		patch: "@@ -1,2 +1,5 @@\n-old line\n+new line",
 		...overrides,
 	}
@@ -107,14 +108,12 @@ describe("buildAgentPrompt", () => {
 	})
 })
 
-describe("AgentDirs", () => {
-	it("has expected shape", () => {
-		const dirs: AgentDirs = {
-			userAgentsDir: "/tmp/user-agents",
-			builtinAgentsDir: "/tmp/builtin-agents",
-		}
+describe("required builtin agents", () => {
+	it("has a Default.md agent in the agents directory", () => {
+		expect(existsSync(join(PROJECT_ROOT, "agents", "Default.md"))).toBe(true)
+	})
 
-		expect(dirs.userAgentsDir).toBe("/tmp/user-agents")
-		expect(dirs.builtinAgentsDir).toBe("/tmp/builtin-agents")
+	it("has an Aggregator.md agent in the agents directory", () => {
+		expect(existsSync(join(PROJECT_ROOT, "agents", "Aggregator.md"))).toBe(true)
 	})
 })

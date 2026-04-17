@@ -37,7 +37,6 @@ export function formatReviewForConsole(aiResult: AiReviewResult, files: PrFile[]
 		})
 	}
 
-	// Include file summary
 	lines.push("", "### Files Analyzed")
 	files.forEach(file => {
 		lines.push(

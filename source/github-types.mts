@@ -1,14 +1,12 @@
-// GitHub API types for PR reviews
-
 export interface PrFile {
 	filename: string
 	status: string
 	additions: number
 	deletions: number
 	changes: number
-	blob_url: string
-	raw_url: string
-	contents_url: string
+	// blob_url: string
+	// raw_url: string
+	// contents_url: string
 	patch?: string
 }
 
@@ -32,4 +30,5 @@ export interface GitHubConfig {
 	owner: string
 	repoName: string
 	prNumber: number
+	commentId?: number
 }

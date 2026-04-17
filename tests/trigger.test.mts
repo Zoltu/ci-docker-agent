@@ -35,12 +35,16 @@ describe("shouldRunCI", () => {
 			expect(shouldRunCI("issue_comment", "hello world")).toEqual({ shouldRun: false, agentNames: [] })
 		})
 
-		it("returns true when comment contains /review", () => {
-			expect(shouldRunCI("issue_comment", "please /review")).toEqual({ shouldRun: true, agentNames: [] })
+		it("returns false when /review is not at start of line", () => {
+			expect(shouldRunCI("issue_comment", "please /review")).toEqual({ shouldRun: false, agentNames: [] })
 		})
 
-		it("returns true when comment contains /review with agents", () => {
-			expect(shouldRunCI("issue_comment", "run /review SecurityAgent, StyleAgent")).toEqual({
+		it("returns true when comment starts with /review", () => {
+			expect(shouldRunCI("issue_comment", "/review")).toEqual({ shouldRun: true, agentNames: [] })
+		})
+
+		it("returns true when comment starts with /review with agents", () => {
+			expect(shouldRunCI("issue_comment", "/review SecurityAgent, StyleAgent")).toEqual({
 				shouldRun: true,
 				agentNames: ["SecurityAgent", "StyleAgent"],
 			})
