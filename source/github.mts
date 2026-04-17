@@ -22,10 +22,8 @@ export async function fetchPrFiles(config: GitHubConfig): Promise<PrFile[]> {
 	const { apiUrl, token, owner, repoName, prNumber } = config
 
 	const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/files`, {
-		headers: {
-			Authorization: `token ${token}`,
-			Accept: "application/vnd.github.v3+json",
-		},
+		method: "GET",
+		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" }
 	})
 
 	if (!response.ok) {
@@ -46,11 +44,7 @@ export async function submitReview(config: GitHubConfig, review: GitHubReviewPay
 
 	const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/reviews`, {
 		method: "POST",
-		headers: {
-			Authorization: `token ${token}`,
-			Accept: "application/vnd.github.v3+json",
-			"Content-Type": "application/json",
-		},
+		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" },
 		body: JSON.stringify(review),
 	})
 
@@ -65,11 +59,7 @@ export async function reactToComment(config: GitHubConfig, commentId: number, co
 
 	const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/issues/comments/${commentId}/reactions`, {
 		method: "POST",
-		headers: {
-			Authorization: `token ${token}`,
-			Accept: "application/vnd.github.v3+json",
-			"Content-Type": "application/json",
-		},
+		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" },
 		body: JSON.stringify({ content }),
 	})
 
