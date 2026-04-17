@@ -1,25 +1,12 @@
 import type { PrFile, GitHubReviewPayload } from "./github-types.mts"
 
-export interface AiReviewResult {
-	summary: string
-	lineComments: Array<{
-		path: string
-		line: number
-		side: "LEFT" | "RIGHT"
-		comment: string
-	}>
-}
+export type AiReviewResult = Omit<GitHubReviewPayload, "event">
 
 export function buildReviewPayload(aiResult: AiReviewResult): GitHubReviewPayload {
 	return {
 		event: "COMMENT",
-		body: `## CI Agent Review\n\n${aiResult.summary}`,
-		comments: aiResult.lineComments.map(comment => ({
-			path: comment.path,
-			line: comment.line,
-			side: comment.side,
-			body: comment.comment,
-		})),
+		body: `## CI Agent Review\n\n${aiResult.body}`,
+		comments: aiResult.comments,
 	}
 }
 
@@ -27,13 +14,13 @@ export function formatReviewForConsole(aiResult: AiReviewResult, files: PrFile[]
 	const lines = [
 		"## CI Agent Review",
 		"",
-		aiResult.summary,
+		aiResult.body,
 	]
 
-	if (aiResult.lineComments.length > 0) {
+	if (aiResult.comments.length > 0) {
 		lines.push("", "### Line Comments")
-		aiResult.lineComments.forEach(comment => {
-			lines.push(`- ${comment.path}:${comment.line} (${comment.side}): ${comment.comment}`)
+		aiResult.comments.forEach(comment => {
+			lines.push(`- ${comment.path}:${comment.line} (${comment.side}): ${comment.body}`)
 		})
 	}
 

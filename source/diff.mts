@@ -111,20 +111,31 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 	return files
 }
 
-function parseUnifiedDiff(output: string): Map<string, string> {
+export function parseUnifiedDiff(output: string): Map<string, string> {
 	const files = new Map<string, string>()
 	const lines = output.split("\n")
 	let currentFile: string | null = null
 	const currentPatch: string[] = []
 
+	function saveCurrentFile(): void {
+		if (currentFile !== null) {
+			files.set(currentFile, currentPatch.join("\n"))
+		}
+	}
+
 	for (const line of lines) {
-		const match = /^--- a\/(.+)$/.exec(line)
-		if (match) {
-			if (currentFile !== null) {
-				files.set(currentFile, currentPatch.join("\n"))
-			}
-			currentFile = match[1]!
+		const fromMatch = /^--- (?:a\/(.+)|\/dev\/null)$/.exec(line)
+		if (fromMatch) {
+			saveCurrentFile()
+			currentFile = fromMatch[1] ?? null
 			currentPatch.length = 0
+			currentPatch.push(line)
+			continue
+		}
+
+		const toMatch = /^\+\+\+ b\/(.+)$/.exec(line)
+		if (toMatch) {
+			currentFile = toMatch[1]!
 			currentPatch.push(line)
 			continue
 		}
@@ -134,15 +145,13 @@ function parseUnifiedDiff(output: string): Map<string, string> {
 		}
 	}
 
-	if (currentFile !== null) {
-		files.set(currentFile, currentPatch.join("\n"))
-	}
+	saveCurrentFile()
 
 	return files
 }
 
 export function mapGitStatus(status: string): string {
-	switch (status) {
+	switch (status[0] ?? "") {
 		case "A":
 			return "added"
 		case "D":

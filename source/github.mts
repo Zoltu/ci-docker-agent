@@ -9,7 +9,7 @@ export function isPrFile(value: unknown): value is PrFile {
 	if (!("additions" in obj) || typeof obj.additions !== "number") return false
 	if (!("deletions" in obj) || typeof obj.deletions !== "number") return false
 	if (!("changes" in obj) || typeof obj.changes !== "number") return false
-	if ("patch" in obj && typeof obj.patch !== "string") return false
+	if ("patch" in obj && obj.patch !== undefined && typeof obj.patch !== "string") return false
 	return true
 }
 

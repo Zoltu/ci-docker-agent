@@ -1,4 +1,4 @@
-import type { PrFile } from "./github-types.mts"
+import type { PrFile, LineComment } from "./github-types.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 
@@ -16,7 +16,7 @@ async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<string,
 
 	console.log(`Running agent: ${agent.name}`)
 
-	const placeholderOutput = JSON.stringify({ summary: `${agent.name} placeholder output - AI integration not yet implemented`, lineComments: [] })
+	const placeholderOutput = JSON.stringify({ body: `${agent.name} placeholder output - AI integration not yet implemented`, comments: [] })
 
 	return {
 		name: agent.name,
@@ -52,14 +52,14 @@ function extractAggregatorOutput(results: AgentResult[]): string {
 	return aggregatorResult.output
 }
 
-function isValidLineComment(value: unknown): value is AiReviewResult["lineComments"][number] {
+function isValidLineComment(value: unknown): value is LineComment {
 	if (typeof value !== "object") return false
 	if (value === null) return false
 	const obj = value
 	if (!("path" in obj) || typeof obj.path !== "string") return false
 	if (!("line" in obj) || typeof obj.line !== "number") return false
 	if (!("side" in obj) || (obj.side !== "LEFT" && obj.side !== "RIGHT")) return false
-	if (!("comment" in obj) || typeof obj.comment !== "string") return false
+	if (!("body" in obj) || typeof obj.body !== "string") return false
 	return true
 }
 
@@ -67,9 +67,9 @@ function isValidAiReviewResult(data: unknown): data is AiReviewResult {
 	if (typeof data !== "object") return false
 	if (data === null) return false
 	const obj = data
-	if (!("summary" in obj) || typeof obj.summary !== "string") return false
-	if (!("lineComments" in obj) || !Array.isArray(obj.lineComments)) return false
-	if (!obj.lineComments.every(isValidLineComment)) return false
+	if (!("body" in obj) || typeof obj.body !== "string") return false
+	if (!("comments" in obj) || !Array.isArray(obj.comments)) return false
+	if (!obj.comments.every(isValidLineComment)) return false
 	return true
 }
 

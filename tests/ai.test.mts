@@ -2,36 +2,36 @@ import { describe, it, expect } from "bun:test"
 import { parseAggregatorOutput } from "../source/ai.mts"
 
 describe("parseAggregatorOutput", () => {
-	it("parses valid JSON with summary and lineComments", () => {
+	it("parses valid JSON with body and comments", () => {
 		const output = JSON.stringify({
-			summary: "Looks good",
-			lineComments: [
-				{ path: "src/file.ts", line: 10, side: "RIGHT", comment: "Fix this" },
+			body: "Looks good",
+			comments: [
+				{ path: "src/file.ts", line: 10, side: "RIGHT", body: "Fix this" },
 			],
 		})
 
 		const result = parseAggregatorOutput(output)
 
-		expect(result.summary).toBe("Looks good")
-		expect(result.lineComments).toHaveLength(1)
-		expect(result.lineComments[0]).toEqual({
+		expect(result.body).toBe("Looks good")
+		expect(result.comments).toHaveLength(1)
+		expect(result.comments[0]).toEqual({
 			path: "src/file.ts",
 			line: 10,
 			side: "RIGHT",
-			comment: "Fix this",
+			body: "Fix this",
 		})
 	})
 
-	it("parses valid JSON with empty lineComments", () => {
+	it("parses valid JSON with empty comments", () => {
 		const output = JSON.stringify({
-			summary: "No issues found",
-			lineComments: [],
+			body: "No issues found",
+			comments: [],
 		})
 
 		const result = parseAggregatorOutput(output)
 
-		expect(result.summary).toBe("No issues found")
-		expect(result.lineComments).toEqual([])
+		expect(result.body).toBe("No issues found")
+		expect(result.comments).toEqual([])
 	})
 
 	it("throws SyntaxError when output is not valid JSON", () => {
@@ -50,32 +50,32 @@ describe("parseAggregatorOutput", () => {
 		)
 	})
 
-	it("throws when summary is not a string", () => {
-		const output = JSON.stringify({ summary: 123, lineComments: [] })
+	it("throws when body is not a string", () => {
+		const output = JSON.stringify({ body: 123, comments: [] })
 
 		expect(() => parseAggregatorOutput(output)).toThrow(
 			"Parsed output does not match expected AiReviewResult shape"
 		)
 	})
 
-	it("throws when lineComments is not an array", () => {
-		const output = JSON.stringify({ summary: "test", lineComments: "not array" })
+	it("throws when comments is not an array", () => {
+		const output = JSON.stringify({ body: "test", comments: "not array" })
 
 		expect(() => parseAggregatorOutput(output)).toThrow(
 			"Parsed output does not match expected AiReviewResult shape"
 		)
 	})
 
-	it("throws when lineComments is missing", () => {
-		const output = JSON.stringify({ summary: "test" })
+	it("throws when comments is missing", () => {
+		const output = JSON.stringify({ body: "test" })
 
 		expect(() => parseAggregatorOutput(output)).toThrow(
 			"Parsed output does not match expected AiReviewResult shape"
 		)
 	})
 
-	it("throws when summary is missing", () => {
-		const output = JSON.stringify({ lineComments: [] })
+	it("throws when body is missing", () => {
+		const output = JSON.stringify({ comments: [] })
 
 		expect(() => parseAggregatorOutput(output)).toThrow(
 			"Parsed output does not match expected AiReviewResult shape"

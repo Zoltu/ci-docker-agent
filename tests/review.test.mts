@@ -5,8 +5,8 @@ import type { PrFile } from "../source/github-types.mts"
 describe("buildReviewPayload", () => {
 	it("creates a review payload with COMMENT event", () => {
 		const aiResult: AiReviewResult = {
-			summary: "Test summary",
-			lineComments: [],
+			body: "Test summary",
+			comments: [],
 		}
 
 		const payload = buildReviewPayload(aiResult)
@@ -19,19 +19,19 @@ describe("buildReviewPayload", () => {
 
 	it("includes line comments in the payload", () => {
 		const aiResult: AiReviewResult = {
-			summary: "Test summary",
-			lineComments: [
+			body: "Test summary",
+			comments: [
 				{
 					path: "src/file.ts",
 					line: 42,
 					side: "RIGHT",
-					comment: "This is a comment",
+					body: "This is a comment",
 				},
 				{
 					path: "src/other.ts",
 					line: 10,
 					side: "LEFT",
-					comment: "Another comment",
+					body: "Another comment",
 				},
 			],
 		}
@@ -57,8 +57,8 @@ describe("buildReviewPayload", () => {
 describe("formatReviewForConsole", () => {
 	it("formats review with no line comments and no files", () => {
 		const aiResult: AiReviewResult = {
-			summary: "Test summary",
-			lineComments: [],
+			body: "Test summary",
+			comments: [],
 		}
 
 		const files: PrFile[] = []
@@ -72,13 +72,13 @@ describe("formatReviewForConsole", () => {
 
 	it("formats review with line comments", () => {
 		const aiResult: AiReviewResult = {
-			summary: "Test summary",
-			lineComments: [
+			body: "Test summary",
+			comments: [
 				{
 					path: "src/file.ts",
 					line: 42,
 					side: "RIGHT",
-					comment: "This is a comment",
+					body: "This is a comment",
 				},
 			],
 		}
@@ -94,19 +94,19 @@ describe("formatReviewForConsole", () => {
 
 	it("formats multiple line comments", () => {
 		const aiResult: AiReviewResult = {
-			summary: "Test summary",
-			lineComments: [
+			body: "Test summary",
+			comments: [
 				{
 					path: "file1.ts",
 					line: 1,
 					side: "RIGHT",
-					comment: "Comment 1",
+					body: "Comment 1",
 				},
 				{
 					path: "file2.ts",
 					line: 2,
 					side: "LEFT",
-					comment: "Comment 2",
+					body: "Comment 2",
 				},
 			],
 		}
@@ -120,8 +120,8 @@ describe("formatReviewForConsole", () => {
 
 	it("includes file summary in output", () => {
 		const aiResult: AiReviewResult = {
-			summary: "Test summary",
-			lineComments: [],
+			body: "Test summary",
+			comments: [],
 		}
 
 		const files: PrFile[] = [

@@ -28,7 +28,6 @@ jobs:
           GITHUB_API_URL: https://api.github.com
           PR_NUMBER: ${{ github.event.issue?.number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-          GITHUB_SHA: ${{ github.sha }}
           EVENT_TYPE: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment?.body }}
           COMMENT_ID: ${{ github.event.comment?.id }}

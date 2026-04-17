@@ -36,13 +36,13 @@ You must return your analysis in the following JSON format:
 
 ```json
 {
-  "summary": "A concise overall assessment of the changeset (max 200 characters)",
-  "lineComments": [
+  "body": "A concise overall assessment of the changeset",
+  "comments": [
     {
       "path": "relative/path/to/file.ext",
       "line": 42,
       "side": "RIGHT",
-      "comment": "Specific feedback about this line or block of code"
+      "body": "Specific feedback about this line or block of code"
     }
   ]
 }
@@ -50,19 +50,18 @@ You must return your analysis in the following JSON format:
 
 ## Field Descriptions
 
-### `summary` (required)
+### `body` (required)
 - A brief overall assessment synthesizing all agent feedback
-- Maximum 200 characters
 - Should capture the main takeaways from all agents
 - Highlight any critical issues mentioned by multiple agents
 
-### `lineComments` (required, can be empty array)
+### `comments` (required, can be empty array)
 - Array of deduplicated line-specific comments
 - Each comment object must include:
   - `path`: The file path relative to the repository root (must match exactly)
   - `line`: The line number in the **modified** file (1-indexed)
   - `side`: Either `"RIGHT"` (new code) or `"LEFT"` (old code being removed)
-  - `comment`: The consolidated feedback text (max 500 characters)
+  - `body`: The consolidated feedback text
 
 ## Deduplication Rules
 
@@ -100,13 +99,13 @@ The query in src/database/query.ts:23 could be optimized by adding an index on t
 
 ```json
 {
-  "summary": "Critical: SQL injection vulnerability detected. Multiple agents recommend using parameterized queries.",
-  "lineComments": [
+  "body": "Critical: SQL injection vulnerability detected. Multiple agents recommend using parameterized queries.",
+  "comments": [
     {
       "path": "src/database/query.ts",
       "line": 23,
       "side": "RIGHT",
-      "comment": "Security issue: User input is directly concatenated into query string. Use parameterized queries to prevent SQL injection. Also consider adding an index on user_id for performance and using more descriptive function names."
+      "body": "Security issue: User input is directly concatenated into query string. Use parameterized queries to prevent SQL injection. Also consider adding an index on user_id for performance and using more descriptive function names."
     }
   ]
 }
@@ -114,8 +113,5 @@ The query in src/database/query.ts:23 could be optimized by adding an index on t
 
 ## Constraints
 
-- Maximum 20 line comments per review (GitHub API limit)
-- Each comment body must be under 500 characters
 - File paths must exactly match the paths returned by the GitHub API
 - Only comment on files that are actually in the PR changeset
-- The summary must be under 200 characters

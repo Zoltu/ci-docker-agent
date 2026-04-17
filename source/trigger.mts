@@ -31,11 +31,4 @@ function parseAgentList(rest: string): string[] {
 	return rest.split(",").map(n => n.trim()).filter(n => n.length > 0)
 }
 
-export function extractAgentNames(commentBody: string): string[] {
-	const match = /^\/review\s*(.*)/m.exec(commentBody)
-	if (!match) {
-		return []
-	}
 
-	return parseAgentList(match[1]!.trim())
-}
