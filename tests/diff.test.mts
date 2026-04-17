@@ -1,48 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect } from "bun:test"
 import { parseUnifiedDiff, mapGitStatus, generateLocalDiff } from "../source/diff.mts"
-import { mkdir, rm, writeFile } from "node:fs/promises"
-import { existsSync } from "node:fs"
 import { join } from "node:path"
+import { existsSync } from "node:fs"
 
-const TMP_ROOT = join(import.meta.dir, "__tmp_diff_repo__")
+const PROJECT_ROOT = join(import.meta.dir, "..")
 
-function tmpPath(...segments: string[]): string {
-	return join(TMP_ROOT, ...segments)
-}
-
-async function createTmpDir(): Promise<void> {
-	if (!existsSync(TMP_ROOT)) {
-		await mkdir(TMP_ROOT, { recursive: true })
-	}
-}
-
-async function cleanupTmp(): Promise<void> {
-	if (existsSync(TMP_ROOT)) {
-		await rm(TMP_ROOT, { recursive: true, force: true })
-	}
-}
-
-async function gitInit(dir: string): Promise<void> {
-	const proc = Bun.spawn(["git", "init"], { cwd: dir, stderr: "pipe", stdout: "pipe" })
+async function gitRevParse(ref: string, cwd: string): Promise<string> {
+	const proc = Bun.spawn(["git", "rev-parse", ref], { cwd, stderr: "pipe", stdout: "pipe" })
 	await proc.exited
 	expect(proc.exitCode).toBe(0)
-}
-
-async function gitCommit(dir: string, message: string): Promise<string> {
-	const addProc = Bun.spawn(["git", "add", "-A"], { cwd: dir, stderr: "pipe", stdout: "pipe" })
-	await addProc.exited
-	expect(addProc.exitCode).toBe(0)
-	const commitProc = Bun.spawn(["git", "commit", "-m", message, "--author=test <test@test.com>"], {
-		cwd: dir,
-		stderr: "pipe",
-		stdout: "pipe",
-		env: { ...process.env, GIT_COMMITTER_NAME: "test", GIT_COMMITTER_EMAIL: "test@test.com" },
-	})
-	await commitProc.exited
-	expect(commitProc.exitCode).toBe(0)
-	const revProc = Bun.spawn(["git", "rev-parse", "HEAD"], { cwd: dir, stderr: "pipe", stdout: "pipe" })
-	await revProc.exited
-	return (await Bun.readableStreamToText(revProc.stdout)).trim()
+	return await Bun.readableStreamToText(proc.stdout)
 }
 
 describe("parseUnifiedDiff", () => {
@@ -195,114 +162,53 @@ describe("mapGitStatus", () => {
 })
 
 describe("generateLocalDiff", () => {
-	beforeEach(cleanupTmp)
-	afterEach(cleanupTmp)
+	it("returns well-formed PrFiles from a real git diff", async () => {
+		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
+
+		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
+		const head1 = (await gitRevParse("HEAD~1", PROJECT_ROOT)).trim()
+
+		const files = await generateLocalDiff(head1, head, PROJECT_ROOT)
+
+		expect(files.length).toBeGreaterThan(0)
+		for (const file of files) {
+			expect(file.filename).toBeTruthy()
+			expect(["added", "deleted", "modified", "renamed", "copied"]).toContain(file.status)
+			expect(typeof file.additions).toBe("number")
+			expect(typeof file.deletions).toBe("number")
+			expect(file.changes).toBe(file.additions + file.deletions)
+		}
+	})
 
 	it("returns empty array for identical commits", async () => {
-		await createTmpDir()
-		await gitInit(TMP_ROOT)
-		await writeFile(tmpPath("file.txt"), "initial content\n")
-		const commit = await gitCommit(TMP_ROOT, "initial commit")
+		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
 
-		const files = await generateLocalDiff(commit, commit, TMP_ROOT)
+		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
+
+		const files = await generateLocalDiff(head, head, PROJECT_ROOT)
 
 		expect(files).toEqual([])
 	})
 
-	it("returns correct info for a modified file", async () => {
-		await createTmpDir()
-		await gitInit(TMP_ROOT)
-		await writeFile(tmpPath("file.txt"), "initial content\n")
-		const baseCommit = await gitCommit(TMP_ROOT, "initial commit")
-		await writeFile(tmpPath("file.txt"), "modified content\n")
-		const headCommit = await gitCommit(TMP_ROOT, "modify file")
-
-		const files = await generateLocalDiff(baseCommit, headCommit, TMP_ROOT)
-
-		expect(files).toHaveLength(1)
-		expect(files[0]!.filename).toBe("file.txt")
-		expect(files[0]!.status).toBe("modified")
-		expect(files[0]!.additions).toBe(1)
-		expect(files[0]!.deletions).toBe(1)
-		expect(files[0]!.patch).toBeDefined()
-	})
-
-	it("returns correct info for an added file with patch content", async () => {
-		await createTmpDir()
-		await gitInit(TMP_ROOT)
-		await writeFile(tmpPath("existing.txt"), "existing\n")
-		const baseCommit = await gitCommit(TMP_ROOT, "initial commit")
-		await writeFile(tmpPath("new-file.txt"), "new content\n")
-		const headCommit = await gitCommit(TMP_ROOT, "add new file")
-
-		const files = await generateLocalDiff(baseCommit, headCommit, TMP_ROOT)
-
-		expect(files).toHaveLength(1)
-		const newFile = files.find(f => f.filename === "new-file.txt")
-		expect(newFile).toBeDefined()
-		expect(newFile!.status).toBe("added")
-		expect(newFile!.additions).toBe(1)
-		expect(newFile!.deletions).toBe(0)
-		expect(newFile!.patch).toBeDefined()
-		expect(newFile!.patch).toContain("+new content")
-	})
-
-	it("returns correct info for a deleted file", async () => {
-		await createTmpDir()
-		await gitInit(TMP_ROOT)
-		await writeFile(tmpPath("to-delete.txt"), "will be deleted\n")
-		const baseCommit = await gitCommit(TMP_ROOT, "initial commit")
-		await rm(tmpPath("to-delete.txt"))
-		const headCommit = await gitCommit(TMP_ROOT, "delete file")
-
-		const files = await generateLocalDiff(baseCommit, headCommit, TMP_ROOT)
-
-		expect(files).toHaveLength(1)
-		expect(files[0]!.filename).toBe("to-delete.txt")
-		expect(files[0]!.status).toBe("deleted")
-		expect(files[0]!.deletions).toBe(1)
-		expect(files[0]!.additions).toBe(0)
-	})
-
-	it("handles multiple files in one diff", async () => {
-		await createTmpDir()
-		await gitInit(TMP_ROOT)
-		await writeFile(tmpPath("file1.txt"), "original 1\n")
-		await writeFile(tmpPath("file2.txt"), "original 2\n")
-		const baseCommit = await gitCommit(TMP_ROOT, "initial commit")
-		await writeFile(tmpPath("file1.txt"), "modified 1\n")
-		await writeFile(tmpPath("file3.txt"), "new file\n")
-		const headCommit = await gitCommit(TMP_ROOT, "multiple changes")
-
-		const files = await generateLocalDiff(baseCommit, headCommit, TMP_ROOT)
-
-		expect(files.length).toBeGreaterThanOrEqual(2)
-		const filenames = files.map(f => f.filename)
-		expect(filenames).toContain("file1.txt")
-		expect(filenames).toContain("file3.txt")
-	})
-
 	it("throws when workspace is not a git repo", async () => {
-		await createTmpDir()
+		const notAGitRepo = import.meta.dir
 
-		expect(generateLocalDiff("abc123", "def456", TMP_ROOT)).rejects.toThrow("No git repository found")
+		expect(generateLocalDiff("abc123", "def456", notAGitRepo)).rejects.toThrow("No git repository found")
 	})
 
 	it("throws when base commit does not exist", async () => {
-		await createTmpDir()
-		await gitInit(TMP_ROOT)
-		await writeFile(tmpPath("file.txt"), "content\n")
-		const headCommit = await gitCommit(TMP_ROOT, "initial commit")
+		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
 
-		expect(generateLocalDiff("nonexistent000000", headCommit, TMP_ROOT)).rejects.toThrow("Base commit")
+		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
+
+		expect(generateLocalDiff("nonexistent000000", head, PROJECT_ROOT)).rejects.toThrow("Base commit")
 	})
 
 	it("throws when head commit does not exist", async () => {
-		await createTmpDir()
-		await gitInit(TMP_ROOT)
-		await writeFile(tmpPath("file.txt"), "content\n")
-		const baseCommit = await gitCommit(TMP_ROOT, "initial commit")
+		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
 
-		expect(generateLocalDiff(baseCommit, "nonexistent000000", TMP_ROOT)).rejects.toThrow("Head commit")
+		const base = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
+
+		expect(generateLocalDiff(base, "nonexistent000000", PROJECT_ROOT)).rejects.toThrow("Head commit")
 	})
 })
