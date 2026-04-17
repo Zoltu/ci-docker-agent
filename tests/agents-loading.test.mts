@@ -132,21 +132,6 @@ describe("loadAgents", () => {
 		expect(result.agents[0]!.name).toBe("Default")
 	})
 
-	it("reports Default as unresolved when no agents found and no names specified", async () => {
-		const userDir = "/user"
-		const builtinDir = "/builtins"
-		const dirs: AgentDirs = { userAgentsDir: userDir, builtinAgentsDir: builtinDir }
-		const readAgents = mockReader(new Map([
-			[userDir, []],
-			[builtinDir, []],
-		]))
-
-		const result = await loadAgents([], dirs, readAgents)
-
-		expect(result.agents).toEqual([])
-		expect(result.unresolvedNames).toEqual(["Default"])
-	})
-
 	it("resolves agent names case-insensitively", async () => {
 		const userDir = "/user"
 		const builtinDir = "/builtins"
@@ -190,8 +175,7 @@ describe("loadAggregator", () => {
 
 		const aggregator = await loadAggregator(dirs, readAgents)
 
-		expect(aggregator).not.toBeNull()
-		expect(aggregator!.prompt).toBe("User aggregator")
+		expect(aggregator.prompt).toBe("User aggregator")
 	})
 
 	it("returns builtin aggregator when no user aggregator exists", async () => {
@@ -205,22 +189,7 @@ describe("loadAggregator", () => {
 
 		const aggregator = await loadAggregator(dirs, readAgents)
 
-		expect(aggregator).not.toBeNull()
-		expect(aggregator!.prompt).toBe("Builtin aggregator")
-	})
-
-	it("returns null when no aggregator exists anywhere", async () => {
-		const userDir = "/user"
-		const builtinDir = "/builtins"
-		const dirs: AgentDirs = { userAgentsDir: userDir, builtinAgentsDir: builtinDir }
-		const readAgents = mockReader(new Map([
-			[userDir, [{ name: "SecurityAgent", prompt: "Security prompt" }]],
-			[builtinDir, [{ name: "Default", prompt: "Default prompt" }]],
-		]))
-
-		const aggregator = await loadAggregator(dirs, readAgents)
-
-		expect(aggregator).toBeNull()
+		expect(aggregator.prompt).toBe("Builtin aggregator")
 	})
 
 	it("matches aggregator case-insensitively", async () => {
@@ -234,21 +203,6 @@ describe("loadAggregator", () => {
 
 		const aggregator = await loadAggregator(dirs, readAgents)
 
-		expect(aggregator).not.toBeNull()
-		expect(aggregator!.name).toBe("aggregator")
-	})
-
-	it("returns null when no agents found in either directory", async () => {
-		const userDir = "/user"
-		const builtinDir = "/builtins"
-		const dirs: AgentDirs = { userAgentsDir: userDir, builtinAgentsDir: builtinDir }
-		const readAgents = mockReader(new Map([
-			[userDir, []],
-			[builtinDir, []],
-		]))
-
-		const aggregator = await loadAggregator(dirs, readAgents)
-
-		expect(aggregator).toBeNull()
+		expect(aggregator.name).toBe("aggregator")
 	})
 })

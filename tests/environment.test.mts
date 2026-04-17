@@ -238,5 +238,47 @@ describe("parseEnvironment", () => {
 				BASE_COMMIT: "abc123",
 			})).toThrow("Invalid configuration")
 		})
+
+		it("throws when agents specified via both AGENTS env and /review trigger", () => {
+			expect(() => parseEnvironment({
+				BASE_COMMIT: "abc123",
+				HEAD_COMMIT: "def456",
+				AGENTS: "SecurityAgent",
+				COMMENT_BODY: "/review StyleAgent",
+			})).toThrow("Cannot specify agents via both AGENTS environment variable and /review trigger command")
+		})
+
+		it("allows AGENTS env when comment body has no /review trigger", () => {
+			const config = parseEnvironment({
+				BASE_COMMIT: "abc123",
+				HEAD_COMMIT: "def456",
+				AGENTS: "SecurityAgent",
+				COMMENT_BODY: "just a comment",
+			})
+
+			expect(config.agents).toEqual(["SecurityAgent"])
+		})
+
+		it("allows /review trigger when AGENTS env is empty", () => {
+			const config = parseEnvironment({
+				BASE_COMMIT: "abc123",
+				HEAD_COMMIT: "def456",
+				AGENTS: "",
+				COMMENT_BODY: "/review SecurityAgent",
+			})
+
+			expect(config.agents).toEqual([])
+		})
+
+		it("allows AGENTS env with bare /review (no agent names)", () => {
+			const config = parseEnvironment({
+				BASE_COMMIT: "abc123",
+				HEAD_COMMIT: "def456",
+				AGENTS: "SecurityAgent",
+				COMMENT_BODY: "/review",
+			})
+
+			expect(config.agents).toEqual(["SecurityAgent"])
+		})
 	})
 })

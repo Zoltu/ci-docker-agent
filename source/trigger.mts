@@ -1,8 +1,3 @@
-export interface TriggerResult {
-	shouldRun: boolean
-	agentNames: string[]
-}
-
 import type { EventType } from "./environment.mts"
 
 export function shouldRunCI(eventType: EventType, commentBody: string | null): { shouldRun: boolean, agentNames: string[] } {

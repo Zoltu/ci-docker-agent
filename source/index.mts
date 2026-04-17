@@ -37,9 +37,6 @@ async function main(): Promise<void> {
 	}
 
 	const aggregator = await loadAggregator()
-	if (!aggregator) {
-		throw new Error("No aggregator agent found. A builtin Aggregator.md must exist in the agents directory.")
-	}
 
 	console.log(`Loaded ${loadedAgents.length} agents: ${loadedAgents.map(a => a.name).join(", ")}`)
 	console.log(`Using aggregator: ${aggregator.name}`)
@@ -54,6 +51,11 @@ async function main(): Promise<void> {
 		console.log("Base commit:", config.localDiff.baseCommit)
 		console.log("Head commit:", config.localDiff.headCommit)
 		files = await generateLocalDiff(config.localDiff.baseCommit, config.localDiff.headCommit)
+	}
+
+	if (files.length === 0) {
+		console.log("No files changed, nothing to review")
+		return
 	}
 
 	const aiClient = createAiClient()

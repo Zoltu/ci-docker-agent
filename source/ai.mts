@@ -1,6 +1,8 @@
 import type { PrFile, LineComment } from "./github-types.mts"
+import { SIDES } from "./github-types.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
+import { includes } from "./typescript-helpers.mts"
 
 interface AgentResult {
 	name: string
@@ -54,7 +56,7 @@ function isValidLineComment(value: unknown): value is LineComment {
 	if (value === null) return false
 	if (!("path" in value) || typeof value.path !== "string") return false
 	if (!("line" in value) || typeof value.line !== "number" || !Number.isInteger(value.line) || value.line < 1) return false
-	if (!("side" in value) || (value.side !== "LEFT" && value.side !== "RIGHT")) return false
+	if (!("side" in value) || typeof value.side !== "string" || !includes(SIDES, value.side)) return false
 	if (!("body" in value) || typeof value.body !== "string") return false
 	return true
 }

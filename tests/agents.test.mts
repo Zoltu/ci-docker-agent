@@ -188,11 +188,4 @@ describe("resolveAgents", () => {
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("Default")
 	})
-
-	it("reports Default as unresolved when not found anywhere", () => {
-		const result = resolveAgents([], [], [])
-
-		expect(result.agents).toEqual([])
-		expect(result.unresolvedNames).toEqual(["Default"])
-	})
 })

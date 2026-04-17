@@ -82,10 +82,10 @@ Each markdown file should contain instructions for that agent. The filename (wit
 ### Agent Resolution
 
 Agents are resolved in the following order:
-1. User-provided agents in `/github/workspace/.ci-agents/` (case-sensitive)
-2. Builtin agents in `/github/workspace/agents/` (case-sensitive)
+1. User-provided agents in `/github/workspace/.ci-agents/` (case-insensitive)
+2. Builtin agents in `/github/workspace/agents/` (case-insensitive)
 
-If an agent is not found, a warning is logged and it is skipped.
+If an agent is not found, the process exits with a fatal error.
 
 ### The Aggregator Agent
 

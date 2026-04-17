@@ -1,15 +1,16 @@
 import type { GitHubConfig } from "./github-types.mts"
+import { includes } from "./typescript-helpers.mts"
 
 export type ExecutionMode = "github" | "local-diff"
 
-export type EventType = "pull_request_target" | "workflow_dispatch" | "issue_comment" | "local"
+const EVENT_TYPES = ["pull_request_target", "workflow_dispatch", "issue_comment", "local"] as const
 
-const VALID_EVENT_TYPES: readonly EventType[] = ["pull_request_target", "workflow_dispatch", "issue_comment", "local"]
+export type EventType = typeof EVENT_TYPES[number]
 
 function parseEventType(value: string | undefined): EventType {
 	if (!value) return "local"
-	if (VALID_EVENT_TYPES.includes(value as EventType)) return value as EventType
-	throw new Error(`EVENT_TYPE must be one of: ${VALID_EVENT_TYPES.join(", ")}. Got: ${value}`)
+	if (includes(EVENT_TYPES, value)) return value
+	throw new Error(`EVENT_TYPE must be one of: ${EVENT_TYPES.join(", ")}. Got: ${value}`)
 }
 
 export interface EnvironmentConfig {
@@ -37,6 +38,10 @@ export function parseEnvironment(env: Record<string, string | undefined> = Bun.e
 
 	const agentsEnv = env.AGENTS
 	const agents = agentsEnv ? agentsEnv.split(",").map(a => a.trim()).filter(a => a.length > 0) : []
+
+	if (agents.length > 0 && commentBody && /^\/review\s+\S/m.test(commentBody)) {
+		throw new Error("Cannot specify agents via both AGENTS environment variable and /review trigger command")
+	}
 
 	if (baseCommit && headCommit) {
 		return {

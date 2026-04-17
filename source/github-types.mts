@@ -10,15 +10,21 @@ export interface PrFile {
 	patch?: string
 }
 
+export const SIDES = ["LEFT", "RIGHT"] as const
+export type Side = typeof SIDES[number]
+
 export interface LineComment {
 	path: string
 	line: number
-	side: "LEFT" | "RIGHT"
+	side: Side
 	body: string
 }
 
+export const REVIEW_EVENTS = ["COMMENT", "APPROVE", "REQUEST_CHANGES"] as const
+export type ReviewEvent = typeof REVIEW_EVENTS[number]
+
 export interface GitHubReviewPayload {
-	event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES"
+	event: ReviewEvent
 	body: string
 	comments: LineComment[]
 }

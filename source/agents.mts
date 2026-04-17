@@ -1,6 +1,7 @@
 import type { PrFile } from "./github-types.mts"
 import { readdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
+import { join } from "node:path"
 import { USER_AGENTS_DIR, BUILTIN_AGENTS_DIR } from "./paths.mts"
 
 export interface Agent {
@@ -24,7 +25,7 @@ export async function readAgentsFromDisk(dir: string): Promise<Agent[]> {
 	const entries = await readdir(dir)
 	for (const entry of entries) {
 		if (entry.toLowerCase().endsWith(".md")) {
-			const filePath = `${dir}/${entry}`
+			const filePath = join(dir, entry)
 			const name = entry.replace(/\.md$/i, "")
 			const content = await Bun.file(filePath).text()
 			agents.push({ name, prompt: content })
@@ -42,7 +43,7 @@ function findAggregator(agents: Agent[]): Agent | null {
 	return agents.find(a => a.name.toLowerCase() === "aggregator") ?? null
 }
 
-export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }, readAgents: AgentReader = readAgentsFromDisk): Promise<Agent | null> {
+export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }, readAgents: AgentReader = readAgentsFromDisk): Promise<Agent> {
 	const userAgents = await readAgents(dirs.userAgentsDir)
 	const userAggregator = findAggregator(userAgents)
 	if (userAggregator) {
@@ -50,15 +51,12 @@ export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: USER_AGE
 	}
 
 	const builtinAgents = await readAgents(dirs.builtinAgentsDir)
-	if (builtinAgents.length === 0) {
-		console.warn(`Warning: No builtin agents found in ${dirs.builtinAgentsDir}`)
-	}
 	const builtinAggregator = findAggregator(builtinAgents)
 	if (builtinAggregator) {
 		return builtinAggregator
 	}
 
-	return null
+	throw new Error(`No aggregator agent found in ${dirs.userAgentsDir} or ${dirs.builtinAgentsDir}`)
 }
 
 export interface ResolveResult {
@@ -103,9 +101,6 @@ export function resolveAgents(requestedNames: string[], userAgents: Agent[], bui
 export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }, readAgents: AgentReader = readAgentsFromDisk): Promise<ResolveResult> {
 	const allUserAgents = await readAgents(dirs.userAgentsDir)
 	const allBuiltinAgents = await readAgents(dirs.builtinAgentsDir)
-	if (allBuiltinAgents.length === 0) {
-		console.warn(`Warning: No builtin agents found in ${dirs.builtinAgentsDir}`)
-	}
 
 	const result = resolveAgents(agentNames, allUserAgents, allBuiltinAgents)
 
