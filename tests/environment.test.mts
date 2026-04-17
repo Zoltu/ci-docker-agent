@@ -230,13 +230,38 @@ describe("parseEnvironment", () => {
 		it("throws when only GITHUB_TOKEN is provided", () => {
 			expect(() => parseEnvironment({
 				GITHUB_TOKEN: "my-token",
-			})).toThrow("Invalid configuration")
+			})).toThrow("GitHub mode requires PR_NUMBER and REPO")
 		})
 
 		it("throws when only BASE_COMMIT is provided without HEAD_COMMIT", () => {
 			expect(() => parseEnvironment({
 				BASE_COMMIT: "abc123",
-			})).toThrow("Invalid configuration")
+			})).toThrow("HEAD_COMMIT is required when BASE_COMMIT is provided")
+		})
+
+		it("throws when only HEAD_COMMIT is provided without BASE_COMMIT", () => {
+			expect(() => parseEnvironment({
+				HEAD_COMMIT: "def456",
+			})).toThrow("BASE_COMMIT is required when HEAD_COMMIT is provided")
+		})
+
+		it("throws when PR_NUMBER is provided without GITHUB_TOKEN and REPO", () => {
+			expect(() => parseEnvironment({
+				PR_NUMBER: "42",
+			})).toThrow("GitHub mode requires GITHUB_TOKEN and REPO")
+		})
+
+		it("throws when REPO is provided without GITHUB_TOKEN and PR_NUMBER", () => {
+			expect(() => parseEnvironment({
+				REPO: "owner/repo",
+			})).toThrow("GitHub mode requires GITHUB_TOKEN and PR_NUMBER")
+		})
+
+		it("throws when GITHUB_TOKEN and PR_NUMBER are provided without REPO", () => {
+			expect(() => parseEnvironment({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+			})).toThrow("GitHub mode requires REPO")
 		})
 
 		it("throws when agents specified via both AGENTS env and /review trigger", () => {

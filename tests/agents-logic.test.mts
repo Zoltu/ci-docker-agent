@@ -188,4 +188,18 @@ describe("resolveAgents", () => {
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("Default")
 	})
+
+	it("throws for duplicate agent names", () => {
+		const security = makeAgent({ name: "SecurityAgent" })
+		expect(() => resolveAgents(["SecurityAgent", "SecurityAgent"], [security], [])).toThrow(
+			'Duplicate agent name: "SecurityAgent"'
+		)
+	})
+
+	it("throws for case-insensitive duplicate agent names", () => {
+		const security = makeAgent({ name: "SecurityAgent" })
+		expect(() => resolveAgents(["SecurityAgent", "securityagent"], [security], [])).toThrow(
+			'Duplicate agent name: "securityagent"'
+		)
+	})
 })

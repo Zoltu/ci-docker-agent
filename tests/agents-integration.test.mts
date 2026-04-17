@@ -71,7 +71,7 @@ describe("loadAgents", () => {
 		expect(result.agents[0]!.prompt).toBe("Default prompt")
 	})
 
-	it("reports unresolved agent names", async () => {
+	it("throws for unresolved agent names", async () => {
 		const userDir = "/user"
 		const builtinDir = "/builtins"
 		const dirs: AgentDirs = { userAgentsDir: userDir, builtinAgentsDir: builtinDir }
@@ -80,13 +80,10 @@ describe("loadAgents", () => {
 			[builtinDir, []],
 		]))
 
-		const result = await loadAgents(["NonExistent"], dirs, readAgents)
-
-		expect(result.agents).toHaveLength(0)
-		expect(result.unresolvedNames).toEqual(["NonExistent"])
+		expect(loadAgents(["NonExistent"], dirs, readAgents)).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
-	it("reports only unresolved names while still returning resolved agents", async () => {
+	it("throws for unresolved names even when some agents resolve", async () => {
 		const userDir = "/user"
 		const builtinDir = "/builtins"
 		const dirs: AgentDirs = { userAgentsDir: userDir, builtinAgentsDir: builtinDir }
@@ -95,11 +92,7 @@ describe("loadAgents", () => {
 			[builtinDir, []],
 		]))
 
-		const result = await loadAgents(["SecurityAgent", "NonExistent"], dirs, readAgents)
-
-		expect(result.agents).toHaveLength(1)
-		expect(result.agents[0]!.name).toBe("SecurityAgent")
-		expect(result.unresolvedNames).toEqual(["NonExistent"])
+		expect(loadAgents(["SecurityAgent", "NonExistent"], dirs, readAgents)).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
 	it("filters out Aggregator from user agents", async () => {

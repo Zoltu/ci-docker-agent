@@ -140,14 +140,14 @@ export function parseUnifiedDiff(output: string): Map<string, string> {
 	return files
 }
 
-export function mapGitStatus(status: string): string {
+export function mapGitStatus(status: string): "added" | "copied" | "removed" | "modified" | "renamed" {
 	switch (status[0] ?? "") {
 		case "A":
 			return "added"
 		case "C":
 			return "copied"
 		case "D":
-			return "deleted"
+			return "removed"
 		case "M":
 			return "modified"
 		case "R":
@@ -155,6 +155,6 @@ export function mapGitStatus(status: string): string {
 		case "T":
 			return "modified"
 		default:
-			return "modified"
+			throw new Error(`Unknown git status code: "${status}"`)
 	}
 }

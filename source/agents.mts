@@ -77,6 +77,15 @@ export function resolveAgents(requestedNames: string[], userAgents: Agent[], bui
 		}
 	}
 
+	const seenNames = new Set<string>()
+	for (const name of resolvedNames) {
+		const key = name.toLowerCase()
+		if (seenNames.has(key)) {
+			throw new Error(`Duplicate agent name: "${name}"`)
+		}
+		seenNames.add(key)
+	}
+
 	const agents: Agent[] = []
 	const unresolvedNames: string[] = []
 	for (const name of resolvedNames) {
@@ -104,8 +113,8 @@ export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userA
 
 	const result = resolveAgents(agentNames, allUserAgents, allBuiltinAgents)
 
-	for (const name of result.unresolvedNames) {
-		console.warn(`Warning: Agent "${name}" not found, skipping`)
+	if (result.unresolvedNames.length > 0) {
+		throw new Error(`Unresolved agents: ${result.unresolvedNames.join(", ")}`)
 	}
 
 	return result

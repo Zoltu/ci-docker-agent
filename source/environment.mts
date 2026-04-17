@@ -43,6 +43,22 @@ export function parseEnvironment(env: Record<string, string | undefined> = Bun.e
 		throw new Error("Cannot specify agents via both AGENTS environment variable and /review trigger command")
 	}
 
+	if (baseCommit && !headCommit) {
+		throw new Error("HEAD_COMMIT is required when BASE_COMMIT is provided")
+	}
+	if (!baseCommit && headCommit) {
+		throw new Error("BASE_COMMIT is required when HEAD_COMMIT is provided")
+	}
+
+	const hasGithubVars = githubToken || prNumberStr || repo
+	if (hasGithubVars && (!githubToken || !prNumberStr || !repo)) {
+		const missing = []
+		if (!githubToken) missing.push("GITHUB_TOKEN")
+		if (!prNumberStr) missing.push("PR_NUMBER")
+		if (!repo) missing.push("REPO")
+		throw new Error(`GitHub mode requires ${missing.join(" and ")}`)
+	}
+
 	if (baseCommit && headCommit) {
 		return {
 			mode: "local-diff",

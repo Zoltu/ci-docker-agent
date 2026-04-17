@@ -125,7 +125,7 @@ describe("mapGitStatus", () => {
 	})
 
 	it("maps D to deleted", () => {
-		expect(mapGitStatus("D")).toBe("deleted")
+		expect(mapGitStatus("D")).toBe("removed")
 	})
 
 	it("maps M to modified", () => {
@@ -152,12 +152,12 @@ describe("mapGitStatus", () => {
 		expect(mapGitStatus("T")).toBe("modified")
 	})
 
-	it("maps unknown status to modified", () => {
-		expect(mapGitStatus("X")).toBe("modified")
+	it("throws for unknown status", () => {
+		expect(() => mapGitStatus("X")).toThrow('Unknown git status code: "X"')
 	})
 
-	it("maps empty string to modified", () => {
-		expect(mapGitStatus("")).toBe("modified")
+	it("throws for empty string", () => {
+		expect(() => mapGitStatus("")).toThrow('Unknown git status code: ""')
 	})
 })
 
@@ -173,7 +173,7 @@ describe("generateLocalDiff", () => {
 		expect(files.length).toBeGreaterThan(0)
 		for (const file of files) {
 			expect(file.filename).toBeTruthy()
-			expect(["added", "deleted", "modified", "renamed", "copied"]).toContain(file.status)
+			expect(["added", "removed", "modified", "renamed", "copied"]).toContain(file.status)
 			expect(typeof file.additions).toBe("number")
 			expect(typeof file.deletions).toBe("number")
 			expect(file.changes).toBe(file.additions + file.deletions)

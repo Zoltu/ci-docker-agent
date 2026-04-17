@@ -1,7 +1,7 @@
 import type { PrFile } from "./github-types.mts"
 import { parseEnvironment } from "./environment.mts"
 import { shouldRunCI } from "./trigger.mts"
-import { fetchPrFiles, submitReview, reactToComment } from "./github.mts"
+import { fetchPrFiles, submitReview } from "./github.mts"
 import { generateLocalDiff } from "./diff.mts"
 import { createAiClient } from "./ai.mts"
 import { loadAgents, loadAggregator } from "./agents.mts"
@@ -27,14 +27,7 @@ async function main(): Promise<void> {
 		console.log("Agents to run:", agentNames.join(", "))
 	}
 
-	const { agents: loadedAgents, unresolvedNames } = await loadAgents(agentNames)
-
-	if (unresolvedNames.length > 0) {
-		if (config.mode === "github" && config.github?.commentId) {
-			await reactToComment(config.github, config.github.commentId, "-1")
-		}
-		throw new Error(`Unresolved agents: ${unresolvedNames.join(", ")}`)
-	}
+	const { agents: loadedAgents } = await loadAgents(agentNames)
 
 	const aggregator = await loadAggregator()
 

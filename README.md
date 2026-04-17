@@ -115,8 +115,6 @@ AGENTS="SecurityAgent,StyleAgent" docker run ...
 /review SecurityAgent, StyleAgent
 ```
 
-Agents specified in comments are merged with agents from the environment variable.
-
 ## Output
 
 ### Local Diff Mode

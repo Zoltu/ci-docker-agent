@@ -1,11 +1,13 @@
 import type { PrFile, GitHubReviewPayload, GitHubConfig } from "./github-types.mts"
+import { FILE_STATUSES } from "./github-types.mts"
+import { includes } from "./typescript-helpers.mts"
 
 export function isPrFile(value: unknown): value is PrFile {
 	if (typeof value !== "object") return false
 	if (value === null) return false
 	const obj = value
 	if (!("filename" in obj) || typeof obj.filename !== "string") return false
-	if (!("status" in obj) || typeof obj.status !== "string") return false
+	if (!("status" in obj) || typeof obj.status !== "string" || !includes(FILE_STATUSES, obj.status)) return false
 	if (!("additions" in obj) || typeof obj.additions !== "number") return false
 	if (!("deletions" in obj) || typeof obj.deletions !== "number") return false
 	if (!("changes" in obj) || typeof obj.changes !== "number") return false

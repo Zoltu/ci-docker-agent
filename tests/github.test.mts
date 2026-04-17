@@ -103,6 +103,16 @@ describe("isPrFile", () => {
 	it("returns false for an empty object", () => {
 		expect(isPrFile({})).toBe(false)
 	})
+
+	it("returns false for an unknown status value", () => {
+		expect(isPrFile({
+			filename: "src/file.ts",
+			status: "deleted",
+			additions: 5,
+			deletions: 2,
+			changes: 7,
+		})).toBe(false)
+	})
 })
 
 describe("isPrFileArray", () => {

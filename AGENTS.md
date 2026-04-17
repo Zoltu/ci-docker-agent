@@ -175,3 +175,4 @@ export function parseConfig(env: Record<string, string | undefined> = Bun.env): 
 3. **Validate external data before use**
 4. **Check preconditions before operations, don't catch expected errors**
 5. **Use type guards, not typecasts, for narrowing**
+6. **Fail fast on invalid input, unexpected results, or any other failure — do not suppress, compensate for, or guess around problems. Throw with useful debugging information instead.**

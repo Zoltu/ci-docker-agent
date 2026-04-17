@@ -1,12 +1,12 @@
+export const FILE_STATUSES = ["added", "modified", "removed", "renamed", "copied", "changed", "unchanged"] as const
+export type FileStatus = typeof FILE_STATUSES[number]
+
 export interface PrFile {
 	filename: string
-	status: string
+	status: FileStatus
 	additions: number
 	deletions: number
 	changes: number
-	// blob_url: string
-	// raw_url: string
-	// contents_url: string
 	patch?: string
 }
 
