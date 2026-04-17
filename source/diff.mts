@@ -1,18 +1,6 @@
 import type { PrFile } from "./github-types.mts"
 import { existsSync } from "node:fs"
 
-async function streamToString(stream: ReadableStream<Uint8Array>): Promise<string> {
-	const reader = stream.getReader()
-	const decoder = new TextDecoder()
-	const chunks: string[] = []
-	while (true) {
-		const { done, value } = await reader.read()
-		if (done) break
-		chunks.push(decoder.decode(value))
-	}
-	return chunks.join("")
-}
-
 async function validateGitEnvironment(baseCommit: string, headCommit: string, workspaceDir: string): Promise<void> {
 	if (!existsSync(`${workspaceDir}/.git`)) {
 		throw new Error(
@@ -25,7 +13,7 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string, wo
 	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { cwd: workspaceDir, stderr: "pipe" })
 	await baseCheck.exited
 	if (baseCheck.exitCode !== 0) {
-		const stderrText = await streamToString(baseCheck.stderr)
+		const stderrText = await Bun.readableStreamToText(baseCheck.stderr)
 		throw new Error(
 			`Base commit "${baseCommit}" not found in repository\n` +
 			`Please ensure the commit hash is valid and exists in the mounted repository\n` +
@@ -36,7 +24,7 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string, wo
 	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { cwd: workspaceDir, stderr: "pipe" })
 	await headCheck.exited
 	if (headCheck.exitCode !== 0) {
-		const stderrText = await streamToString(headCheck.stderr)
+		const stderrText = await Bun.readableStreamToText(headCheck.stderr)
 		throw new Error(
 			`Head commit "${headCommit}" not found in repository\n` +
 			`Please ensure the commit hash is valid and exists in the mounted repository\n` +
@@ -51,13 +39,13 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 	const nameStatusProcess = Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], { cwd: workspaceDir, stderr: "pipe" })
 	await nameStatusProcess.exited
 	if (nameStatusProcess.exitCode !== 0) {
-		const stderrText = await streamToString(nameStatusProcess.stderr)
-		const stdoutText = await streamToString(nameStatusProcess.stdout)
+		const stderrText = await Bun.readableStreamToText(nameStatusProcess.stderr)
+		const stdoutText = await Bun.readableStreamToText(nameStatusProcess.stdout)
 		const errorOutput = stderrText || stdoutText || "Unknown error"
 		throw new Error(`Failed to get file list: ${errorOutput}`)
 	}
 
-	const nameStatusOutput = await streamToString(nameStatusProcess.stdout)
+	const nameStatusOutput = await Bun.readableStreamToText(nameStatusProcess.stdout)
 	if (!nameStatusOutput.trim()) {
 		return []
 	}
@@ -68,11 +56,11 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 	})
 	await unifiedProcess.exited
 	if (unifiedProcess.exitCode !== 0) {
-		const stderrText = await streamToString(unifiedProcess.stderr)
+		const stderrText = await Bun.readableStreamToText(unifiedProcess.stderr)
 		throw new Error(`Failed to get unified diff: ${stderrText.trim()}`)
 	}
 
-	const unifiedOutput = await streamToString(unifiedProcess.stdout)
+	const unifiedOutput = await Bun.readableStreamToText(unifiedProcess.stdout)
 	const patchByFile = parseUnifiedDiff(unifiedOutput)
 
 	const files: PrFile[] = []

@@ -81,7 +81,7 @@ export function parseAggregatorOutput(output: string): AiReviewResult {
 	return parsed
 }
 
-export function createPlaceholderAiClient(): AiClient {
+export function createAiClient(): AiClient {
 	return {
 		async analyze(files: PrFile[], agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
 			console.log(`Analyzing ${files.length} files...`)

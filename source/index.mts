@@ -3,7 +3,7 @@ import { parseEnvironment } from "./environment.mts"
 import { shouldRunCI } from "./trigger.mts"
 import { fetchPrFiles, submitReview, reactToComment } from "./github.mts"
 import { generateLocalDiff } from "./diff.mts"
-import { createPlaceholderAiClient } from "./ai.mts"
+import { createAiClient } from "./ai.mts"
 import { loadAgents, loadAggregator } from "./agents.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
 		files = await generateLocalDiff(config.localDiff.baseCommit, config.localDiff.headCommit)
 	}
 
-	const aiClient = createPlaceholderAiClient()
+	const aiClient = createAiClient()
 	const aiResult = await aiClient.analyze(files, loadedAgents, aggregator)
 
 	if (config.mode === "github" && config.github) {

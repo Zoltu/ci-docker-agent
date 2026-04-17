@@ -30,5 +30,3 @@ function parseAgentList(rest: string): string[] {
 
 	return rest.split(",").map(n => n.trim()).filter(n => n.length > 0)
 }
-
-

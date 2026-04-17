@@ -47,7 +47,12 @@ export function parseEnvironment(env: Record<string, string | undefined> = Bun.e
 			throw new Error(`PR_NUMBER must be a valid number, got: ${prNumberStr}`)
 		}
 
-		const [owner, repoName] = repo.split("/")
+		const parts = repo.split("/")
+		if (parts.length !== 2) {
+			throw new Error(`REPO must be in format 'owner/repo', got: ${repo}`)
+		}
+		const owner = parts[0]
+		const repoName = parts[1]
 		if (!owner || !repoName) {
 			throw new Error(`REPO must be in format 'owner/repo', got: ${repo}`)
 		}

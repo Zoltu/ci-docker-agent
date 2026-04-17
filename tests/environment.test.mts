@@ -136,6 +136,14 @@ describe("parseEnvironment", () => {
 			})).toThrow("REPO must be in format 'owner/repo', got: owner/")
 		})
 
+		it("throws when REPO has extra slashes", () => {
+			expect(() => parseEnvironment({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo/extra",
+			})).toThrow("REPO must be in format 'owner/repo', got: owner/repo/extra")
+		})
+
 		it("parses agents in github mode", () => {
 			const config = parseEnvironment({
 				GITHUB_TOKEN: "my-token",

@@ -20,23 +20,31 @@ export function isPrFileArray(value: unknown): value is PrFile[] {
 
 export async function fetchPrFiles(config: GitHubConfig): Promise<PrFile[]> {
 	const { apiUrl, token, owner, repoName, prNumber } = config
+	const allFiles: PrFile[] = []
+	let page = 1
 
-	const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/files`, {
-		method: "GET",
-		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" }
-	})
+	while (true) {
+		const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/files?per_page=100&page=${page}`, {
+			method: "GET",
+			headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" }
+		})
 
-	if (!response.ok) {
-		const body = await response.text().catch(() => "")
-		throw new Error(`Failed to fetch PR files: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
+		if (!response.ok) {
+			const body = await response.text().catch(() => "")
+			throw new Error(`Failed to fetch PR files: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
+		}
+
+		const data: unknown = await response.json()
+		if (!isPrFileArray(data)) {
+			throw new Error("Invalid response from GitHub API: expected array of PR files")
+		}
+
+		allFiles.push(...data)
+		if (data.length < 100) break
+		page++
 	}
 
-	const data: unknown = await response.json()
-	if (!isPrFileArray(data)) {
-		throw new Error("Invalid response from GitHub API: expected array of PR files")
-	}
-
-	return data
+	return allFiles
 }
 
 export async function submitReview(config: GitHubConfig, review: GitHubReviewPayload): Promise<void> {
