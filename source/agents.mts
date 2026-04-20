@@ -17,9 +17,7 @@ export interface AgentDirs {
 export type AgentReader = (dir: string) => Promise<Agent[]>
 
 export async function readAgentsFromDisk(dir: string): Promise<Agent[]> {
-	if (!existsSync(dir)) {
-		return []
-	}
+	if (!existsSync(dir)) return []
 
 	const agents: Agent[] = []
 	const entries = await readdir(dir)
@@ -46,15 +44,11 @@ function findAggregator(agents: Agent[]): Agent | null {
 export async function loadAggregator(dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }, readAgents: AgentReader = readAgentsFromDisk): Promise<Agent> {
 	const userAgents = await readAgents(dirs.userAgentsDir)
 	const userAggregator = findAggregator(userAgents)
-	if (userAggregator) {
-		return userAggregator
-	}
+	if (userAggregator) return userAggregator
 
 	const builtinAgents = await readAgents(dirs.builtinAgentsDir)
 	const builtinAggregator = findAggregator(builtinAgents)
-	if (builtinAggregator) {
-		return builtinAggregator
-	}
+	if (builtinAggregator) return builtinAggregator
 
 	throw new Error(`No aggregator agent found in ${dirs.userAgentsDir} or ${dirs.builtinAgentsDir}`)
 }
@@ -80,9 +74,7 @@ export function resolveAgents(requestedNames: string[], userAgents: Agent[], bui
 	const seenNames = new Set<string>()
 	for (const name of resolvedNames) {
 		const key = name.toLowerCase()
-		if (seenNames.has(key)) {
-			throw new Error(`Duplicate agent name: "${name}"`)
-		}
+		if (seenNames.has(key)) throw new Error(`Duplicate agent name: "${name}"`)
 		seenNames.add(key)
 	}
 
@@ -113,9 +105,7 @@ export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userA
 
 	const result = resolveAgents(agentNames, allUserAgents, allBuiltinAgents)
 
-	if (result.unresolvedNames.length > 0) {
-		throw new Error(`Unresolved agents: ${result.unresolvedNames.join(", ")}`)
-	}
+	if (result.unresolvedNames.length > 0) throw new Error(`Unresolved agents: ${result.unresolvedNames.join(", ")}`)
 
 	return result
 }

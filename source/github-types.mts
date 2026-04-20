@@ -36,5 +36,4 @@ export interface GitHubConfig {
 	owner: string
 	repoName: string
 	prNumber: number
-	commentId?: number
 }

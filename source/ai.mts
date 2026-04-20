@@ -45,9 +45,7 @@ async function runAgents(agents: Agent[], aggregator: Agent, files: PrFile[]): P
 
 function extractAggregatorOutput(results: AgentResult[]): string {
 	const aggregatorResult = results.find(r => r.name.toLowerCase() === "aggregator")
-	if (!aggregatorResult) {
-		throw new Error("No aggregator result found in agent outputs")
-	}
+	if (!aggregatorResult) throw new Error("No aggregator result found in agent outputs")
 	return aggregatorResult.output
 }
 
@@ -72,9 +70,7 @@ function isValidAiReviewResult(data: unknown): data is AiReviewResult {
 
 export function parseAggregatorOutput(output: string): AiReviewResult {
 	const parsed: unknown = JSON.parse(output)
-	if (!isValidAiReviewResult(parsed)) {
-		throw new Error("Parsed output does not match expected AiReviewResult shape")
-	}
+	if (!isValidAiReviewResult(parsed)) throw new Error("Parsed output does not match expected AiReviewResult shape")
 	return parsed
 }
 

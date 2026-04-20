@@ -15,9 +15,7 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string, wo
 
 	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { cwd: workspaceDir, stdout: "ignore", stderr: "pipe", timeout: SUBPROCESS_TIMEOUT_MS })
 	await baseCheck.exited
-	if (baseCheck.exitCode === null && baseCheck.signalCode !== null) {
-		throw new Error(`Command "git cat-file -t <base>" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
-	}
+	if (baseCheck.exitCode === null && baseCheck.signalCode !== null) throw new Error(`Command "git cat-file -t <base>" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
 	if (baseCheck.exitCode !== 0) {
 		const stderrText = await Bun.readableStreamToText(baseCheck.stderr)
 		throw new Error(
@@ -29,9 +27,7 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string, wo
 
 	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { cwd: workspaceDir, stdout: "ignore", stderr: "pipe", timeout: SUBPROCESS_TIMEOUT_MS })
 	await headCheck.exited
-	if (headCheck.exitCode === null && headCheck.signalCode !== null) {
-		throw new Error(`Command "git cat-file -t <head>" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
-	}
+	if (headCheck.exitCode === null && headCheck.signalCode !== null) throw new Error(`Command "git cat-file -t <head>" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
 	if (headCheck.exitCode !== 0) {
 		const stderrText = await Bun.readableStreamToText(headCheck.stderr)
 		throw new Error(
@@ -47,9 +43,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 
 	const nameStatusProcess = Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], { cwd: workspaceDir, stderr: "pipe", timeout: SUBPROCESS_TIMEOUT_MS })
 	await nameStatusProcess.exited
-	if (nameStatusProcess.exitCode === null && nameStatusProcess.signalCode !== null) {
-		throw new Error(`Command "git diff --name-status" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
-	}
+	if (nameStatusProcess.exitCode === null && nameStatusProcess.signalCode !== null) throw new Error(`Command "git diff --name-status" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
 	if (nameStatusProcess.exitCode !== 0) {
 		const stderrText = await Bun.readableStreamToText(nameStatusProcess.stderr)
 		const stdoutText = await Bun.readableStreamToText(nameStatusProcess.stdout)
@@ -58,9 +52,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 	}
 
 	const nameStatusOutput = await Bun.readableStreamToText(nameStatusProcess.stdout)
-	if (!nameStatusOutput.trim()) {
-		return []
-	}
+	if (!nameStatusOutput.trim()) return []
 
 	const unifiedProcess = Bun.spawn(["git", "diff", "--unified=0", baseCommit, headCommit], {
 		cwd: workspaceDir,
@@ -68,9 +60,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 		timeout: SUBPROCESS_TIMEOUT_MS,
 	})
 	await unifiedProcess.exited
-	if (unifiedProcess.exitCode === null && unifiedProcess.signalCode !== null) {
-		throw new Error(`Command "git diff --unified=0" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
-	}
+	if (unifiedProcess.exitCode === null && unifiedProcess.signalCode !== null) throw new Error(`Command "git diff --unified=0" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
 	if (unifiedProcess.exitCode !== 0) {
 		const stderrText = await Bun.readableStreamToText(unifiedProcess.stderr)
 		throw new Error(`Failed to get unified diff: ${stderrText.trim()}`)

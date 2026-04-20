@@ -1,9 +1,7 @@
-import type { EventType } from "./environment.mts"
+import type { EventType } from "./configuration.mts"
 
 export function shouldRunCI(eventType: EventType, commentBody: string | null): { shouldRun: boolean, agentNames: string[] } {
-	if (eventType === "pull_request_target" || eventType === "workflow_dispatch") {
-		return { shouldRun: true, agentNames: [] }
-	}
+	if (eventType === "pull_request_target" || eventType === "workflow_dispatch") return { shouldRun: true, agentNames: [] }
 
 	if (eventType === "issue_comment" && commentBody) {
 		const match = /^\/review\s*(.*)/m.exec(commentBody)
@@ -13,17 +11,13 @@ export function shouldRunCI(eventType: EventType, commentBody: string | null): {
 		}
 	}
 
-	if (eventType === "local") {
-		return { shouldRun: true, agentNames: [] }
-	}
+	if (eventType === "local") return { shouldRun: true, agentNames: [] }
 
 	return { shouldRun: false, agentNames: [] }
 }
 
 function parseAgentList(rest: string): string[] {
-	if (rest.length === 0) {
-		return []
-	}
+	if (rest.length === 0) return []
 
 	return rest.split(",").map(n => n.trim()).filter(n => n.length > 0)
 }

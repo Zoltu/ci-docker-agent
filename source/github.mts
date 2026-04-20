@@ -70,9 +70,7 @@ export async function fetchPrFiles(config: GitHubConfig): Promise<PrFile[]> {
 		}
 
 		const data: unknown = await response.json()
-		if (!isPrFileArray(data)) {
-			throw new Error("Invalid response from GitHub API: expected array of PR files")
-		}
+		if (!isPrFileArray(data)) throw new Error("Invalid response from GitHub API: expected array of PR files")
 
 		allFiles.push(...data)
 		if (data.length < 100) break
