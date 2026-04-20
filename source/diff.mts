@@ -1,7 +1,10 @@
 import type { PrFile } from "./github-types.mts"
 import { existsSync } from "node:fs"
 
+const SUBPROCESS_TIMEOUT_MS = 30_000
+
 async function validateGitEnvironment(baseCommit: string, headCommit: string, workspaceDir: string): Promise<void> {
+	// existsSync is the only non-throwing way to check for file/directory existence in Node/Bun
 	if (!existsSync(`${workspaceDir}/.git`)) {
 		throw new Error(
 			`No git repository found at ${workspaceDir}\n` +
@@ -10,8 +13,11 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string, wo
 		)
 	}
 
-	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { cwd: workspaceDir, stderr: "pipe" })
+	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { cwd: workspaceDir, stdout: "ignore", stderr: "pipe", timeout: SUBPROCESS_TIMEOUT_MS })
 	await baseCheck.exited
+	if (baseCheck.exitCode === null && baseCheck.signalCode !== null) {
+		throw new Error(`Command "git cat-file -t <base>" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
+	}
 	if (baseCheck.exitCode !== 0) {
 		const stderrText = await Bun.readableStreamToText(baseCheck.stderr)
 		throw new Error(
@@ -21,8 +27,11 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string, wo
 		)
 	}
 
-	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { cwd: workspaceDir, stderr: "pipe" })
+	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { cwd: workspaceDir, stdout: "ignore", stderr: "pipe", timeout: SUBPROCESS_TIMEOUT_MS })
 	await headCheck.exited
+	if (headCheck.exitCode === null && headCheck.signalCode !== null) {
+		throw new Error(`Command "git cat-file -t <head>" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
+	}
 	if (headCheck.exitCode !== 0) {
 		const stderrText = await Bun.readableStreamToText(headCheck.stderr)
 		throw new Error(
@@ -36,8 +45,11 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string, wo
 export async function generateLocalDiff(baseCommit: string, headCommit: string, workspaceDir = "/github/workspace"): Promise<PrFile[]> {
 	await validateGitEnvironment(baseCommit, headCommit, workspaceDir)
 
-	const nameStatusProcess = Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], { cwd: workspaceDir, stderr: "pipe" })
+	const nameStatusProcess = Bun.spawn(["git", "diff", "--name-status", baseCommit, headCommit], { cwd: workspaceDir, stderr: "pipe", timeout: SUBPROCESS_TIMEOUT_MS })
 	await nameStatusProcess.exited
+	if (nameStatusProcess.exitCode === null && nameStatusProcess.signalCode !== null) {
+		throw new Error(`Command "git diff --name-status" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
+	}
 	if (nameStatusProcess.exitCode !== 0) {
 		const stderrText = await Bun.readableStreamToText(nameStatusProcess.stderr)
 		const stdoutText = await Bun.readableStreamToText(nameStatusProcess.stdout)
@@ -53,8 +65,12 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 	const unifiedProcess = Bun.spawn(["git", "diff", "--unified=0", baseCommit, headCommit], {
 		cwd: workspaceDir,
 		stderr: "pipe",
+		timeout: SUBPROCESS_TIMEOUT_MS,
 	})
 	await unifiedProcess.exited
+	if (unifiedProcess.exitCode === null && unifiedProcess.signalCode !== null) {
+		throw new Error(`Command "git diff --unified=0" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
+	}
 	if (unifiedProcess.exitCode !== 0) {
 		const stderrText = await Bun.readableStreamToText(unifiedProcess.stderr)
 		throw new Error(`Failed to get unified diff: ${stderrText.trim()}`)
@@ -100,6 +116,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 }
 
 export function parseUnifiedDiff(output: string): Map<string, string> {
+	// Binary files produce "Binary files a/X and b/Y differ" instead of ---/+++ headers and are silently skipped
 	const files = new Map<string, string>()
 	const lines = output.split("\n")
 	let filename: string | null = null

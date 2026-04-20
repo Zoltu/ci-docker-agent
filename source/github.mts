@@ -2,6 +2,39 @@ import type { PrFile, GitHubReviewPayload, GitHubConfig } from "./github-types.m
 import { FILE_STATUSES } from "./github-types.mts"
 import { includes } from "./typescript-helpers.mts"
 
+const REQUEST_TIMEOUT_MS = 10_000
+const RETRY_DELAY_MS = 30_000
+const DEADLINE_MS = 300_000
+
+async function githubFetch(url: string, options: RequestInit): Promise<Response> {
+	const deadline = Date.now() + DEADLINE_MS
+
+	while (true) {
+		const controller = new AbortController()
+		const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+		try {
+			const response = await fetch(url, { ...options, signal: controller.signal })
+			clearTimeout(timeoutId)
+			return response
+		} catch (error) {
+			clearTimeout(timeoutId)
+
+			if (!controller.signal.aborted) {
+				throw error
+			}
+
+			if (Date.now() >= deadline) {
+				throw new Error(`GitHub API request exceeded ${DEADLINE_MS / 1000}s deadline`)
+			}
+
+			console.log(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s, retrying in ${RETRY_DELAY_MS / 1000}s`)
+
+			await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS))
+		}
+	}
+}
+
 export function isPrFile(value: unknown): value is PrFile {
 	if (typeof value !== "object") return false
 	if (value === null) return false
@@ -26,7 +59,7 @@ export async function fetchPrFiles(config: GitHubConfig): Promise<PrFile[]> {
 	let page = 1
 
 	while (true) {
-		const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/files?per_page=100&page=${page}`, {
+		const response = await githubFetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/files?per_page=100&page=${page}`, {
 			method: "GET",
 			headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" }
 		})
@@ -52,7 +85,7 @@ export async function fetchPrFiles(config: GitHubConfig): Promise<PrFile[]> {
 export async function submitReview(config: GitHubConfig, review: GitHubReviewPayload): Promise<void> {
 	const { apiUrl, token, owner, repoName, prNumber } = config
 
-	const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/reviews`, {
+	const response = await githubFetch(`${apiUrl}/repos/${owner}/${repoName}/pulls/${prNumber}/reviews`, {
 		method: "POST",
 		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" },
 		body: JSON.stringify(review),
@@ -67,7 +100,7 @@ export async function submitReview(config: GitHubConfig, review: GitHubReviewPay
 export async function reactToComment(config: GitHubConfig, commentId: number, content: string): Promise<void> {
 	const { apiUrl, token, owner, repoName } = config
 
-	const response = await fetch(`${apiUrl}/repos/${owner}/${repoName}/issues/comments/${commentId}/reactions`, {
+	const response = await githubFetch(`${apiUrl}/repos/${owner}/${repoName}/issues/comments/${commentId}/reactions`, {
 		method: "POST",
 		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" },
 		body: JSON.stringify({ content }),
