@@ -1,91 +1,46 @@
 import { describe, it, expect } from "bun:test"
-import { shouldRunCI } from "../source/trigger.mts"
+import { getAgentsFromComment } from "../source/trigger.mts"
 
-describe("shouldRunCI", () => {
-	describe("pull_request_target event", () => {
-		it("returns true for pull_request_target event", () => {
-			expect(shouldRunCI("pull_request_target", null)).toEqual({ shouldRun: true, agentNames: [] })
+describe("getAgentsFromComment", () => {
+	describe("no review triggered", () => {
+		it("returns 'no review triggered' when comment body is null", () => {
+			expect(getAgentsFromComment(null)).toBe("no review triggered")
 		})
 
-		it("returns true for pull_request_target event with comment", () => {
-			expect(shouldRunCI("pull_request_target", "some comment")).toEqual({ shouldRun: true, agentNames: [] })
-		})
-	})
-
-	describe("workflow_dispatch event", () => {
-		it("returns true for workflow_dispatch event", () => {
-			expect(shouldRunCI("workflow_dispatch", null)).toEqual({ shouldRun: true, agentNames: [] })
+		it("returns 'no review triggered' when comment body is empty", () => {
+			expect(getAgentsFromComment("")).toBe("no review triggered")
 		})
 
-		it("returns true for workflow_dispatch event with comment", () => {
-			expect(shouldRunCI("workflow_dispatch", "some comment")).toEqual({ shouldRun: true, agentNames: [] })
+		it("returns 'no review triggered' when comment does not contain trigger command", () => {
+			expect(getAgentsFromComment("hello world")).toBe("no review triggered")
+		})
+
+		it("returns 'no review triggered' when /review is not at start of line", () => {
+			expect(getAgentsFromComment("please /review")).toBe("no review triggered")
 		})
 	})
 
-	describe("issue_comment event", () => {
-		it("returns false when comment body is null", () => {
-			expect(shouldRunCI("issue_comment", null)).toEqual({ shouldRun: false, agentNames: [] })
-		})
-
-		it("returns false when comment body is empty", () => {
-			expect(shouldRunCI("issue_comment", "")).toEqual({ shouldRun: false, agentNames: [] })
-		})
-
-		it("returns false when comment does not contain trigger command", () => {
-			expect(shouldRunCI("issue_comment", "hello world")).toEqual({ shouldRun: false, agentNames: [] })
-		})
-
-		it("returns false when /review is not at start of line", () => {
-			expect(shouldRunCI("issue_comment", "please /review")).toEqual({ shouldRun: false, agentNames: [] })
-		})
-
-		it("returns true when comment starts with /review", () => {
-			expect(shouldRunCI("issue_comment", "/review")).toEqual({ shouldRun: true, agentNames: [] })
-		})
-
-		it("returns true when comment starts with /review with agents", () => {
-			expect(shouldRunCI("issue_comment", "/review SecurityAgent, StyleAgent")).toEqual({
-				shouldRun: true,
-				agentNames: ["SecurityAgent", "StyleAgent"],
-			})
+	describe("run all agents", () => {
+		it("returns 'run all agents' when comment is bare /review", () => {
+			expect(getAgentsFromComment("/review")).toBe("run all agents")
 		})
 	})
 
-	describe("local event (local-diff mode)", () => {
-		it("returns true for local event", () => {
-			expect(shouldRunCI("local", null)).toEqual({ shouldRun: true, agentNames: [] })
-		})
-	})
-
-	describe("agent name extraction", () => {
-		it("extracts agent names from comma-separated list", () => {
-			const result = shouldRunCI("issue_comment", "/review SecurityAgent, StyleAgent")
-			expect(result.shouldRun).toBe(true)
-			expect(result.agentNames).toEqual(["SecurityAgent", "StyleAgent"])
+	describe("specific agents", () => {
+		it("returns agent names when comment starts with /review with agents", () => {
+			expect(getAgentsFromComment("/review SecurityAgent, StyleAgent")).toEqual(["SecurityAgent", "StyleAgent"])
 		})
 
 		it("extracts single agent name", () => {
-			const result = shouldRunCI("issue_comment", "/review SecurityAgent")
-			expect(result.shouldRun).toBe(true)
-			expect(result.agentNames).toEqual(["SecurityAgent"])
+			expect(getAgentsFromComment("/review SecurityAgent")).toEqual(["SecurityAgent"])
 		})
 
 		it("handles agents with spaces in names", () => {
-			const result = shouldRunCI("issue_comment", "/review Security Agent, Style Agent")
-			expect(result.shouldRun).toBe(true)
-			expect(result.agentNames).toEqual(["Security Agent", "Style Agent"])
-		})
-
-		it("returns empty array when no agents specified", () => {
-			const result = shouldRunCI("issue_comment", "/review")
-			expect(result.shouldRun).toBe(true)
-			expect(result.agentNames).toEqual([])
+			expect(getAgentsFromComment("/review Security Agent, Style Agent")).toEqual(["Security Agent", "Style Agent"])
 		})
 
 		it("handles trailing comma", () => {
-			const result = shouldRunCI("issue_comment", "/review SecurityAgent,")
-			expect(result.shouldRun).toBe(true)
-			expect(result.agentNames).toEqual(["SecurityAgent"])
+			expect(getAgentsFromComment("/review SecurityAgent,")).toEqual(["SecurityAgent"])
 		})
 	})
 })

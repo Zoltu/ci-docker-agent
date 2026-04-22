@@ -4,6 +4,8 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { USER_AGENTS_DIR, BUILTIN_AGENTS_DIR } from "./paths.mts"
 
+export type AgentNames = string[] | "run all agents"
+
 export interface Agent {
 	name: string
 	prompt: string
@@ -58,18 +60,15 @@ export interface ResolveResult {
 	unresolvedNames: string[]
 }
 
-export function resolveAgents(requestedNames: string[], userAgents: Agent[], builtinAgents: Agent[]): ResolveResult {
+export function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinAgents: Agent[]): ResolveResult {
 	const filteredUserAgents = filterOutAggregator(userAgents)
 	const filteredBuiltinAgents = filterOutAggregator(builtinAgents)
 
-	let resolvedNames = requestedNames
-	if (resolvedNames.length === 0) {
-		if (filteredUserAgents.length > 0) {
-			resolvedNames = filteredUserAgents.map(a => a.name)
-		} else {
-			resolvedNames = ["Default"]
-		}
-	}
+	const resolvedNames = requestedNames === "run all agents"
+		? filteredUserAgents.length > 0
+			? filteredUserAgents.map(a => a.name)
+			: ["Default"]
+		: requestedNames
 
 	const seenNames = new Set<string>()
 	for (const name of resolvedNames) {
@@ -99,7 +98,7 @@ export function resolveAgents(requestedNames: string[], userAgents: Agent[], bui
 	return { agents, unresolvedNames }
 }
 
-export async function loadAgents(agentNames: string[], dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }, readAgents: AgentReader = readAgentsFromDisk): Promise<ResolveResult> {
+export async function loadAgents(agentNames: AgentNames, dirs: AgentDirs = { userAgentsDir: USER_AGENTS_DIR, builtinAgentsDir: BUILTIN_AGENTS_DIR }, readAgents: AgentReader = readAgentsFromDisk): Promise<ResolveResult> {
 	const allUserAgents = await readAgents(dirs.userAgentsDir)
 	const allBuiltinAgents = await readAgents(dirs.builtinAgentsDir)
 

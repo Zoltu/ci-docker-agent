@@ -3,8 +3,21 @@ import { existsSync } from "node:fs"
 
 const SUBPROCESS_TIMEOUT_MS = 30_000
 
+async function validateCommitExists(commit: string, label: string, workspaceDir: string): Promise<void> {
+	const proc = Bun.spawn(["git", "cat-file", "-t", commit], { cwd: workspaceDir, stdout: "ignore", stderr: "pipe", timeout: SUBPROCESS_TIMEOUT_MS })
+	await proc.exited
+	if (proc.exitCode === null && proc.signalCode !== null) throw new Error(`Command "git cat-file -t <${label}>" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
+	if (proc.exitCode !== 0) {
+		const stderrText = await Bun.readableStreamToText(proc.stderr)
+		throw new Error(
+			`${label} commit "${commit}" not found in repository\n` +
+			`Please ensure the commit hash is valid and exists in the mounted repository\n` +
+			`Error: ${stderrText.trim()}`
+		)
+	}
+}
+
 async function validateGitEnvironment(baseCommit: string, headCommit: string, workspaceDir: string): Promise<void> {
-	// existsSync is the only non-throwing way to check for file/directory existence in Node/Bun
 	if (!existsSync(`${workspaceDir}/.git`)) {
 		throw new Error(
 			`No git repository found at ${workspaceDir}\n` +
@@ -13,29 +26,8 @@ async function validateGitEnvironment(baseCommit: string, headCommit: string, wo
 		)
 	}
 
-	const baseCheck = Bun.spawn(["git", "cat-file", "-t", baseCommit], { cwd: workspaceDir, stdout: "ignore", stderr: "pipe", timeout: SUBPROCESS_TIMEOUT_MS })
-	await baseCheck.exited
-	if (baseCheck.exitCode === null && baseCheck.signalCode !== null) throw new Error(`Command "git cat-file -t <base>" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
-	if (baseCheck.exitCode !== 0) {
-		const stderrText = await Bun.readableStreamToText(baseCheck.stderr)
-		throw new Error(
-			`Base commit "${baseCommit}" not found in repository\n` +
-			`Please ensure the commit hash is valid and exists in the mounted repository\n` +
-			`Error: ${stderrText.trim()}`
-		)
-	}
-
-	const headCheck = Bun.spawn(["git", "cat-file", "-t", headCommit], { cwd: workspaceDir, stdout: "ignore", stderr: "pipe", timeout: SUBPROCESS_TIMEOUT_MS })
-	await headCheck.exited
-	if (headCheck.exitCode === null && headCheck.signalCode !== null) throw new Error(`Command "git cat-file -t <head>" timed out after ${SUBPROCESS_TIMEOUT_MS / 1000}s`)
-	if (headCheck.exitCode !== 0) {
-		const stderrText = await Bun.readableStreamToText(headCheck.stderr)
-		throw new Error(
-			`Head commit "${headCommit}" not found in repository\n` +
-			`Please ensure the commit hash is valid and exists in the mounted repository\n` +
-			`Error: ${stderrText.trim()}`
-		)
-	}
+	await validateCommitExists(baseCommit, "Base", workspaceDir)
+	await validateCommitExists(headCommit, "Head", workspaceDir)
 }
 
 export async function generateLocalDiff(baseCommit: string, headCommit: string, workspaceDir = "/github/workspace"): Promise<PrFile[]> {

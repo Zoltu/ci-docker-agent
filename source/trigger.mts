@@ -1,19 +1,15 @@
-import type { EventType } from "./configuration.mts"
+export type CommentTriggerResult = string[] | "run all agents" | "no review triggered"
 
-export function shouldRunCI(eventType: EventType, commentBody: string | null): { shouldRun: boolean, agentNames: string[] } {
-	if (eventType === "pull_request_target" || eventType === "workflow_dispatch") return { shouldRun: true, agentNames: [] }
+export function getAgentsFromComment(commentBody: string | null): CommentTriggerResult {
+	if (!commentBody) return "no review triggered"
 
-	if (eventType === "issue_comment" && commentBody) {
-		const match = /^\/review\s*(.*)/m.exec(commentBody)
-		if (match) {
-			const agentNames = parseAgentList(match[1]!.trim())
-			return { shouldRun: true, agentNames }
-		}
-	}
+	const match = /^\/review\s*(.*)/m.exec(commentBody)
+	if (!match) return "no review triggered"
 
-	if (eventType === "local") return { shouldRun: true, agentNames: [] }
+	const agentNames = parseAgentList(match[1]!.trim())
+	if (agentNames.length === 0) return "run all agents"
 
-	return { shouldRun: false, agentNames: [] }
+	return agentNames
 }
 
 function parseAgentList(rest: string): string[] {

@@ -10,7 +10,7 @@ function mockReader(agentsByDir: Map<string, Agent[]>): AgentReader {
 }
 
 describe("loadAgents", () => {
-	it("returns Default when no agent names specified and no user agents exist", async () => {
+	it("returns Default when 'run all agents' and no user agents exist", async () => {
 		const userDir = "/user"
 		const builtinDir = "/builtins"
 		const dirs: AgentDirs = { userAgentsDir: userDir, builtinAgentsDir: builtinDir }
@@ -19,14 +19,14 @@ describe("loadAgents", () => {
 			[builtinDir, [{ name: "Default", prompt: "Default agent prompt" }, { name: "Aggregator", prompt: "Aggregator prompt" }]],
 		]))
 
-		const result = await loadAgents([], dirs, readAgents)
+		const result = await loadAgents("run all agents", dirs, readAgents)
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("Default")
 		expect(result.unresolvedNames).toEqual([])
 	})
 
-	it("returns all user agents when no agent names specified and user agents exist", async () => {
+	it("returns all user agents when 'run all agents' and user agents exist", async () => {
 		const userDir = "/user"
 		const builtinDir = "/builtins"
 		const dirs: AgentDirs = { userAgentsDir: userDir, builtinAgentsDir: builtinDir }
@@ -35,7 +35,7 @@ describe("loadAgents", () => {
 			[builtinDir, [{ name: "Default", prompt: "Default prompt" }]],
 		]))
 
-		const result = await loadAgents([], dirs, readAgents)
+		const result = await loadAgents("run all agents", dirs, readAgents)
 
 		expect(result.agents).toHaveLength(2)
 		expect(result.agents.map(a => a.name)).toEqual(["SecurityAgent", "StyleAgent"])
@@ -95,7 +95,7 @@ describe("loadAgents", () => {
 		expect(loadAgents(["SecurityAgent", "NonExistent"], dirs, readAgents)).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
-	it("filters out Aggregator from user agents", async () => {
+	it("filters out Aggregator from user agents when 'run all agents'", async () => {
 		const userDir = "/user"
 		const builtinDir = "/builtins"
 		const dirs: AgentDirs = { userAgentsDir: userDir, builtinAgentsDir: builtinDir }
@@ -104,13 +104,13 @@ describe("loadAgents", () => {
 			[builtinDir, []],
 		]))
 
-		const result = await loadAgents([], dirs, readAgents)
+		const result = await loadAgents("run all agents", dirs, readAgents)
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("SecurityAgent")
 	})
 
-	it("filters out Aggregator from builtin agents", async () => {
+	it("filters out Aggregator from builtin agents when 'run all agents'", async () => {
 		const userDir = "/user"
 		const builtinDir = "/builtins"
 		const dirs: AgentDirs = { userAgentsDir: userDir, builtinAgentsDir: builtinDir }
@@ -119,7 +119,7 @@ describe("loadAgents", () => {
 			[builtinDir, [{ name: "Aggregator", prompt: "Builtin aggregator" }, { name: "Default", prompt: "Default prompt" }]],
 		]))
 
-		const result = await loadAgents([], dirs, readAgents)
+		const result = await loadAgents("run all agents", dirs, readAgents)
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("Default")

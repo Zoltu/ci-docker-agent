@@ -119,19 +119,19 @@ describe("required builtin agents", () => {
 })
 
 describe("resolveAgents", () => {
-	it("defaults to Default when no names requested and no user agents", () => {
+	it("defaults to Default when 'run all agents' and no user agents", () => {
 		const defaultAgent = makeAgent({ name: "Default" })
-		const result = resolveAgents([], [], [defaultAgent])
+		const result = resolveAgents("run all agents", [], [defaultAgent])
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("Default")
 		expect(result.unresolvedNames).toEqual([])
 	})
 
-	it("defaults to all user agents when no names requested and user agents exist", () => {
+	it("defaults to all user agents when 'run all agents' and user agents exist", () => {
 		const security = makeAgent({ name: "SecurityAgent" })
 		const style = makeAgent({ name: "StyleAgent" })
-		const result = resolveAgents([], [security, style], [])
+		const result = resolveAgents("run all agents", [security, style], [])
 
 		expect(result.agents).toHaveLength(2)
 		expect(result.agents.map(a => a.name)).toEqual(["SecurityAgent", "StyleAgent"])
@@ -171,19 +171,19 @@ describe("resolveAgents", () => {
 		expect(result.agents[0]!.name).toBe("SecurityAgent")
 	})
 
-	it("filters out Aggregator from user agents", () => {
+	it("filters out Aggregator from user agents when 'run all agents'", () => {
 		const aggregator = makeAgent({ name: "Aggregator" })
 		const security = makeAgent({ name: "SecurityAgent" })
-		const result = resolveAgents([], [aggregator, security], [])
+		const result = resolveAgents("run all agents", [aggregator, security], [])
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("SecurityAgent")
 	})
 
-	it("filters out Aggregator from builtin agents", () => {
+	it("filters out Aggregator from builtin agents when 'run all agents'", () => {
 		const aggregator = makeAgent({ name: "Aggregator" })
 		const defaultAgent = makeAgent({ name: "Default" })
-		const result = resolveAgents([], [], [aggregator, defaultAgent])
+		const result = resolveAgents("run all agents", [], [aggregator, defaultAgent])
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("Default")

@@ -40,7 +40,7 @@ describe("getConfig", () => {
 			expect(config.type).toBe("local-diff")
 			expect(config.baseCommit).toBe("abc123")
 			expect(config.headCommit).toBe("def456")
-			expect(config.agents).toEqual([])
+			expect(config.agents).toBe("run all agents")
 		})
 
 		it("parses agents in local-diff mode", () => {
@@ -49,10 +49,10 @@ describe("getConfig", () => {
 			expect(config.agents).toEqual(["SecurityAgent", "StyleAgent"])
 		})
 
-		it("returns empty agents when AGENTS is empty string", () => {
+		it("returns 'run all agents' when AGENTS is empty string", () => {
 			const config = getLocalDiffConfig({ AGENTS: "" })
 
-			expect(config.agents).toEqual([])
+			expect(config.agents).toBe("run all agents")
 		})
 
 		it("trims agent names", () => {
@@ -121,42 +121,6 @@ describe("getConfig", () => {
 				COMMENT_ID: "not-a-number",
 			})).toThrow("COMMENT_ID must be a valid number, got: not-a-number")
 		})
-
-		it("throws when agents specified via both AGENTS env and /review trigger", () => {
-			expect(() => getConfig({
-				EVENT_TYPE: "issue_comment",
-				GITHUB_TOKEN: "my-token",
-				PR_NUMBER: "42",
-				REPO: "owner/repo",
-				COMMENT_ID: "12345",
-				COMMENT_BODY: "/review StyleAgent",
-				AGENTS: "SecurityAgent",
-			})).toThrow("Cannot specify agents via both AGENTS environment variable and /review trigger command")
-		})
-
-		it("allows AGENTS env when comment body has no /review trigger", () => {
-			const config = getCommentTriggerConfig({ COMMENT_BODY: "just a comment", AGENTS: "SecurityAgent" })
-
-			expect(config.agents).toEqual(["SecurityAgent"])
-		})
-
-		it("allows /review trigger when AGENTS env is empty", () => {
-			const config = getCommentTriggerConfig({ COMMENT_BODY: "/review SecurityAgent", AGENTS: "" })
-
-			expect(config.agents).toEqual([])
-		})
-
-		it("allows AGENTS env with bare /review (no agent names)", () => {
-			const config = getCommentTriggerConfig({ COMMENT_BODY: "/review", AGENTS: "SecurityAgent" })
-
-			expect(config.agents).toEqual(["SecurityAgent"])
-		})
-
-		it("parses agents in comment-trigger mode", () => {
-			const config = getCommentTriggerConfig({ AGENTS: "SecurityAgent" })
-
-			expect(config.agents).toEqual(["SecurityAgent"])
-		})
 	})
 
 	describe("pull-request configuration", () => {
@@ -213,8 +177,6 @@ describe("getConfig", () => {
 
 		it("throws for invalid EVENT_TYPE", () => {
 			expect(() => getConfig({
-				BASE_COMMIT: "abc123",
-				HEAD_COMMIT: "def456",
 				EVENT_TYPE: "bogus",
 			})).toThrow("EVENT_TYPE must be one of")
 		})
@@ -222,7 +184,7 @@ describe("getConfig", () => {
 
 	describe("validation errors", () => {
 		it("throws when no required env vars are provided", () => {
-			expect(() => getConfig({})).toThrow("Invalid configuration")
+			expect(() => getConfig({})).toThrow("No valid configuration found")
 		})
 
 		it("throws when only GITHUB_TOKEN is provided", () => {

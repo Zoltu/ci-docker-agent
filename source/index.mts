@@ -1,15 +1,15 @@
 import type { PrFile } from "./github-types.mts"
 import { getConfig, type CommentTriggerConfiguration, type PullRequestConfiguration, type LocalDiffConfiguration } from "./configuration.mts"
-import { shouldRunCI } from "./trigger.mts"
+import { getAgentsFromComment } from "./trigger.mts"
 import { fetchPrFiles, submitReview, reactToComment } from "./github.mts"
 import { generateLocalDiff } from "./diff.mts"
 import { createAiClient } from "./ai.mts"
-import { loadAgents, loadAggregator } from "./agents.mts"
+import { loadAgents, loadAggregator, type AgentNames } from "./agents.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import type { AiReviewResult } from "./review.mts"
 import { assertNever } from "./typescript-helpers.mts"
 
-async function runAnalysis(agentNames: string[], files: PrFile[]): Promise<AiReviewResult> {
+async function runAnalysis(agentNames: AgentNames, files: PrFile[]): Promise<AiReviewResult> {
 	const { agents } = await loadAgents(agentNames)
 	const aggregator = await loadAggregator()
 	const aiClient = createAiClient()
@@ -17,17 +17,16 @@ async function runAnalysis(agentNames: string[], files: PrFile[]): Promise<AiRev
 }
 
 async function runOnCommentTrigger(config: CommentTriggerConfiguration): Promise<void> {
-	const triggerResult = shouldRunCI("issue_comment", config.commentBody)
+	const triggerResult = getAgentsFromComment(config.commentBody)
 
-	if (!triggerResult.shouldRun) return
+	if (triggerResult === "no review triggered") return
 
 	try {
-		const agentNames = [...config.agents, ...triggerResult.agentNames]
 		const files = await fetchPrFiles(config.github)
 
 		if (files.length === 0) return console.log("No files changed, nothing to review")
 
-		const aiResult = await runAnalysis(agentNames, files)
+		const aiResult = await runAnalysis(triggerResult, files)
 		const reviewPayload = buildReviewPayload(aiResult)
 		await submitReview(config.github, reviewPayload)
 		console.log("PR review submitted successfully")
