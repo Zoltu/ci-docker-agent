@@ -104,7 +104,12 @@ export async function loadAgents(agentNames: AgentNames, dirs: AgentDirs = { use
 
 	const result = resolveAgents(agentNames, allUserAgents, allBuiltinAgents)
 
-	if (result.unresolvedNames.length > 0) throw new Error(`Unresolved agents: ${result.unresolvedNames.join(", ")}`)
+	if (result.unresolvedNames.length > 0) {
+		throw new Error(
+			`Unresolved agents: ${result.unresolvedNames.join(", ")}. ` +
+			`Each name must match a markdown file in .ci-agents/ or the built-in agents directory (case-insensitive, without .md extension).`
+		)
+	}
 
 	return result
 }

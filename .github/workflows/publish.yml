@@ -2,6 +2,7 @@ name: Publish
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -17,20 +18,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
       - name: Build Docker image
         run: docker build -t ci-agent .
 
+      - name: Log in to GitHub Container Registry
+        id: login
+        if: github.event_name == 'push'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
       - name: Push Docker image
-        if: github.event_name != 'pull_request'
+        if: steps.login.outcome == 'success'
         run: |
           IMAGE=ghcr.io/zoltu/ci-docker-agent
-          docker tag ci-agent "$IMAGE:latest"
-          docker push "$IMAGE:latest"
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          if [[ "${{ github.ref }}" == refs/heads/main ]]; then
+            docker tag ci-agent "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
             docker tag ci-agent "$IMAGE:${{ github.ref_name }}"
             docker push "$IMAGE:${{ github.ref_name }}"
           fi

@@ -72,11 +72,11 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 
 		const status = parts[0]!
 		const filename = parts.length >= 3 ? parts[2]! : parts[1]!
-		const patch = patchByFile.get(filename) ?? ""
+		const patch = patchByFile.get(filename)
 
 		let additions = 0
 		let deletions = 0
-		for (const patchLine of patch.split("\n")) {
+		for (const patchLine of patch?.split("\n") ?? []) {
 			if (patchLine.startsWith("+") && !patchLine.startsWith("+++")) {
 				additions++
 			} else if (patchLine.startsWith("-") && !patchLine.startsWith("---")) {
@@ -90,7 +90,7 @@ export async function generateLocalDiff(baseCommit: string, headCommit: string, 
 			additions,
 			deletions,
 			changes: additions + deletions,
-			patch: patch || undefined,
+			patch,
 		})
 	}
 

@@ -4,49 +4,43 @@ import type { AiReviewResult } from "./review.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 import { includes } from "./typescript-helpers.mts"
 
-interface AgentResult {
-	name: string
-	output: string
-}
-
 export interface AiClient {
 	analyze(files: PrFile[], agents: Agent[], aggregator: Agent): Promise<AiReviewResult>
 }
 
-async function runAgent(agent: Agent, files: PrFile[], agentInputs?: Map<string, string>): Promise<AgentResult> {
-	buildAgentPrompt(agent, files, agentInputs)
-
+async function runAgent(agent: Agent, files: PrFile[]): Promise<string> {
+	const prompt = buildAgentPrompt(agent, files)
+	// TODO: prompt agent, and assign response to result
+	prompt
+	const output = `placeholder output - AI integration not yet implemented`
 	console.log(`Running agent: ${agent.name}`)
-
-	const output = JSON.stringify({ body: `${agent.name} placeholder output - AI integration not yet implemented`, comments: [] })
-
-	return { name: agent.name, output }
+	return output
 }
 
-async function runAgents(agents: Agent[], aggregator: Agent, files: PrFile[]): Promise<AgentResult[]> {
-	const results: AgentResult[] = []
+async function runAgents(agents: Agent[], files: PrFile[]): Promise<Map<string, string>> {
 	const agentInputs = new Map<string, string>()
 
 	const reviewResults = await Promise.all(
-		agents.map(agent => runAgent(agent, files))
+		agents.map(async agent => {
+			const output = await runAgent(agent, files)
+			return { name: agent.name, output }
+		})
 	)
-
-	results.push(...reviewResults)
 
 	for (const result of reviewResults) {
 		agentInputs.set(result.name, result.output)
 	}
 
-	const aggregatorResult = await runAgent(aggregator, files, agentInputs)
-	results.push(aggregatorResult)
-
-	return results
+	return agentInputs
 }
 
-function extractAggregatorOutput(results: AgentResult[]): string {
-	const aggregatorResult = results.find(r => r.name.toLowerCase() === "aggregator")
-	if (!aggregatorResult) throw new Error("No aggregator result found in agent outputs")
-	return aggregatorResult.output
+async function runAggregator(aggregator: Agent, files: PrFile[], agentInputs: Map<string, string>): Promise<string> {
+	const prompt = buildAgentPrompt(aggregator, files, agentInputs)
+	// TODO: prompt agent, and assign response to result
+	prompt
+	const output = JSON.stringify({ body: `${aggregator.name} placeholder output - AI integration not yet implemented`, comments: [] })
+	console.log(`Running agent: ${aggregator.name}`)
+	return output
 }
 
 function isValidLineComment(value: unknown): value is LineComment {
@@ -81,9 +75,8 @@ export function createAiClient(): AiClient {
 			console.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 			console.log(`Using aggregator: ${aggregator.name}`)
 
-			const results = await runAgents(agents, aggregator, files)
-
-			const finalOutput = extractAggregatorOutput(results)
+			const agentInputs = await runAgents(agents, files)
+			const finalOutput = await runAggregator(aggregator, files, agentInputs)
 
 			console.log("Agent analysis complete")
 
