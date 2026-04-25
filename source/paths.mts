@@ -1,3 +1,4 @@
+// Must stay in sync with Dockerfile WORKDIR
 export const WORKSPACE_DIRECTORY = "/github/workspace"
 
 export const USER_AGENTS_DIRECTORY = `${WORKSPACE_DIRECTORY}/.ci-agents`

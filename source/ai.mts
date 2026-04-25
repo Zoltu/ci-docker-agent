@@ -6,10 +6,8 @@ import { includes } from "./typescript-helpers.mts"
 
 export type CallApi = (prompt: string) => Promise<string>
 
-export function createDefaultCallApi(environment: Record<string, string | undefined>): CallApi {
-	return async (prompt: string): Promise<string> => {
-		prompt
-		environment
+export function createDefaultCallApi(_environment: Record<string, string | undefined>): CallApi {
+	return async (_prompt: string): Promise<string> => {
 		return JSON.stringify({ body: "placeholder output - AI integration not yet implemented", comments: [] })
 	}
 }

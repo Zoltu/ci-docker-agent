@@ -48,7 +48,8 @@ async function main(): Promise<void> {
 				loadAggregator,
 				callApi,
 			}
-			return runOnLocalDiff(dependencies, configuration)
+			console.log(await runOnLocalDiff(dependencies, configuration))
+			return
 		}
 		default: assertNever(configuration)
 	}

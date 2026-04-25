@@ -57,6 +57,21 @@ export function mapGitStatus(status: string): "added" | "copied" | "removed" | "
 	}
 }
 
+export function parseNumstat(output: string): Map<string, { additions: number; deletions: number }> {
+	const result = new Map<string, { additions: number; deletions: number }>()
+	for (const line of output.split("\n")) {
+		const parts = line.split("\t")
+		if (parts.length < 3) continue
+		const additions = Number.parseInt(parts[0]!, 10)
+		const deletions = Number.parseInt(parts[1]!, 10)
+		const filename = parts[2]!
+		if (!Number.isNaN(additions) && !Number.isNaN(deletions)) {
+			result.set(filename, { additions, deletions })
+		}
+	}
+	return result
+}
+
 export interface GitDiffResult {
 	stdout: string
 	stderr: string
@@ -101,7 +116,7 @@ async function validateGitEnvironment(dependencies: { spawnGitDiff: SpawnGitDiff
 	await validateCommitExists(dependencies, headCommit, "Head")
 }
 
-export function buildLocalDiff(nameStatusOutput: string, unifiedOutput: string): PullRequestFile[] {
+export function buildLocalDiff(nameStatusOutput: string, unifiedOutput: string, numstatByFile: Map<string, { additions: number; deletions: number }>): PullRequestFile[] {
 	const patchByFile = parseUnifiedDiff(unifiedOutput)
 
 	const files: PullRequestFile[] = []
@@ -117,15 +132,9 @@ export function buildLocalDiff(nameStatusOutput: string, unifiedOutput: string):
 		const filename = parts.length >= 3 ? parts[2]! : parts[1]!
 		const patch = patchByFile.get(filename)
 
-		let additions = 0
-		let deletions = 0
-		for (const patchLine of patch?.split("\n") ?? []) {
-			if (patchLine.startsWith("+") && !patchLine.startsWith("+++")) {
-				additions++
-			} else if (patchLine.startsWith("-") && !patchLine.startsWith("---")) {
-				deletions++
-			}
-		}
+		const stats = numstatByFile.get(filename)
+		const additions = stats?.additions ?? 0
+		const deletions = stats?.deletions ?? 0
 		const changes = additions + deletions
 
 		files.push({ filename, status: mapGitStatus(status), additions, deletions, changes, patch })
@@ -148,6 +157,12 @@ export function createGenerateLocalDiff(workspaceDirectory: string, spawnGitDiff
 		const nameStatusOutput = nameStatusResult.stdout
 		if (!nameStatusOutput.trim()) return []
 
+		const numstatResult = await spawnGitDiff(["diff", "--numstat", baseCommit, headCommit])
+		if (numstatResult.exitCode === null && numstatResult.signalCode !== null) throw new Error(`Command "git diff --numstat" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
+		if (numstatResult.exitCode !== 0) {
+			throw new Error(`Failed to get numstat diff: ${numstatResult.stderr.trim()}`)
+		}
+
 		const unifiedResult = await spawnGitDiff(["diff", "--unified=0", baseCommit, headCommit])
 		if (unifiedResult.exitCode === null && unifiedResult.signalCode !== null) throw new Error(`Command "git diff --unified=0" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
 		if (unifiedResult.exitCode !== 0) {
@@ -155,6 +170,6 @@ export function createGenerateLocalDiff(workspaceDirectory: string, spawnGitDiff
 		}
 
 		const unifiedOutput = unifiedResult.stdout
-		return buildLocalDiff(nameStatusOutput, unifiedOutput)
+		return buildLocalDiff(nameStatusOutput, unifiedOutput, parseNumstat(numstatResult.stdout))
 	}
 }

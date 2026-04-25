@@ -185,11 +185,7 @@ describe("runOnPullRequest", () => {
 
 describe("runOnLocalDiff", () => {
 	it("returns early when no files changed", async () => {
-		let logged = ""
-		const originalLog = console.log
-		console.log = (msg: string) => { logged = msg }
-
-		await runOnLocalDiff(
+		const result = await runOnLocalDiff(
 			{
 				generateLocalDiff: async () => [],
 				loadAgents: makeLoadAgents([]),
@@ -199,16 +195,11 @@ describe("runOnLocalDiff", () => {
 			{ type: "local-diff", agents: "run all agents", baseCommit: "abc", headCommit: "def", workspaceDirectory: "/workspace" }
 		)
 
-		console.log = originalLog
-		expect(logged).toBe("No files changed, nothing to review")
+		expect(result).toBe("No files changed, nothing to review")
 	})
 
 	it("formats review to console", async () => {
-		let output = ""
-		const originalLog = console.log
-		console.log = (msg: string) => { output += msg }
-
-		await runOnLocalDiff(
+		const result = await runOnLocalDiff(
 			{
 				generateLocalDiff: async () => [makePullRequestFile()],
 				loadAgents: makeLoadAgents([makeAgent()]),
@@ -218,8 +209,7 @@ describe("runOnLocalDiff", () => {
 			{ type: "local-diff", agents: "run all agents", baseCommit: "abc", headCommit: "def", workspaceDirectory: "/workspace" }
 		)
 
-		console.log = originalLog
-		expect(output).toContain("Looks good")
-		expect(output).toContain("src/file.ts")
+		expect(result).toContain("Looks good")
+		expect(result).toContain("src/file.ts")
 	})
 })

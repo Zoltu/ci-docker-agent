@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { parseUnifiedDiff, mapGitStatus, createGenerateLocalDiff, createSpawnGitDiff, buildLocalDiff } from "../source/diff.mts"
+import { parseUnifiedDiff, mapGitStatus, parseNumstat, createGenerateLocalDiff, createSpawnGitDiff, buildLocalDiff } from "../source/diff.mts"
 import { join } from "node:path"
 import { existsSync } from "node:fs"
 
@@ -161,8 +161,50 @@ describe("mapGitStatus", () => {
 	})
 })
 
+describe("parseNumstat", () => {
+	it("parses a single file", () => {
+		const output = "1\t2\tsrc/file.ts"
+		const result = parseNumstat(output)
+
+		expect(result.size).toBe(1)
+		expect(result.get("src/file.ts")).toEqual({ additions: 1, deletions: 2 })
+	})
+
+	it("parses multiple files", () => {
+		const output = [
+			"1\t2\tsrc/file1.ts",
+			"3\t4\tsrc/file2.ts",
+		].join("\n")
+		const result = parseNumstat(output)
+
+		expect(result.size).toBe(2)
+		expect(result.get("src/file1.ts")).toEqual({ additions: 1, deletions: 2 })
+		expect(result.get("src/file2.ts")).toEqual({ additions: 3, deletions: 4 })
+	})
+
+	it("skips binary files (additions and deletions are '-')", () => {
+		const output = "-\t-\tsrc/image.png"
+		const result = parseNumstat(output)
+
+		expect(result.size).toBe(0)
+	})
+
+	it("skips lines with fewer than 3 tab-separated fields", () => {
+		const output = "incomplete"
+		const result = parseNumstat(output)
+
+		expect(result.size).toBe(0)
+	})
+
+	it("returns empty map for empty input", () => {
+		const result = parseNumstat("")
+
+		expect(result.size).toBe(0)
+	})
+})
+
 describe("buildLocalDiff", () => {
-	it("builds PullRequestFiles from name-status and unified diff output", () => {
+	it("builds PullRequestFiles from name-status, unified diff, and numstat output", () => {
 		const nameStatus = [
 			"M\tsrc/file.ts",
 		].join("\n")
@@ -173,8 +215,9 @@ describe("buildLocalDiff", () => {
 			"-old line",
 			"+new line",
 		].join("\n")
+		const numstat = new Map([["src/file.ts", { additions: 1, deletions: 1 }]])
 
-		const files = buildLocalDiff(nameStatus, unified)
+		const files = buildLocalDiff(nameStatus, unified, numstat)
 
 		expect(files).toHaveLength(1)
 		expect(files[0]!.filename).toBe("src/file.ts")
@@ -194,8 +237,9 @@ describe("buildLocalDiff", () => {
 			"+line1",
 			"+line2",
 		].join("\n")
+		const numstat = new Map([["src/new.ts", { additions: 2, deletions: 0 }]])
 
-		const files = buildLocalDiff(nameStatus, unified)
+		const files = buildLocalDiff(nameStatus, unified, numstat)
 
 		expect(files).toHaveLength(1)
 		expect(files[0]!.status).toBe("added")
@@ -212,8 +256,9 @@ describe("buildLocalDiff", () => {
 			"-line1",
 			"-line2",
 		].join("\n")
+		const numstat = new Map([["src/old.ts", { additions: 0, deletions: 2 }]])
 
-		const files = buildLocalDiff(nameStatus, unified)
+		const files = buildLocalDiff(nameStatus, unified, numstat)
 
 		expect(files).toHaveLength(1)
 		expect(files[0]!.status).toBe("removed")
@@ -221,8 +266,27 @@ describe("buildLocalDiff", () => {
 		expect(files[0]!.deletions).toBe(2)
 	})
 
+	it("defaults additions and deletions to 0 when file not in numstat", () => {
+		const nameStatus = "M\tsrc/unknown.ts"
+		const unified = [
+			"--- a/src/unknown.ts",
+			"+++ b/src/unknown.ts",
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+		].join("\n")
+		const numstat = new Map<string, { additions: number; deletions: number }>()
+
+		const files = buildLocalDiff(nameStatus, unified, numstat)
+
+		expect(files).toHaveLength(1)
+		expect(files[0]!.additions).toBe(0)
+		expect(files[0]!.deletions).toBe(0)
+		expect(files[0]!.changes).toBe(0)
+	})
+
 	it("returns empty array for empty name-status output", () => {
-		const files = buildLocalDiff("", "")
+		const files = buildLocalDiff("", "", new Map())
 		expect(files).toEqual([])
 	})
 
@@ -242,8 +306,12 @@ describe("buildLocalDiff", () => {
 			"@@ -0,0 +1 @@",
 			"+added",
 		].join("\n")
+		const numstat = new Map([
+			["src/file1.ts", { additions: 1, deletions: 1 }],
+			["src/file2.ts", { additions: 1, deletions: 0 }],
+		])
 
-		const files = buildLocalDiff(nameStatus, unified)
+		const files = buildLocalDiff(nameStatus, unified, numstat)
 
 		expect(files).toHaveLength(2)
 		expect(files[0]!.filename).toBe("src/file1.ts")

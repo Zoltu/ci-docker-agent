@@ -33,6 +33,7 @@ EOF
 # Configure git to trust the workspace directory (for bun user)
 RUN git config --global --add safe.directory /github/workspace
 
+# Must stay in sync with source/paths.mts WORKSPACE_DIRECTORY
 WORKDIR /github/workspace
 
 # Must stay in sync with source/paths.mts BUILTIN_AGENTS_DIR

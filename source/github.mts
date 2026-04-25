@@ -10,32 +10,45 @@ export type GitHubFetch = (url: string, options: RequestInit) => Promise<Respons
 
 export function createGithubFetch(): GitHubFetch {
 	return async function githubFetch(url: string, options: RequestInit): Promise<Response> {
-	const deadline = Date.now() + DEADLINE_MILLISECONDS
+		const deadline = Date.now() + DEADLINE_MILLISECONDS
 
-	while (true) {
-		const controller = new AbortController()
-		const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MILLISECONDS)
+		while (true) {
+			const controller = new AbortController()
+			const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MILLISECONDS)
 
-		try {
-			const response = await fetch(url, { ...options, signal: controller.signal })
-			clearTimeout(timeoutId)
-			return response
-		} catch (error) {
-			clearTimeout(timeoutId)
+			try {
+				const response = await fetch(url, { ...options, signal: controller.signal })
+				clearTimeout(timeoutId)
 
-			if (!controller.signal.aborted) {
-				throw error
+				if (response.status === 429) {
+					if (Date.now() >= deadline) {
+						throw new Error(`GitHub API request exceeded ${DEADLINE_MILLISECONDS / 1000}s deadline`)
+					}
+
+					const retryAfter = response.headers.get("Retry-After")
+					const delay = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : RETRY_DELAY_MILLISECONDS
+					console.log(`Rate limited (429), retrying in ${delay / 1000}s`)
+					await new Promise(resolve => setTimeout(resolve, delay))
+					continue
+				}
+
+				return response
+			} catch (error) {
+				clearTimeout(timeoutId)
+
+				if (!controller.signal.aborted) {
+					throw error
+				}
+
+				if (Date.now() >= deadline) {
+					throw new Error(`GitHub API request exceeded ${DEADLINE_MILLISECONDS / 1000}s deadline`)
+				}
+
+				console.log(`Request timed out after ${REQUEST_TIMEOUT_MILLISECONDS / 1000}s, retrying in ${RETRY_DELAY_MILLISECONDS / 1000}s`)
+
+				await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MILLISECONDS))
 			}
-
-			if (Date.now() >= deadline) {
-				throw new Error(`GitHub API request exceeded ${DEADLINE_MILLISECONDS / 1000}s deadline`)
-			}
-
-			console.log(`Request timed out after ${REQUEST_TIMEOUT_MILLISECONDS / 1000}s, retrying in ${RETRY_DELAY_MILLISECONDS / 1000}s`)
-
-			await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MILLISECONDS))
 		}
-	}
 	}
 }
 

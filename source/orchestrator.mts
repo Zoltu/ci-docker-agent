@@ -35,7 +35,7 @@ export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDepen
 		try {
 			await dependencies.reactToComment(configuration.commentId, "-1")
 		} catch (reactionError) {
-			console.error("Failed to react to comment:", reactionError)
+			console.error(`Failed to react to comment ${configuration.commentId} with "-1":`, reactionError)
 		}
 		throw error
 	}
@@ -56,11 +56,11 @@ export async function runOnPullRequest(dependencies: RunOnPullRequestDependencie
 
 type RunOnLocalDiffDependencies = { generateLocalDiff: (baseCommit: string, headCommit: string) => Promise<PullRequestFile[]>; loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>; loadAggregator: () => Promise<Agent>; callApi: CallApi }
 
-export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration): Promise<void> {
+export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration): Promise<string> {
 	const files = await dependencies.generateLocalDiff(configuration.baseCommit, configuration.headCommit)
 
-	if (files.length === 0) return console.log("No files changed, nothing to review")
+	if (files.length === 0) return "No files changed, nothing to review"
 
 	const aiResult = await runAnalysis(dependencies, configuration.agents, files)
-	console.log("\n" + formatReviewForConsole(aiResult, files))
+	return "\n" + formatReviewForConsole(aiResult, files)
 }

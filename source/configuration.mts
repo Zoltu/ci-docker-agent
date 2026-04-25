@@ -73,6 +73,7 @@ function tryGetLocalDiffConfiguration(environment: Record<string, string | undef
 		return { ok: false, reason: "BASE_COMMIT is required when HEAD_COMMIT is provided" }
 	}
 
+	// Must stay in sync with Dockerfile WORKDIR and source/paths.mts WORKSPACE_DIRECTORY
 	const workspaceDirectory = environment.WORKSPACE_DIRECTORY ?? "/github/workspace"
 
 	return { ok: true, value: { type: "local-diff", agents, baseCommit, headCommit, workspaceDirectory } }
