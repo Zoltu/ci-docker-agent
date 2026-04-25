@@ -1,77 +1,56 @@
-import type { PrFile } from "./github-types.mts"
-import { getConfig, type CommentTriggerConfiguration, type PullRequestConfiguration, type LocalDiffConfiguration } from "./configuration.mts"
-import { getAgentsFromComment } from "./trigger.mts"
-import { fetchPrFiles, submitReview, reactToComment } from "./github.mts"
-import { generateLocalDiff } from "./diff.mts"
-import { createAiClient } from "./ai.mts"
-import { loadAgents, loadAggregator, type AgentNames } from "./agents.mts"
-import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
-import type { AiReviewResult } from "./review.mts"
+import { createGetConfiguration } from "./configuration.mts"
+import { createGithubFetch, createFetchPullRequestFiles, createSubmitReview, createReactToComment } from "./github.mts"
+import { createSpawnGitDiff, createGenerateLocalDiff } from "./diff.mts"
+import { createDefaultCallApi } from "./ai.mts"
+import { createLoadAgents, createLoadAggregator, createReadAgentsFromDisk } from "./agents.mts"
+import { runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "./orchestrator.mts"
 import { assertNever } from "./typescript-helpers.mts"
-
-async function runAnalysis(agentNames: AgentNames, files: PrFile[]): Promise<AiReviewResult> {
-	const { agents } = await loadAgents(agentNames)
-	const aggregator = await loadAggregator()
-	const aiClient = createAiClient()
-	return aiClient.analyze(files, agents, aggregator)
-}
-
-async function runOnCommentTrigger(config: CommentTriggerConfiguration): Promise<void> {
-	const triggerResult = getAgentsFromComment(config.commentBody)
-
-	if (triggerResult === "no review triggered") return
-
-	try {
-		const files = await fetchPrFiles(config.github)
-
-		if (files.length === 0) return console.log("No files changed, nothing to review")
-
-		const aiResult = await runAnalysis(triggerResult, files)
-		const reviewPayload = buildReviewPayload(aiResult)
-		await submitReview(config.github, reviewPayload)
-		console.log("PR review submitted successfully")
-	} catch (error) {
-		try {
-			await reactToComment(config.github, config.commentId, "-1")
-		} catch (reactionError) {
-			console.error("Failed to react to comment:", reactionError)
-		}
-		throw error
-	}
-}
-
-async function runOnPullRequest(config: PullRequestConfiguration): Promise<void> {
-	const files = await fetchPrFiles(config.github)
-
-	if (files.length === 0) return console.log("No files changed, nothing to review")
-
-	const aiResult = await runAnalysis(config.agents, files)
-	const reviewPayload = buildReviewPayload(aiResult)
-	await submitReview(config.github, reviewPayload)
-	console.log("PR review submitted successfully")
-}
-
-async function runOnLocalDiff(config: LocalDiffConfiguration): Promise<void> {
-	const files = await generateLocalDiff(config.baseCommit, config.headCommit)
-
-	if (files.length === 0) return console.log("No files changed, nothing to review")
-
-	const aiResult = await runAnalysis(config.agents, files)
-	console.log("\n" + formatReviewForConsole(aiResult, files))
-}
+import { USER_AGENTS_DIRECTORY, BUILTIN_AGENTS_DIRECTORY } from "./paths.mts"
 
 async function main(): Promise<void> {
-	const config = getConfig(Bun.env)
+	const getConfiguration = createGetConfiguration(Bun.env)
+	const configuration = getConfiguration()
+	const agentDirectories = { userAgentsDirectory: USER_AGENTS_DIRECTORY, builtinAgentsDirectory: BUILTIN_AGENTS_DIRECTORY }
 
-	switch (config.type) {
-		case "comment-trigger":
-			return runOnCommentTrigger(config)
-		case "pull-request":
-			return runOnPullRequest(config)
-		case "local-diff":
-			return runOnLocalDiff(config)
-		default:
-			assertNever(config)
+	const readAgentsFromDisk = createReadAgentsFromDisk()
+	const loadAgents = createLoadAgents(agentDirectories, readAgentsFromDisk)
+	const loadAggregator = createLoadAggregator(agentDirectories, readAgentsFromDisk)
+	const callApi = createDefaultCallApi(Bun.env)
+	const githubFetch = createGithubFetch()
+
+	switch (configuration.type) {
+		case "comment-trigger": {
+			const dependencies = {
+				fetchPullRequestFiles: createFetchPullRequestFiles(githubFetch, configuration.github),
+				submitReview: createSubmitReview(githubFetch, configuration.github),
+				reactToComment: createReactToComment(githubFetch, configuration.github),
+				loadAgents,
+				loadAggregator,
+				callApi,
+			}
+			return runOnCommentTrigger(dependencies, configuration)
+		}
+		case "pull-request": {
+			const dependencies = {
+				fetchPullRequestFiles: createFetchPullRequestFiles(githubFetch, configuration.github),
+				submitReview: createSubmitReview(githubFetch, configuration.github),
+				loadAgents,
+				loadAggregator,
+				callApi,
+			}
+			return runOnPullRequest(dependencies, configuration)
+		}
+		case "local-diff": {
+			const spawnGitDiff = createSpawnGitDiff(configuration.workspaceDirectory)
+			const dependencies = {
+				generateLocalDiff: createGenerateLocalDiff(configuration.workspaceDirectory, spawnGitDiff),
+				loadAgents,
+				loadAggregator,
+				callApi,
+			}
+			return runOnLocalDiff(dependencies, configuration)
+		}
+		default: assertNever(configuration)
 	}
 }
 

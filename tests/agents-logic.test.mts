@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { buildAgentPrompt, resolveAgents } from "../source/agents.mts"
 import type { Agent } from "../source/agents.mts"
-import type { PrFile } from "../source/github-types.mts"
+import type { PullRequestFile } from "../source/github-types.mts"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
@@ -11,7 +11,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
 	return { name: "TestAgent", prompt: "Review the code.", ...overrides }
 }
 
-function makePrFile(overrides: Partial<PrFile> = {}): PrFile {
+function makePullRequestFile(overrides: Partial<PullRequestFile> = {}): PullRequestFile {
 	return {
 		filename: "src/file.ts",
 		status: "modified",
@@ -33,7 +33,7 @@ describe("buildAgentPrompt", () => {
 
 	it("includes file context", () => {
 		const agent = makeAgent()
-		const files = [makePrFile({ filename: "src/app.ts", status: "added", additions: 10, deletions: 0 })]
+		const files = [makePullRequestFile({ filename: "src/app.ts", status: "added", additions: 10, deletions: 0 })]
 
 		const result = buildAgentPrompt(agent, files)
 
@@ -45,7 +45,7 @@ describe("buildAgentPrompt", () => {
 
 	it("includes patch when present", () => {
 		const agent = makeAgent()
-		const files = [makePrFile({ patch: "@@ -1 +1 @@\n-old\n+new" })]
+		const files = [makePullRequestFile({ patch: "@@ -1 +1 @@\n-old\n+new" })]
 
 		const result = buildAgentPrompt(agent, files)
 
@@ -55,7 +55,7 @@ describe("buildAgentPrompt", () => {
 
 	it("omits patch section when patch is undefined", () => {
 		const agent = makeAgent()
-		const files = [makePrFile({ patch: undefined })]
+		const files = [makePullRequestFile({ patch: undefined })]
 
 		const result = buildAgentPrompt(agent, files)
 
@@ -97,8 +97,8 @@ describe("buildAgentPrompt", () => {
 	it("includes multiple files", () => {
 		const agent = makeAgent()
 		const files = [
-			makePrFile({ filename: "a.ts" }),
-			makePrFile({ filename: "b.ts" }),
+			makePullRequestFile({ filename: "a.ts" }),
+			makePullRequestFile({ filename: "b.ts" }),
 		]
 
 		const result = buildAgentPrompt(agent, files)

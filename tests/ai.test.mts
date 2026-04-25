@@ -1,5 +1,7 @@
 import { describe, it, expect } from "bun:test"
-import { parseAggregatorOutput } from "../source/ai.mts"
+import { parseAggregatorOutput, analyze, type CallApi } from "../source/ai.mts"
+import type { Agent } from "../source/agents.mts"
+import type { PullRequestFile } from "../source/github-types.mts"
 
 describe("parseAggregatorOutput", () => {
 	it("parses valid JSON with body and comments", () => {
@@ -121,5 +123,48 @@ describe("parseAggregatorOutput", () => {
 		expect(() => parseAggregatorOutput(output)).toThrow(
 			"Parsed output does not match expected AiReviewResult shape"
 		)
+	})
+})
+
+describe("analyze", () => {
+	it("calls callApi for each agent and aggregator", async () => {
+		const calls: string[] = []
+		const callApi: CallApi = async (prompt) => {
+			calls.push(prompt)
+			return JSON.stringify({ body: "Review complete", comments: [] })
+		}
+
+		const agents: Agent[] = [
+			{ name: "SecurityAgent", prompt: "Check security" },
+			{ name: "StyleAgent", prompt: "Check style" },
+		]
+		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
+		const files: PullRequestFile[] = [
+			{ filename: "src/file.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
+		]
+
+		const result = await analyze({ callApi }, files, agents, aggregator)
+
+		expect(calls.length).toBe(3)
+		expect(result.body).toBe("Review complete")
+		expect(result.comments).toEqual([])
+	})
+
+	it("passes agent outputs to aggregator prompt", async () => {
+		let callCount = 0
+		const callApi: CallApi = async () => {
+			callCount++
+			return JSON.stringify({ body: `Result ${callCount}`, comments: [] })
+		}
+
+		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
+		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
+		const files: PullRequestFile[] = [
+			{ filename: "src/file.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
+		]
+
+		const result = await analyze({ callApi }, files, agents, aggregator)
+
+		expect(result.body).toBe("Result 2")
 	})
 })

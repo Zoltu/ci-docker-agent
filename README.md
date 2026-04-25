@@ -43,7 +43,7 @@ Fetch a pull request from GitHub and submit a review with AI-generated feedback.
 docker run -it \
   -e GITHUB_TOKEN="your-github-token" \
   -e PR_NUMBER="123" \
-  -e REPO="owner/repository-name" \
+  -e REPO="owner/repo-name" \
   ci-agent:latest
 ```
 

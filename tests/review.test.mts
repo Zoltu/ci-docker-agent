@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { buildReviewPayload, formatReviewForConsole, type AiReviewResult } from "../source/review.mts"
-import type { PrFile } from "../source/github-types.mts"
+import type { PullRequestFile } from "../source/github-types.mts"
 
 describe("buildReviewPayload", () => {
 	it("creates a review payload with COMMENT event", () => {
@@ -61,7 +61,7 @@ describe("formatReviewForConsole", () => {
 			comments: [],
 		}
 
-		const files: PrFile[] = []
+		const files: PullRequestFile[] = []
 		const output = formatReviewForConsole(aiResult, files)
 
 		expect(output).toContain("## CI Agent Review")
@@ -83,7 +83,7 @@ describe("formatReviewForConsole", () => {
 			],
 		}
 
-		const files: PrFile[] = []
+		const files: PullRequestFile[] = []
 		const output = formatReviewForConsole(aiResult, files)
 
 		expect(output).toContain("## CI Agent Review")
@@ -111,7 +111,7 @@ describe("formatReviewForConsole", () => {
 			],
 		}
 
-		const files: PrFile[] = []
+		const files: PullRequestFile[] = []
 		const output = formatReviewForConsole(aiResult, files)
 
 		expect(output).toContain("file1.ts:1 (RIGHT): Comment 1")
@@ -124,7 +124,7 @@ describe("formatReviewForConsole", () => {
 			comments: [],
 		}
 
-		const files: PrFile[] = [
+		const files: PullRequestFile[] = [
 			{
 				filename: "src/file.ts",
 				status: "modified",

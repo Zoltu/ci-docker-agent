@@ -40,18 +40,18 @@ When receiving data from external sources (APIs, files, environment, etc.), alwa
 
 ```typescript
 // Define validation function
-function isValidConfig(maybeConfig: unknown): obj is Config {
-	if (typeof maybeConfig !== 'object') return false
-	if (maybeConfig === null) return false
-	if (!('requiredField' in maybeConfig)) return false
-	if (typeof maybeConfig.requiredField !== 'string') return false
+function isValidConfiguration(maybeConfiguration: unknown): object is Configuration {
+	if (typeof maybeConfiguration !== 'object') return false
+	if (maybeConfiguration === null) return false
+	if (!('requiredField' in maybeConfiguration)) return false
+	if (typeof maybeConfiguration.requiredField !== 'string') return false
 	return true
 }
 
 // Use validation
-const config = parseEnv();
-if (!isValidConfig(config)) throw new Error('Invalid configuration')
-// Now config is properly typed
+const configuration = parseEnv();
+if (!isValidConfiguration(configuration)) throw new Error('Invalid configuration')
+// Now configuration is properly typed
 ```
 
 ### Const Assertions
@@ -144,27 +144,89 @@ Thin integration layers that wire dependencies to the outside world. This includ
 
 ### Making dependencies injectable
 
-Functions that need environment variables, filesystem paths, or API clients should accept them as parameters with sensible defaults. The default uses the real dependency (for production), while tests pass controlled values. The untested integration layer is just the call site where the defaults are accepted.
+Functions that touch external systems (network, filesystem, subprocess, environment) should be exported as **factories** that return configured functions. The factory closes over all configuration that does not vary per call.
+
+Orchestration functions (functions that sequence calls, make decisions, handle errors) are **testable** and receive pre-configured leaf functions via a `dependencies` object.
+
+**No `dependencies` parameter has a default value.** `main` is the only place that assembles and passes real dependencies.
 
 **Wrong:**
 ```typescript
 // Coupled to global - untestable
-export function parseConfig(): Config {
+export function parseConfiguration(): Configuration {
 	const value = Bun.env.MY_VAR
 	// ... logic ...
+}
+
+// Default parameter hides external access
+export function runAnalysis(environment: Record<string, string | undefined> = Bun.env): void {
+	const configuration = parseConfiguration(environment)
+	// ...
 }
 ```
 
 **Right:**
 ```typescript
-// Dependency injected - testable
-export function parseConfig(env: Record<string, string | undefined> = Bun.env): Config {
-	const value = env.MY_VAR
-	// ... logic ...
+// Leaf factory - closes over configuration at construction time
+export function createParseConfiguration(environment: Record<string, string | undefined>): () => Configuration {
+	return () => {
+		const value = environment.MY_VAR
+		// ... logic ...
+	}
 }
 
-// Tests can call: parseConfig({ MY_VAR: "test" })
+// Orchestration - receives pre-configured leaf via dependencies
+export function runAnalysis(dependencies: { parseConfiguration: () => Configuration }): void {
+	const configuration = dependencies.parseConfiguration()
+	// ...
+}
 ```
+
+---
+
+## Architecture
+
+This codebase follows a three-tier architecture that maximizes testability while keeping the integration shell as thin as possible.
+
+### Leaf Functions
+
+Leaf functions directly touch external systems: network, filesystem, subprocess, and environment. They are **not tested** and should be the thinnest possible wrappers around those systems.
+
+Leaf functions are exported as **factories** that return configured functions. All configuration that does not vary per call is closed over at construction time.
+
+Examples: `spawnGitDiff`, `readAgentsFromDisk`, `githubFetch`.
+
+### Orchestration Functions
+
+Orchestration functions sequence calls, make decisions, handle errors, and branch on conditions. They are **testable** and receive pre-configured leaf functions via a `dependencies` object.
+
+Each orchestration function declares its own type containing **only** the configured leaf functions it **directly** uses. Do not use type unions (`&`) to compose dependency types from callees. Because TypeScript uses structural typing, a superset object is assignable to a subset type automatically.
+
+Examples: `runAnalysis`, `runOnCommentTrigger`, `runOnLocalDiff`.
+
+### Pure Helper Functions
+
+Pure helper functions contain parsing, validation, formatting, transformation, and decision-making logic. They are directly imported wherever needed and never injected.
+
+Examples: `parseAggregatorOutput`, `buildAgentPrompt`, `formatReviewForConsole`, `isPrFile`.
+
+### Important Rules
+
+- **No default values for `dependencies` parameters.** Defaults hide external access and surprise callers. `main` is the only place that assembles and passes real dependencies.
+- **Never use type unions (`&`) to compose dependency types.** List each dependency explicitly in each orchestration function's type. When a transitive dependency changes, the type checker will surface the mismatch at the call site.
+- Pass the accumulated `dependencies` object down without destructuring. Because of structural typing, `main` assembles one object and passes it to each handler; handlers accept subset types, so TypeScript enforces that everything needed is provided without manual repackaging.
+
+### Decision Tree
+
+When adding a new function, use this to decide its pattern:
+
+1. **Does it touch an external system** (network, filesystem, subprocess, environment)?
+   - **Yes:** It is a **leaf**. Export a **factory** that accepts raw configuration and returns a configured function. Close over all configuration that does not vary per call. Do not export the raw function.
+   - **No:** Go to step 2.
+
+2. **Does it orchestrate or make decisions** (sequence calls, handle errors, branch on conditions)?
+   - **Yes:** It is **testable orchestration**. Accept a `dependencies` object containing only the configured leaf functions it needs. Do not provide defaults.
+   - **No:** It is a **pure helper**. Import it directly wherever needed.
 
 ---
 

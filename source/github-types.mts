@@ -1,7 +1,7 @@
 export const FILE_STATUSES = ["added", "modified", "removed", "renamed", "copied", "changed", "unchanged"] as const
 export type FileStatus = typeof FILE_STATUSES[number]
 
-export interface PrFile {
+export interface PullRequestFile {
 	filename: string
 	status: FileStatus
 	additions: number
@@ -29,11 +29,11 @@ export interface GitHubReviewPayload {
 	comments: LineComment[]
 }
 
-export interface GitHubConfig {
+export interface GitHubConfiguration {
 	token: string
 	apiUrl: string
-	repo: string
+	repository: string
 	owner: string
-	repoName: string
-	prNumber: number
+	repositoryName: string
+	pullRequestNumber: number
 }

@@ -1,44 +1,40 @@
-import type { PrFile, LineComment } from "./github-types.mts"
+import type { PullRequestFile, LineComment } from "./github-types.mts"
 import { SIDES } from "./github-types.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 import { includes } from "./typescript-helpers.mts"
 
-export interface AiClient {
-	analyze(files: PrFile[], agents: Agent[], aggregator: Agent): Promise<AiReviewResult>
+export type CallApi = (prompt: string) => Promise<string>
+
+export function createDefaultCallApi(environment: Record<string, string | undefined>): CallApi {
+	return async (prompt: string): Promise<string> => {
+		prompt
+		environment
+		return JSON.stringify({ body: "placeholder output - AI integration not yet implemented", comments: [] })
+	}
 }
 
-async function runAgent(agent: Agent, files: PrFile[]): Promise<string> {
+async function runAgent(dependencies: { callApi: CallApi }, agent: Agent, files: PullRequestFile[]): Promise<string> {
 	const prompt = buildAgentPrompt(agent, files)
-	// TODO: prompt agent, and assign response to result
-	prompt
-	const output = `placeholder output - AI integration not yet implemented`
+	const output = await dependencies.callApi(prompt)
 	console.log(`Running agent: ${agent.name}`)
 	return output
 }
 
-async function runAgents(agents: Agent[], files: PrFile[]): Promise<Map<string, string>> {
-	const agentInputs = new Map<string, string>()
-
+async function runAgents(dependencies: { callApi: CallApi }, agents: Agent[], files: PullRequestFile[]): Promise<Map<string, string>> {
 	const reviewResults = await Promise.all(
 		agents.map(async agent => {
-			const output = await runAgent(agent, files)
-			return { name: agent.name, output }
+			const output = await runAgent(dependencies, agent, files)
+			return [agent.name, output] as const
 		})
 	)
 
-	for (const result of reviewResults) {
-		agentInputs.set(result.name, result.output)
-	}
-
-	return agentInputs
+	return new Map(reviewResults)
 }
 
-async function runAggregator(aggregator: Agent, files: PrFile[], agentInputs: Map<string, string>): Promise<string> {
+async function runAggregator(dependencies: { callApi: CallApi }, aggregator: Agent, files: PullRequestFile[], agentInputs: Map<string, string>): Promise<string> {
 	const prompt = buildAgentPrompt(aggregator, files, agentInputs)
-	// TODO: prompt agent, and assign response to result
-	prompt
-	const output = JSON.stringify({ body: `${aggregator.name} placeholder output - AI integration not yet implemented`, comments: [] })
+	const output = await dependencies.callApi(prompt)
 	console.log(`Running agent: ${aggregator.name}`)
 	return output
 }
@@ -68,19 +64,15 @@ export function parseAggregatorOutput(output: string): AiReviewResult {
 	return parsed
 }
 
-export function createAiClient(): AiClient {
-	return {
-		async analyze(files: PrFile[], agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
-			console.log(`Analyzing ${files.length} files...`)
-			console.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
-			console.log(`Using aggregator: ${aggregator.name}`)
+export async function analyze(dependencies: { callApi: CallApi }, files: PullRequestFile[], agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
+	console.log(`Analyzing ${files.length} files...`)
+	console.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
+	console.log(`Using aggregator: ${aggregator.name}`)
 
-			const agentInputs = await runAgents(agents, files)
-			const finalOutput = await runAggregator(aggregator, files, agentInputs)
+	const agentOutputs = await runAgents(dependencies, agents, files)
+	const finalOutput = await runAggregator(dependencies, aggregator, files, agentOutputs)
 
-			console.log("Agent analysis complete")
+	console.log("Agent analysis complete")
 
-			return parseAggregatorOutput(finalOutput)
-		},
-	}
+	return parseAggregatorOutput(finalOutput)
 }

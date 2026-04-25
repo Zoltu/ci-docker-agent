@@ -1,4 +1,4 @@
-import type { PrFile, GitHubReviewPayload } from "./github-types.mts"
+import type { PullRequestFile, GitHubReviewPayload } from "./github-types.mts"
 
 export type AiReviewResult = Omit<GitHubReviewPayload, "event">
 
@@ -10,7 +10,7 @@ export function buildReviewPayload(aiResult: AiReviewResult): GitHubReviewPayloa
 	}
 }
 
-export function formatReviewForConsole(aiResult: AiReviewResult, files: PrFile[]): string {
+export function formatReviewForConsole(aiResult: AiReviewResult, files: PullRequestFile[]): string {
 	const lines = [
 		"## CI Agent Review",
 		"",
@@ -19,17 +19,15 @@ export function formatReviewForConsole(aiResult: AiReviewResult, files: PrFile[]
 
 	if (aiResult.comments.length > 0) {
 		lines.push("", "### Line Comments")
-		aiResult.comments.forEach(comment => {
+		for (const comment of aiResult.comments) {
 			lines.push(`- ${comment.path}:${comment.line} (${comment.side}): ${comment.body}`)
-		})
+		}
 	}
 
 	lines.push("", "### Files Analyzed")
-	files.forEach(file => {
-		lines.push(
-			`- ${file.filename} (${file.status}): +${file.additions} -${file.deletions}`
-		)
-	})
+	for (const file of files) {
+		lines.push(`- ${file.filename} (${file.status}): +${file.additions} -${file.deletions}`)
+	}
 
 	return lines.join("\n")
 }

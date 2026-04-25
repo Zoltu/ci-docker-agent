@@ -1,15 +1,15 @@
 import { describe, it, expect } from "bun:test"
-import { parseUnifiedDiff, mapGitStatus, generateLocalDiff } from "../source/diff.mts"
+import { parseUnifiedDiff, mapGitStatus, createGenerateLocalDiff, createSpawnGitDiff, buildLocalDiff } from "../source/diff.mts"
 import { join } from "node:path"
 import { existsSync } from "node:fs"
 
 const PROJECT_ROOT = join(import.meta.dir, "..")
 
 async function gitRevParse(ref: string, cwd: string): Promise<string> {
-	const proc = Bun.spawn(["git", "rev-parse", ref], { cwd, stderr: "pipe", stdout: "pipe" })
-	await proc.exited
-	expect(proc.exitCode).toBe(0)
-	return await Bun.readableStreamToText(proc.stdout)
+	const process = Bun.spawn(["git", "rev-parse", ref], { cwd, stderr: "pipe", stdout: "pipe" })
+	await process.exited
+	expect(process.exitCode).toBe(0)
+	return await Bun.readableStreamToText(process.stdout)
 }
 
 describe("parseUnifiedDiff", () => {
@@ -161,14 +161,105 @@ describe("mapGitStatus", () => {
 	})
 })
 
-describe("generateLocalDiff", () => {
-	it("returns well-formed PrFiles from a real git diff", async () => {
+describe("buildLocalDiff", () => {
+	it("builds PullRequestFiles from name-status and unified diff output", () => {
+		const nameStatus = [
+			"M\tsrc/file.ts",
+		].join("\n")
+		const unified = [
+			"--- a/src/file.ts",
+			"+++ b/src/file.ts",
+			"@@ -1,2 +1,2 @@",
+			"-old line",
+			"+new line",
+		].join("\n")
+
+		const files = buildLocalDiff(nameStatus, unified)
+
+		expect(files).toHaveLength(1)
+		expect(files[0]!.filename).toBe("src/file.ts")
+		expect(files[0]!.status).toBe("modified")
+		expect(files[0]!.additions).toBe(1)
+		expect(files[0]!.deletions).toBe(1)
+		expect(files[0]!.changes).toBe(2)
+		expect(files[0]!.patch).toContain("+new line")
+	})
+
+	it("handles added files", () => {
+		const nameStatus = "A\tsrc/new.ts"
+		const unified = [
+			"--- /dev/null",
+			"+++ b/src/new.ts",
+			"@@ -0,0 +1,2 @@",
+			"+line1",
+			"+line2",
+		].join("\n")
+
+		const files = buildLocalDiff(nameStatus, unified)
+
+		expect(files).toHaveLength(1)
+		expect(files[0]!.status).toBe("added")
+		expect(files[0]!.additions).toBe(2)
+		expect(files[0]!.deletions).toBe(0)
+	})
+
+	it("handles deleted files", () => {
+		const nameStatus = "D\tsrc/old.ts"
+		const unified = [
+			"--- a/src/old.ts",
+			"+++ /dev/null",
+			"@@ -1,2 +0,0 @@",
+			"-line1",
+			"-line2",
+		].join("\n")
+
+		const files = buildLocalDiff(nameStatus, unified)
+
+		expect(files).toHaveLength(1)
+		expect(files[0]!.status).toBe("removed")
+		expect(files[0]!.additions).toBe(0)
+		expect(files[0]!.deletions).toBe(2)
+	})
+
+	it("returns empty array for empty name-status output", () => {
+		const files = buildLocalDiff("", "")
+		expect(files).toEqual([])
+	})
+
+	it("handles multiple files", () => {
+		const nameStatus = [
+			"M\tsrc/file1.ts",
+			"A\tsrc/file2.ts",
+		].join("\n")
+		const unified = [
+			"--- a/src/file1.ts",
+			"+++ b/src/file1.ts",
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+			"--- /dev/null",
+			"+++ b/src/file2.ts",
+			"@@ -0,0 +1 @@",
+			"+added",
+		].join("\n")
+
+		const files = buildLocalDiff(nameStatus, unified)
+
+		expect(files).toHaveLength(2)
+		expect(files[0]!.filename).toBe("src/file1.ts")
+		expect(files[1]!.filename).toBe("src/file2.ts")
+	})
+})
+
+describe("createGenerateLocalDiff", () => {
+	it("returns well-formed PullRequestFiles from a real git diff", async () => {
 		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
 
 		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
 		const head1 = (await gitRevParse("HEAD~1", PROJECT_ROOT)).trim()
 
-		const files = await generateLocalDiff(head1, head, PROJECT_ROOT)
+		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGitDiff(PROJECT_ROOT))
+		const files = await generateLocalDiff(head1, head)
 
 		expect(files.length).toBeGreaterThan(0)
 		for (const file of files) {
@@ -185,15 +276,17 @@ describe("generateLocalDiff", () => {
 
 		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
 
-		const files = await generateLocalDiff(head, head, PROJECT_ROOT)
+		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGitDiff(PROJECT_ROOT))
+		const files = await generateLocalDiff(head, head)
 
 		expect(files).toEqual([])
 	})
 
-	it("throws when workspace is not a git repo", async () => {
+	it("throws when workspace is not a git repository", async () => {
 		const notAGitRepo = import.meta.dir
 
-		expect(generateLocalDiff("abc123", "def456", notAGitRepo)).rejects.toThrow("No git repository found")
+		const generateLocalDiff = createGenerateLocalDiff(notAGitRepo, createSpawnGitDiff(notAGitRepo))
+		expect(generateLocalDiff("abc123", "def456")).rejects.toThrow("No git repository found")
 	})
 
 	it("throws when base commit does not exist", async () => {
@@ -201,7 +294,8 @@ describe("generateLocalDiff", () => {
 
 		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
 
-		expect(generateLocalDiff("nonexistent000000", head, PROJECT_ROOT)).rejects.toThrow("Base commit")
+		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGitDiff(PROJECT_ROOT))
+		expect(generateLocalDiff("nonexistent000000", head)).rejects.toThrow("Base commit")
 	})
 
 	it("throws when head commit does not exist", async () => {
@@ -209,6 +303,7 @@ describe("generateLocalDiff", () => {
 
 		const base = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
 
-		expect(generateLocalDiff(base, "nonexistent000000", PROJECT_ROOT)).rejects.toThrow("Head commit")
+		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGitDiff(PROJECT_ROOT))
+		expect(generateLocalDiff(base, "nonexistent000000")).rejects.toThrow("Head commit")
 	})
 })
