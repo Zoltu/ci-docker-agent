@@ -30,6 +30,7 @@ export function parseUnifiedDiff(output: string): Map<string, string> {
 		const toMatch = /^\+\+\+ b\/(.+)$/.exec(line)
 		if (toMatch) {
 			// Always use the "to" path as the canonical key. This handles renames where --- and +++ reference different filenames.
+			// Non-null: the (.+) capture group requires 1+ characters, so [1] is always populated on match
 			filename = toMatch[1]!
 			patch.push(line)
 			continue
@@ -52,7 +53,7 @@ export function mapGitStatus(status: string): "added" | "copied" | "removed" | "
 		case "D": return "removed"
 		case "M": return "modified"
 		case "R": return "renamed"
-		case "T": return "modified"
+		case "T": return "modified" // git marks file type changes (e.g. symlink ↔ regular file) with "T"
 		default: throw new Error(`Unknown git status code: "${status}"`)
 	}
 }

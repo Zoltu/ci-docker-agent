@@ -1,6 +1,7 @@
 import type { AgentNames } from "./agents.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
 import { includes } from "./typescript-helpers.mts"
+import { WORKSPACE_DIRECTORY } from "./paths.mts"
 
 const EVENT_TYPES = ["pull_request_target", "workflow_dispatch", "issue_comment", "local"] as const
 
@@ -73,8 +74,7 @@ function tryGetLocalDiffConfiguration(environment: Record<string, string | undef
 		return { ok: false, reason: "BASE_COMMIT is required when HEAD_COMMIT is provided" }
 	}
 
-	// Must stay in sync with Dockerfile WORKDIR and source/paths.mts WORKSPACE_DIRECTORY
-	const workspaceDirectory = environment.WORKSPACE_DIRECTORY ?? "/github/workspace"
+	const workspaceDirectory = environment.WORKSPACE_DIRECTORY ?? WORKSPACE_DIRECTORY
 
 	return { ok: true, value: { type: "local-diff", agents, baseCommit, headCommit, workspaceDirectory } }
 }

@@ -11,6 +11,7 @@ RUN bun run setup
 COPY agents/ /ci-agent/agents/
 COPY source/ /ci-agent/source/
 COPY tests/ /ci-agent/tests/
+RUN bun run typecheck
 RUN bun test
 
 
