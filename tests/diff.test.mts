@@ -166,8 +166,9 @@ describe("parseNumstat", () => {
 		const output = "1\t2\tsrc/file.ts"
 		const result = parseNumstat(output)
 
-		expect(result.size).toBe(1)
-		expect(result.get("src/file.ts")).toEqual({ additions: 1, deletions: 2 })
+		expect(result.stats.size).toBe(1)
+		expect(result.stats.get("src/file.ts")).toEqual({ additions: 1, deletions: 2 })
+		expect(result.binaryFiles).toEqual([])
 	})
 
 	it("parses multiple files", () => {
@@ -177,29 +178,33 @@ describe("parseNumstat", () => {
 		].join("\n")
 		const result = parseNumstat(output)
 
-		expect(result.size).toBe(2)
-		expect(result.get("src/file1.ts")).toEqual({ additions: 1, deletions: 2 })
-		expect(result.get("src/file2.ts")).toEqual({ additions: 3, deletions: 4 })
+		expect(result.stats.size).toBe(2)
+		expect(result.stats.get("src/file1.ts")).toEqual({ additions: 1, deletions: 2 })
+		expect(result.stats.get("src/file2.ts")).toEqual({ additions: 3, deletions: 4 })
+		expect(result.binaryFiles).toEqual([])
 	})
 
-	it("skips binary files (additions and deletions are '-')", () => {
+	it("tracks binary files (additions and deletions are '-')", () => {
 		const output = "-\t-\tsrc/image.png"
 		const result = parseNumstat(output)
 
-		expect(result.size).toBe(0)
+		expect(result.stats.size).toBe(0)
+		expect(result.binaryFiles).toEqual(["src/image.png"])
 	})
 
 	it("skips lines with fewer than 3 tab-separated fields", () => {
 		const output = "incomplete"
 		const result = parseNumstat(output)
 
-		expect(result.size).toBe(0)
+		expect(result.stats.size).toBe(0)
+		expect(result.binaryFiles).toEqual([])
 	})
 
-	it("returns empty map for empty input", () => {
+	it("returns empty result for empty input", () => {
 		const result = parseNumstat("")
 
-		expect(result.size).toBe(0)
+		expect(result.stats.size).toBe(0)
+		expect(result.binaryFiles).toEqual([])
 	})
 })
 
@@ -215,9 +220,9 @@ describe("buildLocalDiff", () => {
 			"-old line",
 			"+new line",
 		].join("\n")
-		const numstat = new Map([["src/file.ts", { additions: 1, deletions: 1 }]])
+		const numstat = { stats: new Map([["src/file.ts", { additions: 1, deletions: 1 }]]), binaryFiles: [] }
 
-		const files = buildLocalDiff(nameStatus, unified, numstat)
+		const { files, binaryFiles } = buildLocalDiff(nameStatus, unified, numstat)
 
 		expect(files).toHaveLength(1)
 		expect(files[0]!.filename).toBe("src/file.ts")
@@ -226,6 +231,7 @@ describe("buildLocalDiff", () => {
 		expect(files[0]!.deletions).toBe(1)
 		expect(files[0]!.changes).toBe(2)
 		expect(files[0]!.patch).toContain("+new line")
+		expect(binaryFiles).toEqual([])
 	})
 
 	it("handles added files", () => {
@@ -237,14 +243,15 @@ describe("buildLocalDiff", () => {
 			"+line1",
 			"+line2",
 		].join("\n")
-		const numstat = new Map([["src/new.ts", { additions: 2, deletions: 0 }]])
+		const numstat = { stats: new Map([["src/new.ts", { additions: 2, deletions: 0 }]]), binaryFiles: [] }
 
-		const files = buildLocalDiff(nameStatus, unified, numstat)
+		const { files, binaryFiles } = buildLocalDiff(nameStatus, unified, numstat)
 
 		expect(files).toHaveLength(1)
 		expect(files[0]!.status).toBe("added")
 		expect(files[0]!.additions).toBe(2)
 		expect(files[0]!.deletions).toBe(0)
+		expect(binaryFiles).toEqual([])
 	})
 
 	it("handles deleted files", () => {
@@ -256,14 +263,15 @@ describe("buildLocalDiff", () => {
 			"-line1",
 			"-line2",
 		].join("\n")
-		const numstat = new Map([["src/old.ts", { additions: 0, deletions: 2 }]])
+		const numstat = { stats: new Map([["src/old.ts", { additions: 0, deletions: 2 }]]), binaryFiles: [] }
 
-		const files = buildLocalDiff(nameStatus, unified, numstat)
+		const { files, binaryFiles } = buildLocalDiff(nameStatus, unified, numstat)
 
 		expect(files).toHaveLength(1)
 		expect(files[0]!.status).toBe("removed")
 		expect(files[0]!.additions).toBe(0)
 		expect(files[0]!.deletions).toBe(2)
+		expect(binaryFiles).toEqual([])
 	})
 
 	it("defaults additions and deletions to 0 when file not in numstat", () => {
@@ -275,19 +283,21 @@ describe("buildLocalDiff", () => {
 			"-old",
 			"+new",
 		].join("\n")
-		const numstat = new Map<string, { additions: number; deletions: number }>()
+		const numstat = { stats: new Map<string, { additions: number; deletions: number }>(), binaryFiles: [] }
 
-		const files = buildLocalDiff(nameStatus, unified, numstat)
+		const { files, binaryFiles } = buildLocalDiff(nameStatus, unified, numstat)
 
 		expect(files).toHaveLength(1)
 		expect(files[0]!.additions).toBe(0)
 		expect(files[0]!.deletions).toBe(0)
 		expect(files[0]!.changes).toBe(0)
+		expect(binaryFiles).toEqual([])
 	})
 
-	it("returns empty array for empty name-status output", () => {
-		const files = buildLocalDiff("", "", new Map())
+	it("returns empty result for empty name-status output", () => {
+		const { files, binaryFiles } = buildLocalDiff("", "", { stats: new Map(), binaryFiles: [] })
 		expect(files).toEqual([])
+		expect(binaryFiles).toEqual([])
 	})
 
 	it("handles multiple files", () => {
@@ -306,16 +316,31 @@ describe("buildLocalDiff", () => {
 			"@@ -0,0 +1 @@",
 			"+added",
 		].join("\n")
-		const numstat = new Map([
-			["src/file1.ts", { additions: 1, deletions: 1 }],
-			["src/file2.ts", { additions: 1, deletions: 0 }],
-		])
+		const numstat = {
+			stats: new Map([
+				["src/file1.ts", { additions: 1, deletions: 1 }],
+				["src/file2.ts", { additions: 1, deletions: 0 }],
+			]),
+			binaryFiles: [],
+		}
 
-		const files = buildLocalDiff(nameStatus, unified, numstat)
+		const { files, binaryFiles } = buildLocalDiff(nameStatus, unified, numstat)
 
 		expect(files).toHaveLength(2)
 		expect(files[0]!.filename).toBe("src/file1.ts")
 		expect(files[1]!.filename).toBe("src/file2.ts")
+		expect(binaryFiles).toEqual([])
+	})
+
+	it("passes through binary files from numstat", () => {
+		const nameStatus = "M\tsrc/image.png"
+		const unified = ""
+		const numstat = { stats: new Map(), binaryFiles: ["src/image.png"] }
+
+		const { files, binaryFiles } = buildLocalDiff(nameStatus, unified, numstat)
+
+		expect(files).toHaveLength(1)
+		expect(binaryFiles).toEqual(["src/image.png"])
 	})
 })
 
@@ -327,7 +352,7 @@ describe("createGenerateLocalDiff", () => {
 		const head1 = (await gitRevParse("HEAD~1", PROJECT_ROOT)).trim()
 
 		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGitDiff(PROJECT_ROOT))
-		const files = await generateLocalDiff(head1, head)
+		const { files, binaryFiles } = await generateLocalDiff(head1, head)
 
 		expect(files.length).toBeGreaterThan(0)
 		for (const file of files) {
@@ -337,17 +362,19 @@ describe("createGenerateLocalDiff", () => {
 			expect(typeof file.deletions).toBe("number")
 			expect(file.changes).toBe(file.additions + file.deletions)
 		}
+		expect(Array.isArray(binaryFiles)).toBe(true)
 	})
 
-	it("returns empty array for identical commits", async () => {
+	it("returns empty result for identical commits", async () => {
 		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
 
 		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
 
 		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGitDiff(PROJECT_ROOT))
-		const files = await generateLocalDiff(head, head)
+		const { files, binaryFiles } = await generateLocalDiff(head, head)
 
 		expect(files).toEqual([])
+		expect(binaryFiles).toEqual([])
 	})
 
 	it("throws when workspace is not a git repository", async () => {

@@ -2,6 +2,7 @@ import type { PullRequestFile, LineComment } from "./github-types.mts"
 import { SIDES } from "./github-types.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
+import type { BaseCommitContext } from "./base-commit.mts"
 import { includes } from "./typescript-helpers.mts"
 
 export type CallApi = (prompt: string) => Promise<string>
@@ -12,17 +13,17 @@ export function createDefaultCallApi(_environment: Record<string, string | undef
 	}
 }
 
-async function runAgent(dependencies: { callApi: CallApi }, agent: Agent, files: PullRequestFile[]): Promise<string> {
-	const prompt = buildAgentPrompt(agent, files)
+async function runAgent(dependencies: { callApi: CallApi }, agent: Agent, baseCommitContext: BaseCommitContext, files: PullRequestFile[], binaryFiles: string[], agentInputs?: Map<string, string>): Promise<string> {
+	const prompt = buildAgentPrompt(agent, baseCommitContext, files, binaryFiles, agentInputs)
 	const output = await dependencies.callApi(prompt)
 	console.log(`Running agent: ${agent.name}`)
 	return output
 }
 
-async function runAgents(dependencies: { callApi: CallApi }, agents: Agent[], files: PullRequestFile[]): Promise<Map<string, string>> {
+async function runAgents(dependencies: { callApi: CallApi }, baseCommitContext: BaseCommitContext, files: PullRequestFile[], binaryFiles: string[], agents: Agent[]): Promise<Map<string, string>> {
 	const reviewResults = await Promise.all(
 		agents.map(async agent => {
-			const output = await runAgent(dependencies, agent, files)
+			const output = await runAgent(dependencies, agent, baseCommitContext, files, binaryFiles)
 			return [agent.name, output] as const
 		})
 	)
@@ -30,8 +31,8 @@ async function runAgents(dependencies: { callApi: CallApi }, agents: Agent[], fi
 	return new Map(reviewResults)
 }
 
-async function runAggregator(dependencies: { callApi: CallApi }, aggregator: Agent, files: PullRequestFile[], agentInputs: Map<string, string>): Promise<string> {
-	const prompt = buildAgentPrompt(aggregator, files, agentInputs)
+async function runAggregator(dependencies: { callApi: CallApi }, aggregator: Agent, baseCommitContext: BaseCommitContext, files: PullRequestFile[], binaryFiles: string[], agentInputs: Map<string, string>): Promise<string> {
+	const prompt = buildAgentPrompt(aggregator, baseCommitContext, files, binaryFiles, agentInputs)
 	const output = await dependencies.callApi(prompt)
 	console.log(`Running agent: ${aggregator.name}`)
 	return output
@@ -62,13 +63,13 @@ export function parseAggregatorOutput(output: string): AiReviewResult {
 	return parsed
 }
 
-export async function analyze(dependencies: { callApi: CallApi }, files: PullRequestFile[], agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
+export async function analyze(dependencies: { callApi: CallApi }, baseCommitContext: BaseCommitContext, files: PullRequestFile[], binaryFiles: string[], agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
 	console.log(`Analyzing ${files.length} files...`)
 	console.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 	console.log(`Using aggregator: ${aggregator.name}`)
 
-	const agentOutputs = await runAgents(dependencies, agents, files)
-	const finalOutput = await runAggregator(dependencies, aggregator, files, agentOutputs)
+	const agentOutputs = await runAgents(dependencies, baseCommitContext, files, binaryFiles, agents)
+	const finalOutput = await runAggregator(dependencies, aggregator, baseCommitContext, files, binaryFiles, agentOutputs)
 
 	console.log("Agent analysis complete")
 

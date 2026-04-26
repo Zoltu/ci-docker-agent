@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { buildAgentPrompt, resolveAgents } from "../source/agents.mts"
 import type { Agent } from "../source/agents.mts"
+import type { BaseCommitContext } from "../source/base-commit.mts"
 import type { PullRequestFile } from "../source/github-types.mts"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -23,43 +24,80 @@ function makePullRequestFile(overrides: Partial<PullRequestFile> = {}): PullRequ
 	}
 }
 
-describe("buildAgentPrompt", () => {
-	it("starts with the agent prompt", () => {
-		const agent = makeAgent({ prompt: "You are a reviewer." })
-		const result = buildAgentPrompt(agent, [])
+function makeBaseCommitContext(overrides: Partial<BaseCommitContext> = {}): BaseCommitContext {
+	return {
+		fileList: ["README.md", "src/index.ts"],
+		fileContents: new Map([["README.md", "# Project"], ["src/index.ts", "console.log('hello')"]]),
+		...overrides,
+	}
+}
 
-		expect(result.startsWith("You are a reviewer.")).toBe(true)
+describe("buildAgentPrompt", () => {
+	it("includes repository file list from base commit", () => {
+		const agent = makeAgent()
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], [])
+
+		expect(result).toContain("=== Repository Files (Base Commit) ===")
+		expect(result).toContain("- README.md")
+		expect(result).toContain("- src/index.ts")
 	})
 
-	it("includes file context", () => {
+	it("includes file contents from base commit", () => {
+		const agent = makeAgent()
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], [])
+
+		expect(result).toContain("=== File Contents (Base Commit) ===")
+		expect(result).toContain("=== README.md ===")
+		expect(result).toContain("# Project")
+		expect(result).toContain("=== src/index.ts ===")
+		expect(result).toContain("console.log('hello')")
+	})
+
+	it("includes changeset statistics", () => {
 		const agent = makeAgent()
 		const files = [makePullRequestFile({ filename: "src/app.ts", status: "added", additions: 10, deletions: 0 })]
 
-		const result = buildAgentPrompt(agent, files)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), files, [])
 
-		expect(result).toContain("src/app.ts")
-		expect(result).toContain("added")
-		expect(result).toContain("+10")
-		expect(result).toContain("-0")
+		expect(result).toContain("=== Changeset Statistics ===")
+		expect(result).toContain("Total files changed: 1")
+		expect(result).toContain("Additions: +10, Deletions: -0")
+		expect(result).toContain("- src/app.ts (added): +10 -0")
 	})
 
-	it("includes patch when present", () => {
+	it("includes changeset diffs when patch is present", () => {
 		const agent = makeAgent()
 		const files = [makePullRequestFile({ patch: "@@ -1 +1 @@\n-old\n+new" })]
 
-		const result = buildAgentPrompt(agent, files)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), files, [])
 
-		expect(result).toContain("Patch:")
+		expect(result).toContain("=== Changeset Diffs ===")
 		expect(result).toContain("@@ -1 +1 @@\n-old\n+new")
 	})
 
-	it("omits patch section when patch is undefined", () => {
+	it("omits diff for files without patch", () => {
 		const agent = makeAgent()
 		const files = [makePullRequestFile({ patch: undefined })]
 
-		const result = buildAgentPrompt(agent, files)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), files, [])
 
-		expect(result).not.toContain("Patch:")
+		expect(result).toContain("=== Changeset Diffs ===")
+		expect(result).not.toContain("=== src/file.ts ===")
+	})
+
+	it("includes binary diff notifications", () => {
+		const agent = makeAgent()
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], ["logo.png"])
+
+		expect(result).toContain("=== Binary/Image Diffs ===")
+		expect(result).toContain("- logo.png: binary diff present")
+	})
+
+	it("omits binary diff section when no binary files", () => {
+		const agent = makeAgent()
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], [])
+
+		expect(result).not.toContain("=== Binary/Image Diffs ===")
 	})
 
 	it("includes agent feedback when agentInputs provided", () => {
@@ -68,7 +106,7 @@ describe("buildAgentPrompt", () => {
 		inputs.set("SecurityAgent", "Found a vulnerability")
 		inputs.set("StyleAgent", "Use camelCase")
 
-		const result = buildAgentPrompt(agent, [], inputs)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], [], inputs)
 
 		expect(result).toContain("=== Agent Feedback ===")
 		expect(result).toContain("=== Agent: SecurityAgent ===")
@@ -81,7 +119,7 @@ describe("buildAgentPrompt", () => {
 		const agent = makeAgent()
 		const inputs = new Map<string, string>()
 
-		const result = buildAgentPrompt(agent, [], inputs)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], [], inputs)
 
 		expect(result).not.toContain("=== Agent Feedback ===")
 	})
@@ -89,22 +127,26 @@ describe("buildAgentPrompt", () => {
 	it("does not include agent feedback section when agentInputs is undefined", () => {
 		const agent = makeAgent()
 
-		const result = buildAgentPrompt(agent, [])
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], [])
 
 		expect(result).not.toContain("=== Agent Feedback ===")
 	})
 
-	it("includes multiple files", () => {
-		const agent = makeAgent()
-		const files = [
-			makePullRequestFile({ filename: "a.ts" }),
-			makePullRequestFile({ filename: "b.ts" }),
-		]
+	it("places agent instructions at the end", () => {
+		const agent = makeAgent({ prompt: "You are a reviewer." })
+		const files = [makePullRequestFile()]
 
-		const result = buildAgentPrompt(agent, files)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), files, ["img.png"])
 
-		expect(result).toContain("a.ts")
-		expect(result).toContain("b.ts")
+		expect(result.endsWith("You are a reviewer.")).toBe(true)
+	})
+
+	it("includes agent instructions section", () => {
+		const agent = makeAgent({ prompt: "You are a reviewer." })
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], [])
+
+		expect(result).toContain("=== Agent Instructions ===")
+		expect(result).toContain("You are a reviewer.")
 	})
 })
 

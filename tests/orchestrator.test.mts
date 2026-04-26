@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { runAnalysis, runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
 import type { Agent, ResolveResult } from "../source/agents.mts"
+import type { BaseCommitContext } from "../source/base-commit.mts"
 import type { PullRequestFile, GitHubConfiguration, GitHubReviewPayload } from "../source/github-types.mts"
 import type { CallApi } from "../source/ai.mts"
 
@@ -42,6 +43,14 @@ function makeCallApi(body: string): CallApi {
 	return async () => JSON.stringify({ body, comments: [] })
 }
 
+function makeGetBaseCommitContext(overrides: Partial<BaseCommitContext> = {}): (baseCommit: string) => Promise<BaseCommitContext> {
+	return async () => ({
+		fileList: [],
+		fileContents: new Map(),
+		...overrides,
+	})
+}
+
 describe("runAnalysis", () => {
 	it("calls loadAgents, loadAggregator, and analyze", async () => {
 		const agents = [makeAgent()]
@@ -54,7 +63,7 @@ describe("runAnalysis", () => {
 		}
 		const files = [makePullRequestFile()]
 
-		const result = await runAnalysis({ loadAgents, loadAggregator, callApi }, "run all agents", files)
+		const result = await runAnalysis({ loadAgents, loadAggregator, callApi, getBaseCommitContext: makeGetBaseCommitContext() }, "run all agents", files, [], "base123")
 
 		expect(result.body).toBe("Result 2")
 		expect(callApiCount).toBe(2)
@@ -70,6 +79,8 @@ describe("runOnCommentTrigger", () => {
 		await runOnCommentTrigger(
 			{
 				fetchPullRequestFiles: async () => { fetchCalled = true; return [] },
+				fetchPullRequestBaseCommit: async () => "base123",
+				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -90,6 +101,8 @@ describe("runOnCommentTrigger", () => {
 		await runOnCommentTrigger(
 			{
 				fetchPullRequestFiles: async () => [],
+				fetchPullRequestBaseCommit: async () => "base123",
+				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -108,6 +121,8 @@ describe("runOnCommentTrigger", () => {
 		await runOnCommentTrigger(
 			{
 				fetchPullRequestFiles: async () => [makePullRequestFile()],
+				fetchPullRequestBaseCommit: async () => "base123",
+				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Good work"),
@@ -130,6 +145,8 @@ describe("runOnCommentTrigger", () => {
 			await runOnCommentTrigger(
 				{
 					fetchPullRequestFiles: async () => [makePullRequestFile()],
+					fetchPullRequestBaseCommit: async () => "base123",
+					getBaseCommitContext: makeGetBaseCommitContext(),
 					loadAgents: makeLoadAgents([makeAgent()]),
 					loadAggregator: makeLoadAggregator(),
 					callApi: makeCallApi("Good work"),
@@ -153,6 +170,8 @@ describe("runOnPullRequest", () => {
 		await runOnPullRequest(
 			{
 				fetchPullRequestFiles: async () => [],
+				fetchPullRequestBaseCommit: async () => "base123",
+				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -170,6 +189,8 @@ describe("runOnPullRequest", () => {
 		await runOnPullRequest(
 			{
 				fetchPullRequestFiles: async () => [makePullRequestFile()],
+				fetchPullRequestBaseCommit: async () => "base123",
+				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Great work"),
@@ -187,7 +208,8 @@ describe("runOnLocalDiff", () => {
 	it("returns early when no files changed", async () => {
 		const result = await runOnLocalDiff(
 			{
-				generateLocalDiff: async () => [],
+				generateLocalDiff: async () => ({ files: [], binaryFiles: [] }),
+				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -201,7 +223,8 @@ describe("runOnLocalDiff", () => {
 	it("formats review to console", async () => {
 		const result = await runOnLocalDiff(
 			{
-				generateLocalDiff: async () => [makePullRequestFile()],
+				generateLocalDiff: async () => ({ files: [makePullRequestFile()], binaryFiles: [] }),
+				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Looks good"),

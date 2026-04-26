@@ -1,4 +1,5 @@
 import type { PullRequestFile } from "./github-types.mts"
+import type { BaseCommitContext } from "./base-commit.mts"
 import { readdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -116,24 +117,61 @@ export function createLoadAggregator(directories: AgentDirectories, readAgents: 
 	}
 }
 
-export function buildAgentPrompt(agent: Agent, files: PullRequestFile[], agentInputs?: Map<string, string>): string {
-	let prompt = agent.prompt
+export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitContext, files: PullRequestFile[], binaryFiles: string[], agentInputs?: Map<string, string>): string {
+	const lines: string[] = []
 
-	if (agentInputs && agentInputs.size > 0) {
-		prompt += "\n\n=== Agent Feedback ===\n"
-		for (const [name, output] of agentInputs.entries()) {
-			prompt += `\n=== Agent: ${name} ===\n${output}\n`
-		}
+	// 1. Repository Files (Base Commit)
+	lines.push("=== Repository Files (Base Commit) ===")
+	for (const file of baseCommitContext.fileList) {
+		lines.push(`- ${file}`)
 	}
 
-	prompt += "\n\n=== Files Changed ===\n"
+	// 2. File Contents (Base Commit)
+	lines.push("", "=== File Contents (Base Commit) ===")
+	for (const [filename, content] of baseCommitContext.fileContents.entries()) {
+		lines.push(`=== ${filename} ===`)
+		lines.push(content)
+	}
+
+	// 3. Changeset Statistics
+	const totalAdditions = files.reduce((sum, file) => sum + file.additions, 0)
+	const totalDeletions = files.reduce((sum, file) => sum + file.deletions, 0)
+	lines.push("", "=== Changeset Statistics ===")
+	lines.push(`Total files changed: ${files.length}`)
+	lines.push(`Additions: +${totalAdditions}, Deletions: -${totalDeletions}`)
+	lines.push("")
 	for (const file of files) {
-		prompt += `\nFile: ${file.filename}\nStatus: ${file.status}\n`
-		prompt += `Additions: +${file.additions}, Deletions: -${file.deletions}\n`
+		lines.push(`- ${file.filename} (${file.status}): +${file.additions} -${file.deletions}`)
+	}
+
+	// 4. Changeset Diffs
+	lines.push("", "=== Changeset Diffs ===")
+	for (const file of files) {
 		if (file.patch) {
-			prompt += `\nPatch:\n${file.patch}\n`
+			lines.push(`=== ${file.filename} ===`)
+			lines.push(file.patch)
 		}
 	}
 
-	return prompt
+	if (binaryFiles.length > 0) {
+		lines.push("", "=== Binary/Image Diffs ===")
+		for (const filename of binaryFiles) {
+			lines.push(`- ${filename}: binary diff present`)
+		}
+	}
+
+	// Agent Feedback (for aggregator)
+	if (agentInputs && agentInputs.size > 0) {
+		lines.push("", "=== Agent Feedback ===")
+		for (const [name, output] of agentInputs.entries()) {
+			lines.push(`=== Agent: ${name} ===`)
+			lines.push(output)
+		}
+	}
+
+	// 5. Agent Instructions
+	lines.push("", "=== Agent Instructions ===")
+	lines.push(agent.prompt)
+
+	return lines.join("\n")
 }

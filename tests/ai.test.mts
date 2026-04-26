@@ -1,7 +1,16 @@
 import { describe, it, expect } from "bun:test"
 import { parseAggregatorOutput, analyze, type CallApi } from "../source/ai.mts"
 import type { Agent } from "../source/agents.mts"
+import type { BaseCommitContext } from "../source/base-commit.mts"
 import type { PullRequestFile } from "../source/github-types.mts"
+
+function makeBaseCommitContext(overrides: Partial<BaseCommitContext> = {}): BaseCommitContext {
+	return {
+		fileList: [],
+		fileContents: new Map(),
+		...overrides,
+	}
+}
 
 describe("parseAggregatorOutput", () => {
 	it("parses valid JSON with body and comments", () => {
@@ -143,7 +152,7 @@ describe("analyze", () => {
 			{ filename: "src/file.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
 		]
 
-		const result = await analyze({ callApi }, files, agents, aggregator)
+		const result = await analyze({ callApi }, makeBaseCommitContext(), files, [], agents, aggregator)
 
 		expect(calls.length).toBe(3)
 		expect(result.body).toBe("Review complete")
@@ -163,7 +172,7 @@ describe("analyze", () => {
 			{ filename: "src/file.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
 		]
 
-		const result = await analyze({ callApi }, files, agents, aggregator)
+		const result = await analyze({ callApi }, makeBaseCommitContext(), files, [], agents, aggregator)
 
 		expect(result.body).toBe("Result 2")
 	})

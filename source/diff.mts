@@ -58,19 +58,31 @@ export function mapGitStatus(status: string): "added" | "copied" | "removed" | "
 	}
 }
 
-export function parseNumstat(output: string): Map<string, { additions: number; deletions: number }> {
-	const result = new Map<string, { additions: number; deletions: number }>()
+export interface NumstatResult {
+	stats: Map<string, { additions: number; deletions: number }>
+	binaryFiles: string[]
+}
+
+export function parseNumstat(output: string): NumstatResult {
+	const stats = new Map<string, { additions: number; deletions: number }>()
+	const binaryFiles: string[] = []
 	for (const line of output.split("\n")) {
 		const parts = line.split("\t")
 		if (parts.length < 3) continue
-		const additions = Number.parseInt(parts[0]!, 10)
-		const deletions = Number.parseInt(parts[1]!, 10)
+		const additionsStr = parts[0]!
+		const deletionsStr = parts[1]!
 		const filename = parts[2]!
+		if (additionsStr === "-" && deletionsStr === "-") {
+			binaryFiles.push(filename)
+			continue
+		}
+		const additions = Number.parseInt(additionsStr, 10)
+		const deletions = Number.parseInt(deletionsStr, 10)
 		if (!Number.isNaN(additions) && !Number.isNaN(deletions)) {
-			result.set(filename, { additions, deletions })
+			stats.set(filename, { additions, deletions })
 		}
 	}
-	return result
+	return { stats, binaryFiles }
 }
 
 export interface GitDiffResult {
@@ -117,8 +129,14 @@ async function validateGitEnvironment(dependencies: { spawnGitDiff: SpawnGitDiff
 	await validateCommitExists(dependencies, headCommit, "Head")
 }
 
-export function buildLocalDiff(nameStatusOutput: string, unifiedOutput: string, numstatByFile: Map<string, { additions: number; deletions: number }>): PullRequestFile[] {
+export interface LocalDiffResult {
+	files: PullRequestFile[]
+	binaryFiles: string[]
+}
+
+export function buildLocalDiff(nameStatusOutput: string, unifiedOutput: string, numstatResult: NumstatResult): LocalDiffResult {
 	const patchByFile = parseUnifiedDiff(unifiedOutput)
+	const { stats, binaryFiles } = numstatResult
 
 	const files: PullRequestFile[] = []
 	const fileLines = nameStatusOutput.split("\n")
@@ -133,19 +151,19 @@ export function buildLocalDiff(nameStatusOutput: string, unifiedOutput: string, 
 		const filename = parts.length >= 3 ? parts[2]! : parts[1]!
 		const patch = patchByFile.get(filename)
 
-		const stats = numstatByFile.get(filename)
-		const additions = stats?.additions ?? 0
-		const deletions = stats?.deletions ?? 0
+		const fileStats = stats.get(filename)
+		const additions = fileStats?.additions ?? 0
+		const deletions = fileStats?.deletions ?? 0
 		const changes = additions + deletions
 
 		files.push({ filename, status: mapGitStatus(status), additions, deletions, changes, patch })
 	}
 
-	return files
+	return { files, binaryFiles }
 }
 
-export function createGenerateLocalDiff(workspaceDirectory: string, spawnGitDiff: SpawnGitDiff): (baseCommit: string, headCommit: string) => Promise<PullRequestFile[]> {
-	return async function generateLocalDiff(baseCommit: string, headCommit: string): Promise<PullRequestFile[]> {
+export function createGenerateLocalDiff(workspaceDirectory: string, spawnGitDiff: SpawnGitDiff): (baseCommit: string, headCommit: string) => Promise<LocalDiffResult> {
+	return async function generateLocalDiff(baseCommit: string, headCommit: string): Promise<LocalDiffResult> {
 		await validateGitEnvironment({ spawnGitDiff }, baseCommit, headCommit, workspaceDirectory)
 
 		const nameStatusResult = await spawnGitDiff(["diff", "--name-status", baseCommit, headCommit])
@@ -156,7 +174,7 @@ export function createGenerateLocalDiff(workspaceDirectory: string, spawnGitDiff
 		}
 
 		const nameStatusOutput = nameStatusResult.stdout
-		if (!nameStatusOutput.trim()) return []
+		if (!nameStatusOutput.trim()) return { files: [], binaryFiles: [] }
 
 		const numstatResult = await spawnGitDiff(["diff", "--numstat", baseCommit, headCommit])
 		if (numstatResult.exitCode === null && numstatResult.signalCode !== null) throw new Error(`Command "git diff --numstat" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)

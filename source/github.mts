@@ -132,3 +132,32 @@ export function createReactToComment(githubFetch: GitHubFetch, configuration: Gi
 		}
 	}
 }
+
+function isValidPrBaseResponse(data: unknown): data is { base: { sha: string } } {
+	if (typeof data !== "object") return false
+	if (data === null) return false
+	if (!("base" in data) || typeof data.base !== "object" || data.base === null) return false
+	if (!("sha" in data.base) || typeof data.base.sha !== "string") return false
+	return true
+}
+
+export function createFetchPullRequestBaseCommit(githubFetch: GitHubFetch, configuration: GitHubConfiguration): () => Promise<string> {
+	return async function fetchPullRequestBaseCommit(): Promise<string> {
+		const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
+
+		const response = await githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}`, {
+			method: "GET",
+			headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" },
+		})
+
+		if (!response.ok) {
+			const body = await response.text().catch(() => "")
+			throw new Error(`Failed to fetch PR base commit: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
+		}
+
+		const data: unknown = await response.json()
+		if (!isValidPrBaseResponse(data)) throw new Error("Invalid PR response: missing base.sha")
+
+		return data.base.sha
+	}
+}

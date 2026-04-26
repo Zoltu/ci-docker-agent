@@ -3,19 +3,36 @@ import type { AgentNames, ResolveResult, Agent } from "./agents.mts"
 import type { AiReviewResult } from "./review.mts"
 import type { CallApi } from "./ai.mts"
 import { analyze } from "./ai.mts"
+import type { BaseCommitContext } from "./base-commit.mts"
+import type { LocalDiffResult } from "./diff.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import { getAgentsFromComment } from "./trigger.mts"
 import type { CommentTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "./configuration.mts"
 
-type RunAnalysisDependencies = { loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>; loadAggregator: () => Promise<Agent>; callApi: CallApi }
-
-export async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, files: PullRequestFile[]): Promise<AiReviewResult> {
-	const { agents } = await dependencies.loadAgents(agentNames)
-	const aggregator = await dependencies.loadAggregator()
-	return analyze({ callApi: dependencies.callApi }, files, agents, aggregator)
+type RunAnalysisDependencies = {
+	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
+	loadAggregator: () => Promise<Agent>
+	callApi: CallApi
+	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 }
 
-type RunOnCommentTriggerDependencies = { fetchPullRequestFiles: () => Promise<PullRequestFile[]>; loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>; loadAggregator: () => Promise<Agent>; callApi: CallApi; submitReview: (review: GitHubReviewPayload) => Promise<void>; reactToComment: (commentId: number, content: string) => Promise<void> }
+export async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, files: PullRequestFile[], binaryFiles: string[], baseCommit: string): Promise<AiReviewResult> {
+	const { agents } = await dependencies.loadAgents(agentNames)
+	const aggregator = await dependencies.loadAggregator()
+	const baseCommitContext = await dependencies.getBaseCommitContext(baseCommit)
+	return analyze({ callApi: dependencies.callApi }, baseCommitContext, files, binaryFiles, agents, aggregator)
+}
+
+type RunOnCommentTriggerDependencies = {
+	fetchPullRequestFiles: () => Promise<PullRequestFile[]>
+	fetchPullRequestBaseCommit: () => Promise<string>
+	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
+	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
+	loadAggregator: () => Promise<Agent>
+	callApi: CallApi
+	submitReview: (review: GitHubReviewPayload) => Promise<void>
+	reactToComment: (commentId: number, content: string) => Promise<void>
+}
 
 export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDependencies, configuration: CommentTriggerConfiguration): Promise<void> {
 	const triggerResult = getAgentsFromComment(configuration.commentBody)
@@ -24,10 +41,12 @@ export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDepen
 
 	try {
 		const files = await dependencies.fetchPullRequestFiles()
+		const binaryFiles = files.filter(file => file.patch === undefined).map(file => file.filename)
 
-		if (files.length === 0) return console.log("No files changed, nothing to review")
+		if (files.length === 0 && binaryFiles.length === 0) return console.log("No files changed, nothing to review")
 
-		const aiResult = await runAnalysis(dependencies, triggerResult, files)
+		const baseCommit = await dependencies.fetchPullRequestBaseCommit()
+		const aiResult = await runAnalysis(dependencies, triggerResult, files, binaryFiles, baseCommit)
 		const reviewPayload = buildReviewPayload(aiResult)
 		await dependencies.submitReview(reviewPayload)
 		console.log("PR review submitted successfully")
@@ -41,26 +60,42 @@ export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDepen
 	}
 }
 
-type RunOnPullRequestDependencies = { fetchPullRequestFiles: () => Promise<PullRequestFile[]>; loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>; loadAggregator: () => Promise<Agent>; callApi: CallApi; submitReview: (review: GitHubReviewPayload) => Promise<void> }
+type RunOnPullRequestDependencies = {
+	fetchPullRequestFiles: () => Promise<PullRequestFile[]>
+	fetchPullRequestBaseCommit: () => Promise<string>
+	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
+	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
+	loadAggregator: () => Promise<Agent>
+	callApi: CallApi
+	submitReview: (review: GitHubReviewPayload) => Promise<void>
+}
 
 export async function runOnPullRequest(dependencies: RunOnPullRequestDependencies, configuration: PullRequestConfiguration): Promise<void> {
 	const files = await dependencies.fetchPullRequestFiles()
+	const binaryFiles = files.filter(file => file.patch === undefined).map(file => file.filename)
 
-	if (files.length === 0) return console.log("No files changed, nothing to review")
+	if (files.length === 0 && binaryFiles.length === 0) return console.log("No files changed, nothing to review")
 
-	const aiResult = await runAnalysis(dependencies, configuration.agents, files)
+	const baseCommit = await dependencies.fetchPullRequestBaseCommit()
+	const aiResult = await runAnalysis(dependencies, configuration.agents, files, binaryFiles, baseCommit)
 	const reviewPayload = buildReviewPayload(aiResult)
 	await dependencies.submitReview(reviewPayload)
 	console.log("PR review submitted successfully")
 }
 
-type RunOnLocalDiffDependencies = { generateLocalDiff: (baseCommit: string, headCommit: string) => Promise<PullRequestFile[]>; loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>; loadAggregator: () => Promise<Agent>; callApi: CallApi }
+type RunOnLocalDiffDependencies = {
+	generateLocalDiff: (baseCommit: string, headCommit: string) => Promise<LocalDiffResult>
+	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
+	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
+	loadAggregator: () => Promise<Agent>
+	callApi: CallApi
+}
 
 export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration): Promise<string> {
-	const files = await dependencies.generateLocalDiff(configuration.baseCommit, configuration.headCommit)
+	const { files, binaryFiles } = await dependencies.generateLocalDiff(configuration.baseCommit, configuration.headCommit)
 
-	if (files.length === 0) return "No files changed, nothing to review"
+	if (files.length === 0 && binaryFiles.length === 0) return "No files changed, nothing to review"
 
-	const aiResult = await runAnalysis(dependencies, configuration.agents, files)
+	const aiResult = await runAnalysis(dependencies, configuration.agents, files, binaryFiles, configuration.baseCommit)
 	return "\n" + formatReviewForConsole(aiResult, files)
 }
