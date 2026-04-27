@@ -65,6 +65,9 @@ function tryParseGitHubConfiguration(environment: Record<string, string | undefi
 }
 
 function tryGetLocalDiffConfiguration(environment: Record<string, string | undefined>, agents: AgentNames): TryResult<LocalDiffConfiguration> {
+	const eventType = environment.EVENT_TYPE
+	if (eventType && eventType !== "local") return { ok: false, reason: `EVENT_TYPE must be 'local' or unset for local diff mode. Got: ${eventType}` }
+
 	const baseCommit = environment.BASE_COMMIT
 	const headCommit = environment.HEAD_COMMIT
 

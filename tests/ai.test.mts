@@ -1,16 +1,8 @@
 import { describe, it, expect } from "bun:test"
 import { parseAggregatorOutput, analyze, type CallApi } from "../source/ai.mts"
 import type { Agent } from "../source/agents.mts"
-import type { BaseCommitContext } from "../source/base-commit.mts"
+import { makeBaseCommitContext } from "./helpers.mts"
 import type { PullRequestFile } from "../source/github-types.mts"
-
-function makeBaseCommitContext(overrides: Partial<BaseCommitContext> = {}): BaseCommitContext {
-	return {
-		fileList: [],
-		fileContents: new Map(),
-		...overrides,
-	}
-}
 
 describe("parseAggregatorOutput", () => {
 	it("parses valid JSON with body and comments", () => {
@@ -127,6 +119,17 @@ describe("parseAggregatorOutput", () => {
 		const output = JSON.stringify({
 			body: "test",
 			comments: [{ path: "src/file.ts", line: 1.5, side: "RIGHT", body: "comment" }],
+		})
+
+		expect(() => parseAggregatorOutput(output)).toThrow(
+			"Parsed output does not match expected AiReviewResult shape"
+		)
+	})
+
+	it("rejects empty comment body", () => {
+		const output = JSON.stringify({
+			body: "test",
+			comments: [{ path: "src/file.ts", line: 1, side: "RIGHT", body: "" }],
 		})
 
 		expect(() => parseAggregatorOutput(output)).toThrow(

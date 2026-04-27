@@ -1,41 +1,17 @@
 import { describe, it, expect } from "bun:test"
 import { buildAgentPrompt, resolveAgents } from "../source/agents.mts"
-import type { Agent } from "../source/agents.mts"
-import type { BaseCommitContext } from "../source/base-commit.mts"
-import type { PullRequestFile } from "../source/github-types.mts"
+import { makeAgent, makePullRequestFile, makeBaseCommitContext } from "./helpers.mts"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
 const PROJECT_ROOT = join(import.meta.dir, "..")
 
-function makeAgent(overrides: Partial<Agent> = {}): Agent {
-	return { name: "TestAgent", prompt: "Review the code.", ...overrides }
-}
-
-function makePullRequestFile(overrides: Partial<PullRequestFile> = {}): PullRequestFile {
-	return {
-		filename: "src/file.ts",
-		status: "modified",
-		additions: 5,
-		deletions: 2,
-		changes: 7,
-		patch: "@@ -1,2 +1,5 @@\n-old line\n+new line",
-		...overrides,
-	}
-}
-
-function makeBaseCommitContext(overrides: Partial<BaseCommitContext> = {}): BaseCommitContext {
-	return {
-		fileList: ["README.md", "src/index.ts"],
-		fileContents: new Map([["README.md", "# Project"], ["src/index.ts", "console.log('hello')"]]),
-		...overrides,
-	}
-}
-
 describe("buildAgentPrompt", () => {
 	it("includes repository file list from base commit", () => {
 		const agent = makeAgent()
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], [])
+		const result = buildAgentPrompt(agent, makeBaseCommitContext({
+			fileList: ["README.md", "src/index.ts"],
+		}), [], [])
 
 		expect(result).toContain("=== Repository Files (Base Commit) ===")
 		expect(result).toContain("- README.md")
@@ -44,7 +20,10 @@ describe("buildAgentPrompt", () => {
 
 	it("includes file contents from base commit", () => {
 		const agent = makeAgent()
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), [], [])
+		const result = buildAgentPrompt(agent, makeBaseCommitContext({
+			fileList: ["README.md", "src/index.ts"],
+			fileContents: new Map([["README.md", "# Project"], ["src/index.ts", "console.log('hello')"]]),
+		}), [], [])
 
 		expect(result).toContain("=== File Contents (Base Commit) ===")
 		expect(result).toContain("=== README.md ===")

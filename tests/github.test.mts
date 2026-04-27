@@ -1,18 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { isPullRequestFile, isPullRequestFileArray, createFetchPullRequestFiles, createFetchPullRequestBaseCommit, createSubmitReview, createReactToComment, type GitHubFetch } from "../source/github.mts"
-import type { GitHubConfiguration, GitHubReviewPayload } from "../source/github-types.mts"
-
-function makeConfiguration(overrides: Partial<GitHubConfiguration> = {}): GitHubConfiguration {
-	return {
-		token: "test-token",
-		apiUrl: "https://api.github.com",
-		repository: "owner/repo",
-		owner: "owner",
-		repositoryName: "repo",
-		pullRequestNumber: 42,
-		...overrides,
-	}
-}
+import { makeGitHubConfiguration } from "./helpers.mts"
+import type { GitHubReviewPayload } from "../source/github-types.mts"
 
 describe("isPullRequestFile", () => {
 	it("returns true for a valid PullRequestFile object", () => {
@@ -160,7 +149,7 @@ describe("createFetchPullRequestFiles", () => {
 	it("fetches PR files from GitHub API", async () => {
 		const pullRequestFile = { filename: "src/file.ts", status: "modified" as const, additions: 1, deletions: 0, changes: 1 }
 		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify([pullRequestFile]), { status: 200 })
-		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeConfiguration())
+		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeGitHubConfiguration())
 
 		const files = await fetchPullRequestFiles()
 
@@ -179,7 +168,7 @@ describe("createFetchPullRequestFiles", () => {
 			expect(url).toContain("page=2")
 			return new Response(JSON.stringify([{ filename: "file100.ts", status: "added", additions: 1, deletions: 0, changes: 1 }]), { status: 200 })
 		}
-		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeConfiguration())
+		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeGitHubConfiguration())
 
 		const files = await fetchPullRequestFiles()
 
@@ -188,23 +177,23 @@ describe("createFetchPullRequestFiles", () => {
 
 	it("throws on non-ok response", async () => {
 		const githubFetch: GitHubFetch = async () => new Response("Not found", { status: 404, statusText: "Not Found" })
-		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeConfiguration())
+		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeGitHubConfiguration())
 
-		expect(fetchPullRequestFiles()).rejects.toThrow("Failed to fetch PR files")
+		await expect(fetchPullRequestFiles()).rejects.toThrow("Failed to fetch PR files")
 	})
 
 	it("throws when response is not a valid PullRequestFile array", async () => {
 		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify([{ bad: "data" }]), { status: 200 })
-		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeConfiguration())
+		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeGitHubConfiguration())
 
-		expect(fetchPullRequestFiles()).rejects.toThrow("Invalid response from GitHub API")
+		await expect(fetchPullRequestFiles()).rejects.toThrow("Invalid response from GitHub API")
 	})
 })
 
 describe("createSubmitReview", () => {
 	it("submits a review successfully", async () => {
 		const githubFetch: GitHubFetch = async () => new Response(null, { status: 200 })
-		const submitReview = createSubmitReview(githubFetch, makeConfiguration())
+		const submitReview = createSubmitReview(githubFetch, makeGitHubConfiguration())
 
 		const review: GitHubReviewPayload = { event: "COMMENT", body: "Great work", comments: [] }
 		await submitReview(review)
@@ -212,33 +201,33 @@ describe("createSubmitReview", () => {
 
 	it("throws on non-ok response", async () => {
 		const githubFetch: GitHubFetch = async () => new Response("Error", { status: 422, statusText: "Unprocessable Entity" })
-		const submitReview = createSubmitReview(githubFetch, makeConfiguration())
+		const submitReview = createSubmitReview(githubFetch, makeGitHubConfiguration())
 
 		const review: GitHubReviewPayload = { event: "COMMENT", body: "Great work", comments: [] }
-		expect(submitReview(review)).rejects.toThrow("Failed to submit review")
+		await expect(submitReview(review)).rejects.toThrow("Failed to submit review")
 	})
 })
 
 describe("createReactToComment", () => {
 	it("reacts to a comment successfully", async () => {
 		const githubFetch: GitHubFetch = async () => new Response(null, { status: 200 })
-		const reactToComment = createReactToComment(githubFetch, makeConfiguration())
+		const reactToComment = createReactToComment(githubFetch, makeGitHubConfiguration())
 
 		await reactToComment(123, "-1")
 	})
 
 	it("throws on non-ok response", async () => {
 		const githubFetch: GitHubFetch = async () => new Response("Error", { status: 403, statusText: "Forbidden" })
-		const reactToComment = createReactToComment(githubFetch, makeConfiguration())
+		const reactToComment = createReactToComment(githubFetch, makeGitHubConfiguration())
 
-		expect(reactToComment(123, "-1")).rejects.toThrow("Failed to react to comment")
+		await expect(reactToComment(123, "-1")).rejects.toThrow("Failed to react to comment")
 	})
 })
 
 describe("createFetchPullRequestBaseCommit", () => {
 	it("fetches base commit sha from GitHub API", async () => {
 		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: "abc123def" } }), { status: 200 })
-		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeConfiguration())
+		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeGitHubConfiguration())
 
 		const baseCommit = await fetchPullRequestBaseCommit()
 
@@ -247,22 +236,22 @@ describe("createFetchPullRequestBaseCommit", () => {
 
 	it("throws on non-ok response", async () => {
 		const githubFetch: GitHubFetch = async () => new Response("Not found", { status: 404, statusText: "Not Found" })
-		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeConfiguration())
+		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeGitHubConfiguration())
 
-		expect(fetchPullRequestBaseCommit()).rejects.toThrow("Failed to fetch PR base commit")
+		await expect(fetchPullRequestBaseCommit()).rejects.toThrow("Failed to fetch PR base commit")
 	})
 
 	it("throws when response is missing base.sha", async () => {
 		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ head: { sha: "abc" } }), { status: 200 })
-		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeConfiguration())
+		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeGitHubConfiguration())
 
-		expect(fetchPullRequestBaseCommit()).rejects.toThrow("Invalid PR response")
+		await expect(fetchPullRequestBaseCommit()).rejects.toThrow("Invalid PR response")
 	})
 
 	it("throws when base.sha is not a string", async () => {
 		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: 123 } }), { status: 200 })
-		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeConfiguration())
+		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeGitHubConfiguration())
 
-		expect(fetchPullRequestBaseCommit()).rejects.toThrow("Invalid PR response")
+		await expect(fetchPullRequestBaseCommit()).rejects.toThrow("Invalid PR response")
 	})
 })

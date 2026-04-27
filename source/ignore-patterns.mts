@@ -3,6 +3,16 @@ export function parseIgnorePatterns(content: string): string[] {
 		.split("\n")
 		.map(line => line.trim())
 		.filter(line => line.length > 0 && !line.startsWith("#"))
+		.map(line => {
+			// Strip inline comments (unescaped # preceded by whitespace)
+			const commentIndex = line.search(/(?<!\\)\s+#/)
+			if (commentIndex !== -1) {
+				line = line.slice(0, commentIndex).trimEnd()
+			}
+			// Unescape escaped hashes
+			return line.replace(/\\#/g, "#")
+		})
+		.filter(line => line.length > 0)
 }
 
 export function isPathIgnored(path: string, patterns: string[]): boolean {
@@ -86,6 +96,15 @@ function matchGlob(text: string, pattern: string): boolean {
 		} else if (char === "?") {
 			regexStr += "[^/]"
 			i++
+		} else if (char === "[") {
+			const closeIndex = pattern.indexOf("]", i)
+			if (closeIndex === -1) {
+				regexStr += escapeRegex(char)
+				i++
+			} else {
+				regexStr += pattern.slice(i, closeIndex + 1)
+				i = closeIndex + 1
+			}
 		} else {
 			regexStr += escapeRegex(char)
 			i++

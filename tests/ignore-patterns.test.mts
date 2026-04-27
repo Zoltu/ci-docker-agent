@@ -27,6 +27,18 @@ describe("parseIgnorePatterns", () => {
 
 		expect(result).toEqual([])
 	})
+
+	it("strips inline comments", () => {
+		const result = parseIgnorePatterns("node_modules # this is a comment")
+
+		expect(result).toEqual(["node_modules"])
+	})
+
+	it("handles escaped hashes", () => {
+		const result = parseIgnorePatterns("file\\#name")
+
+		expect(result).toEqual(["file#name"])
+	})
 })
 
 describe("isPathIgnored", () => {
@@ -89,5 +101,15 @@ describe("isPathIgnored", () => {
 		expect(isPathIgnored("error.log", patterns)).toBe(true)
 		expect(isPathIgnored(".env", patterns)).toBe(true)
 		expect(isPathIgnored("src/index.ts", patterns)).toBe(false)
+	})
+
+	it("matches standalone double-star", () => {
+		expect(isPathIgnored("anything", ["**"])).toBe(true)
+		expect(isPathIgnored("a/b/c", ["**"])).toBe(true)
+	})
+
+	it("matches character classes", () => {
+		expect(isPathIgnored("file1.txt", ["file[123].txt"])).toBe(true)
+		expect(isPathIgnored("file4.txt", ["file[123].txt"])).toBe(false)
 	})
 })

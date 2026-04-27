@@ -1,4 +1,4 @@
-import type { SpawnGitDiff } from "./diff.mts"
+import type { SpawnGit } from "./diff.mts"
 import { parseIgnorePatterns, isPathIgnored } from "./ignore-patterns.mts"
 
 export interface BaseCommitContext {
@@ -6,6 +6,8 @@ export interface BaseCommitContext {
 	fileContents: Map<string, string>
 }
 
+// Reasonable list of common text file extensions found in typical GitHub repositories.
+// Not exhaustive — intended to cover the 99% case without needing complex text/binary heuristics.
 const TEXT_FILE_EXTENSIONS = new Set([
 	// JavaScript / TypeScript
 	"js",
@@ -96,6 +98,8 @@ const TEXT_FILE_EXTENSIONS = new Set([
 	"rules",
 	"prefs",
 	"editorconfig",
+	"eslintrc",
+	"babelrc",
 	"gitignore",
 	"gitattributes",
 	"gitmodules",
@@ -399,39 +403,11 @@ const TEXT_FILE_NAMES = new Set([
 	"gemfile",
 	"rakefile",
 	"makefile",
-	"cmakelists.txt",
-	"license",
-	"copying",
-	"authors",
-	"changelog",
-	"changes",
-	"news",
-	"todo",
-	"readme",
-	"contributing",
-	"codeowners",
-	"security",
-	"gitignore",
-	"gitattributes",
-	"gitmodules",
-	"gitkeep",
-	"editorconfig",
-	"dockerignore",
-	"npmignore",
-	"eslintignore",
-	"prettierignore",
-	"bazelignore",
-	"mailmap",
-	"nojekyll",
-	"htaccess",
-	"htpasswd",
-	"robots",
-	"sitemap",
 ])
 
 function getExtension(filename: string): string {
 	const dotIndex = filename.lastIndexOf(".")
-	if (dotIndex <= 0) return ""
+	if (dotIndex < 0) return ""
 	return filename.slice(dotIndex + 1).toLowerCase()
 }
 
@@ -443,10 +419,14 @@ function isTextFile(filename: string): boolean {
 	const ext = getExtension(filename)
 	if (TEXT_FILE_EXTENSIONS.has(ext)) return true
 	if (BINARY_FILE_EXTENSIONS.has(ext)) return false
+	// For files with no extension, also check against known text extensions
+	if (ext === "" && TEXT_FILE_EXTENSIONS.has(lowerBasename)) return true
+	// For dotfiles, check the name without the leading dot
+	if (lowerBasename.startsWith(".") && TEXT_FILE_EXTENSIONS.has(lowerBasename.slice(1))) return true
 	return false
 }
 
-export function createGetBaseCommitContext(spawnGitDiff: SpawnGitDiff): (baseCommit: string) => Promise<BaseCommitContext> {
+export function createGetBaseCommitContext(spawnGitDiff: SpawnGit): (baseCommit: string) => Promise<BaseCommitContext> {
 	return async function getBaseCommitContext(baseCommit: string): Promise<BaseCommitContext> {
 		const lsTreeResult = await spawnGitDiff(["ls-tree", "-r", "--name-only", baseCommit])
 		if (lsTreeResult.exitCode !== 0) {
@@ -483,7 +463,9 @@ export function createGetBaseCommitContext(spawnGitDiff: SpawnGitDiff): (baseCom
 			if (!isTextFile(file)) continue
 
 			const showResult = await spawnGitDiff(["show", `${baseCommit}:${file}`])
-			if (showResult.exitCode !== 0) continue
+			if (showResult.exitCode !== 0) {
+				throw new Error(`Failed to read file ${file} at commit ${baseCommit}: ${showResult.stderr.trim()}`)
+			}
 
 			fileContents.set(file, showResult.stdout)
 		}

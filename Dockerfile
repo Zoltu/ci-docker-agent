@@ -65,7 +65,7 @@ RUN git config --global --add safe.directory /github/workspace
 # Must stay in sync with source/paths.mts WORKSPACE_DIRECTORY
 WORKDIR /github/workspace
 
-# Must stay in sync with source/paths.mts BUILTIN_AGENTS_DIR
+# Must stay in sync with source/paths.mts BUILTIN_AGENTS_DIRECTORY
 COPY --from=builder /ci-agent/agents/ /ci-agent/agents/
 COPY --from=builder /ci-agent/source/ /ci-agent/source/
 

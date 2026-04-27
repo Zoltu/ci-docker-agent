@@ -2,34 +2,9 @@ import { describe, it, expect } from "bun:test"
 import { runAnalysis, runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
 import type { Agent, ResolveResult } from "../source/agents.mts"
 import type { BaseCommitContext } from "../source/base-commit.mts"
-import type { PullRequestFile, GitHubConfiguration, GitHubReviewPayload } from "../source/github-types.mts"
+import { makeAgent, makePullRequestFile, makeBaseCommitContext, makeGitHubConfiguration } from "./helpers.mts"
+import type { GitHubReviewPayload } from "../source/github-types.mts"
 import type { CallApi } from "../source/ai.mts"
-
-function makeGitHubConfiguration(): GitHubConfiguration {
-	return {
-		token: "test-token",
-		apiUrl: "https://api.github.com",
-		repository: "owner/repo",
-		owner: "owner",
-		repositoryName: "repo",
-		pullRequestNumber: 42,
-	}
-}
-
-function makeAgent(overrides: Partial<Agent> = {}): Agent {
-	return { name: "TestAgent", prompt: "Test prompt.", ...overrides }
-}
-
-function makePullRequestFile(overrides: Partial<PullRequestFile> = {}): PullRequestFile {
-	return {
-		filename: "src/file.ts",
-		status: "modified",
-		additions: 1,
-		deletions: 0,
-		changes: 1,
-		...overrides,
-	}
-}
 
 function makeLoadAgents(agents: Agent[]): () => Promise<ResolveResult> {
 	return async () => ({ agents, unresolvedNames: [] })
@@ -44,11 +19,7 @@ function makeCallApi(body: string): CallApi {
 }
 
 function makeGetBaseCommitContext(overrides: Partial<BaseCommitContext> = {}): (baseCommit: string) => Promise<BaseCommitContext> {
-	return async () => ({
-		fileList: [],
-		fileContents: new Map(),
-		...overrides,
-	})
+	return async () => makeBaseCommitContext(overrides)
 }
 
 describe("runAnalysis", () => {

@@ -180,21 +180,29 @@ describe("getConfiguration", () => {
 	})
 
 	describe("EVENT_TYPE validation", () => {
-		it("accepts valid event types", () => {
-			for (const eventType of ["pull_request_target", "workflow_dispatch", "issue_comment", "local"] as const) {
-				const configuration = getConfiguration({
-					BASE_COMMIT: "abc123",
-					HEAD_COMMIT: "def456",
-					EVENT_TYPE: eventType,
-				})
-				expect(configuration.type).toBe("local-diff")
-			}
+		it("accepts local-diff when EVENT_TYPE is unset", () => {
+			const configuration = getConfiguration({
+				BASE_COMMIT: "abc123",
+				HEAD_COMMIT: "def456",
+			})
+			expect(configuration.type).toBe("local-diff")
 		})
 
-		it("throws for invalid EVENT_TYPE", () => {
+		it("accepts local-diff when EVENT_TYPE is 'local'", () => {
+			const configuration = getConfiguration({
+				BASE_COMMIT: "abc123",
+				HEAD_COMMIT: "def456",
+				EVENT_TYPE: "local",
+			})
+			expect(configuration.type).toBe("local-diff")
+		})
+
+		it("throws when EVENT_TYPE is invalid for local diff", () => {
 			expect(() => getConfiguration({
+				BASE_COMMIT: "abc123",
+				HEAD_COMMIT: "def456",
 				EVENT_TYPE: "bogus",
-			})).toThrow("EVENT_TYPE must be one of")
+			})).toThrow("EVENT_TYPE must be 'local' or unset")
 		})
 	})
 

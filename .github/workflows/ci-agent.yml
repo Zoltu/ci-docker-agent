@@ -18,6 +18,7 @@ jobs:
       image: ghcr.io/zoltu/ci-docker-agent:latest
       options: --user root
     steps:
+      # Intentionally checks out the base branch; PR diff is fetched via GitHub API
       - name: Checkout repository
         uses: actions/checkout@v4
 

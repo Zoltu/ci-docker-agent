@@ -1,6 +1,6 @@
 import { createGetConfiguration } from "./configuration.mts"
 import { createGithubFetch, createFetchPullRequestFiles, createFetchPullRequestBaseCommit, createSubmitReview, createReactToComment } from "./github.mts"
-import { createSpawnGitDiff, createGenerateLocalDiff } from "./diff.mts"
+import { createSpawnGit, createGenerateLocalDiff } from "./diff.mts"
 import { createGetBaseCommitContext } from "./base-commit.mts"
 import { createDefaultCallApi } from "./ai.mts"
 import { createLoadAgents, createLoadAggregator, createReadAgentsFromDisk } from "./agents.mts"
@@ -21,7 +21,7 @@ async function main(): Promise<void> {
 
 	switch (configuration.type) {
 		case "comment-trigger": {
-			const spawnGitDiff = createSpawnGitDiff(WORKSPACE_DIRECTORY)
+			const spawnGitDiff = createSpawnGit(WORKSPACE_DIRECTORY)
 			const dependencies = {
 				fetchPullRequestFiles: createFetchPullRequestFiles(githubFetch, configuration.github),
 				fetchPullRequestBaseCommit: createFetchPullRequestBaseCommit(githubFetch, configuration.github),
@@ -35,7 +35,7 @@ async function main(): Promise<void> {
 			return runOnCommentTrigger(dependencies, configuration)
 		}
 		case "pull-request": {
-			const spawnGitDiff = createSpawnGitDiff(WORKSPACE_DIRECTORY)
+			const spawnGitDiff = createSpawnGit(WORKSPACE_DIRECTORY)
 			const dependencies = {
 				fetchPullRequestFiles: createFetchPullRequestFiles(githubFetch, configuration.github),
 				fetchPullRequestBaseCommit: createFetchPullRequestBaseCommit(githubFetch, configuration.github),
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
 			return runOnPullRequest(dependencies, configuration)
 		}
 		case "local-diff": {
-			const spawnGitDiff = createSpawnGitDiff(configuration.workspaceDirectory)
+			const spawnGitDiff = createSpawnGit(configuration.workspaceDirectory)
 			const dependencies = {
 				generateLocalDiff: createGenerateLocalDiff(configuration.workspaceDirectory, spawnGitDiff),
 				getBaseCommitContext: createGetBaseCommitContext(spawnGitDiff),

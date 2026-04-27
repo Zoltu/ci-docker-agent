@@ -86,7 +86,7 @@ describe("createLoadAgents", () => {
 		]))
 
 		const loadAgents = createLoadAgents(directories, readAgents)
-		expect(loadAgents(["NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
+		await expect(loadAgents(["NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
 	it("throws for unresolved names even when some agents resolve", async () => {
@@ -99,7 +99,7 @@ describe("createLoadAgents", () => {
 		]))
 
 		const loadAgents = createLoadAgents(directories, readAgents)
-		expect(loadAgents(["SecurityAgent", "NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
+		await expect(loadAgents(["SecurityAgent", "NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
 	it("filters out Aggregator from user agents when 'run all agents'", async () => {

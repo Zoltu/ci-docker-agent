@@ -97,5 +97,5 @@ export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, c
 	if (files.length === 0 && binaryFiles.length === 0) return "No files changed, nothing to review"
 
 	const aiResult = await runAnalysis(dependencies, configuration.agents, files, binaryFiles, configuration.baseCommit)
-	return "\n" + formatReviewForConsole(aiResult, files)
+	return formatReviewForConsole(aiResult, files)
 }

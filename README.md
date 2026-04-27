@@ -66,6 +66,10 @@ When running in GitHub Actions, the agent can be triggered via PR comments:
 
 The CI Agent uses a multi-agent architecture where each agent provides feedback in prose form, and an `Aggregator` agent consolidates the results.
 
+### Context Window
+
+The agent reads the entire repository at the base commit into the context window (excluding `.git/` and files matched by `.gitignore` and `.dockerignore`). This is designed for well-maintained, focused repositories rather than large monorepos.
+
 ### Adding Custom Agents
 
 To add custom agents, create markdown files in `/github/workspace/.ci-agents/`:

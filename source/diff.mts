@@ -92,10 +92,10 @@ export interface GitDiffResult {
 	signalCode: string | null
 }
 
-export type SpawnGitDiff = (parameters: string[]) => Promise<GitDiffResult>
+export type SpawnGit = (parameters: string[]) => Promise<GitDiffResult>
 
-export function createSpawnGitDiff(workspaceDirectory: string): SpawnGitDiff {
-	return async function spawnGitDiff(parameters: string[]): Promise<GitDiffResult> {
+export function createSpawnGit(workspaceDirectory: string): SpawnGit {
+	return async function spawnGit(parameters: string[]): Promise<GitDiffResult> {
 		const process = Bun.spawn(["git", ...parameters], { cwd: workspaceDirectory, stderr: "pipe", stdout: "pipe", timeout: SUBPROCESS_TIMEOUT_MILLISECONDS })
 		await process.exited
 		const stdout = await Bun.readableStreamToText(process.stdout)
@@ -104,7 +104,7 @@ export function createSpawnGitDiff(workspaceDirectory: string): SpawnGitDiff {
 	}
 }
 
-async function validateCommitExists(dependencies: { spawnGitDiff: SpawnGitDiff }, commit: string, label: string): Promise<void> {
+async function validateCommitExists(dependencies: { spawnGitDiff: SpawnGit }, commit: string, label: string): Promise<void> {
 	const { exitCode, signalCode, stderr } = await dependencies.spawnGitDiff(["cat-file", "-t", commit])
 	if (exitCode === null && signalCode !== null) throw new Error(`Command "git cat-file -t <${label}>" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
 	if (exitCode !== 0) {
@@ -116,7 +116,7 @@ async function validateCommitExists(dependencies: { spawnGitDiff: SpawnGitDiff }
 	}
 }
 
-async function validateGitEnvironment(dependencies: { spawnGitDiff: SpawnGitDiff }, baseCommit: string, headCommit: string, workspaceDirectory: string): Promise<void> {
+async function validateGitEnvironment(dependencies: { spawnGitDiff: SpawnGit }, baseCommit: string, headCommit: string, workspaceDirectory: string): Promise<void> {
 	if (!existsSync(`${workspaceDirectory}/.git`)) {
 		throw new Error(
 			`No git repository found at ${workspaceDirectory}\n` +
@@ -162,7 +162,7 @@ export function buildLocalDiff(nameStatusOutput: string, unifiedOutput: string, 
 	return { files, binaryFiles }
 }
 
-export function createGenerateLocalDiff(workspaceDirectory: string, spawnGitDiff: SpawnGitDiff): (baseCommit: string, headCommit: string) => Promise<LocalDiffResult> {
+export function createGenerateLocalDiff(workspaceDirectory: string, spawnGitDiff: SpawnGit): (baseCommit: string, headCommit: string) => Promise<LocalDiffResult> {
 	return async function generateLocalDiff(baseCommit: string, headCommit: string): Promise<LocalDiffResult> {
 		await validateGitEnvironment({ spawnGitDiff }, baseCommit, headCommit, workspaceDirectory)
 
