@@ -21,11 +21,11 @@ async function main(): Promise<void> {
 
 	switch (configuration.type) {
 		case "comment-trigger": {
-			const spawnGitDiff = createSpawnGit(WORKSPACE_DIRECTORY)
+			const spawnGit = createSpawnGit(WORKSPACE_DIRECTORY)
 			const dependencies = {
 				fetchPullRequestFiles: createFetchPullRequestFiles(githubFetch, configuration.github),
 				fetchPullRequestBaseCommit: createFetchPullRequestBaseCommit(githubFetch, configuration.github),
-				getBaseCommitContext: createGetBaseCommitContext(spawnGitDiff),
+				getBaseCommitContext: createGetBaseCommitContext(spawnGit),
 				submitReview: createSubmitReview(githubFetch, configuration.github),
 				reactToComment: createReactToComment(githubFetch, configuration.github),
 				loadAgents,
@@ -35,11 +35,11 @@ async function main(): Promise<void> {
 			return runOnCommentTrigger(dependencies, configuration)
 		}
 		case "pull-request": {
-			const spawnGitDiff = createSpawnGit(WORKSPACE_DIRECTORY)
+			const spawnGit = createSpawnGit(WORKSPACE_DIRECTORY)
 			const dependencies = {
 				fetchPullRequestFiles: createFetchPullRequestFiles(githubFetch, configuration.github),
 				fetchPullRequestBaseCommit: createFetchPullRequestBaseCommit(githubFetch, configuration.github),
-				getBaseCommitContext: createGetBaseCommitContext(spawnGitDiff),
+				getBaseCommitContext: createGetBaseCommitContext(spawnGit),
 				submitReview: createSubmitReview(githubFetch, configuration.github),
 				loadAgents,
 				loadAggregator,
@@ -48,10 +48,10 @@ async function main(): Promise<void> {
 			return runOnPullRequest(dependencies, configuration)
 		}
 		case "local-diff": {
-			const spawnGitDiff = createSpawnGit(configuration.workspaceDirectory)
+			const spawnGit = createSpawnGit(configuration.workspaceDirectory)
 			const dependencies = {
-				generateLocalDiff: createGenerateLocalDiff(configuration.workspaceDirectory, spawnGitDiff),
-				getBaseCommitContext: createGetBaseCommitContext(spawnGitDiff),
+				generateLocalDiff: createGenerateLocalDiff(configuration.workspaceDirectory, spawnGit),
+				getBaseCommitContext: createGetBaseCommitContext(spawnGit),
 				loadAgents,
 				loadAggregator,
 				callApi,

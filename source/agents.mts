@@ -120,20 +120,20 @@ export function createLoadAggregator(directories: AgentDirectories, readAgents: 
 export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitContext, files: PullRequestFile[], binaryFiles: string[], agentInputs?: Map<string, string>): string {
 	const lines: string[] = []
 
-	// 1. Repository Files (Base Commit)
+	// Repository Files (Base Commit)
 	lines.push("=== Repository Files (Base Commit) ===")
 	for (const file of baseCommitContext.fileList) {
 		lines.push(`- ${file}`)
 	}
 
-	// 2. File Contents (Base Commit)
+	// File Contents (Base Commit)
 	lines.push("", "=== File Contents (Base Commit) ===")
 	for (const [filename, content] of baseCommitContext.fileContents.entries()) {
 		lines.push(`=== ${filename} ===`)
 		lines.push(content)
 	}
 
-	// 3. Changeset Statistics
+	// Changeset Statistics
 	const totalAdditions = files.reduce((sum, file) => sum + file.additions, 0)
 	const totalDeletions = files.reduce((sum, file) => sum + file.deletions, 0)
 	lines.push("", "=== Changeset Statistics ===")
@@ -144,7 +144,7 @@ export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitCont
 		lines.push(`- ${file.filename} (${file.status}): +${file.additions} -${file.deletions}`)
 	}
 
-	// 4. Changeset Diffs
+	// Changeset Diffs
 	lines.push("", "=== Changeset Diffs ===")
 	for (const file of files) {
 		if (file.patch) {
@@ -169,7 +169,7 @@ export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitCont
 		}
 	}
 
-	// 5. Agent Instructions
+	// Agent Instructions
 	lines.push("", "=== Agent Instructions ===")
 	lines.push(agent.prompt)
 

@@ -104,8 +104,8 @@ export function createSpawnGit(workspaceDirectory: string): SpawnGit {
 	}
 }
 
-async function validateCommitExists(dependencies: { spawnGitDiff: SpawnGit }, commit: string, label: string): Promise<void> {
-	const { exitCode, signalCode, stderr } = await dependencies.spawnGitDiff(["cat-file", "-t", commit])
+async function validateCommitExists(dependencies: { spawnGit: SpawnGit }, commit: string, label: string): Promise<void> {
+	const { exitCode, signalCode, stderr } = await dependencies.spawnGit(["cat-file", "-t", commit])
 	if (exitCode === null && signalCode !== null) throw new Error(`Command "git cat-file -t <${label}>" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
 	if (exitCode !== 0) {
 		throw new Error(
@@ -116,7 +116,7 @@ async function validateCommitExists(dependencies: { spawnGitDiff: SpawnGit }, co
 	}
 }
 
-async function validateGitEnvironment(dependencies: { spawnGitDiff: SpawnGit }, baseCommit: string, headCommit: string, workspaceDirectory: string): Promise<void> {
+async function validateGitEnvironment(dependencies: { spawnGit: SpawnGit }, baseCommit: string, headCommit: string, workspaceDirectory: string): Promise<void> {
 	if (!existsSync(`${workspaceDirectory}/.git`)) {
 		throw new Error(
 			`No git repository found at ${workspaceDirectory}\n` +
@@ -162,11 +162,11 @@ export function buildLocalDiff(nameStatusOutput: string, unifiedOutput: string, 
 	return { files, binaryFiles }
 }
 
-export function createGenerateLocalDiff(workspaceDirectory: string, spawnGitDiff: SpawnGit): (baseCommit: string, headCommit: string) => Promise<LocalDiffResult> {
+export function createGenerateLocalDiff(workspaceDirectory: string, spawnGit: SpawnGit): (baseCommit: string, headCommit: string) => Promise<LocalDiffResult> {
 	return async function generateLocalDiff(baseCommit: string, headCommit: string): Promise<LocalDiffResult> {
-		await validateGitEnvironment({ spawnGitDiff }, baseCommit, headCommit, workspaceDirectory)
+		await validateGitEnvironment({ spawnGit }, baseCommit, headCommit, workspaceDirectory)
 
-		const nameStatusResult = await spawnGitDiff(["diff", "--name-status", baseCommit, headCommit])
+		const nameStatusResult = await spawnGit(["diff", "--name-status", baseCommit, headCommit])
 		if (nameStatusResult.exitCode === null && nameStatusResult.signalCode !== null) throw new Error(`Command "git diff --name-status" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
 		if (nameStatusResult.exitCode !== 0) {
 			const errorOutput = nameStatusResult.stderr || nameStatusResult.stdout || "Unknown error"
@@ -176,13 +176,13 @@ export function createGenerateLocalDiff(workspaceDirectory: string, spawnGitDiff
 		const nameStatusOutput = nameStatusResult.stdout
 		if (!nameStatusOutput.trim()) return { files: [], binaryFiles: [] }
 
-		const numstatResult = await spawnGitDiff(["diff", "--numstat", baseCommit, headCommit])
+		const numstatResult = await spawnGit(["diff", "--numstat", baseCommit, headCommit])
 		if (numstatResult.exitCode === null && numstatResult.signalCode !== null) throw new Error(`Command "git diff --numstat" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
 		if (numstatResult.exitCode !== 0) {
 			throw new Error(`Failed to get numstat diff: ${numstatResult.stderr.trim()}`)
 		}
 
-		const unifiedResult = await spawnGitDiff(["diff", "--unified=0", baseCommit, headCommit])
+		const unifiedResult = await spawnGit(["diff", "--unified=0", baseCommit, headCommit])
 		if (unifiedResult.exitCode === null && unifiedResult.signalCode !== null) throw new Error(`Command "git diff --unified=0" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
 		if (unifiedResult.exitCode !== 0) {
 			throw new Error(`Failed to get unified diff: ${unifiedResult.stderr.trim()}`)

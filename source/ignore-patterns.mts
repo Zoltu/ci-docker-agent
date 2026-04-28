@@ -36,8 +36,6 @@ export function isPathIgnored(path: string, patterns: string[]): boolean {
 function matchPattern(path: string, segments: string[], pattern: string): boolean {
 	const directoryOnly = pattern.endsWith("/")
 	const cleanPattern = directoryOnly ? pattern.slice(0, -1) : pattern
-	// We only filter files, so directory-only patterns never match files
-	if (directoryOnly) return false
 
 	let searchPattern = cleanPattern
 	let matchAnyDepth = false
@@ -54,29 +52,51 @@ function matchPattern(path: string, segments: string[], pattern: string): boolea
 	}
 
 	if (!searchPattern.includes("/")) {
-		// Matches any path segment
 		if (matchAnyDepth || !anchored) {
-			for (const segment of segments) {
-				if (matchGlob(segment, searchPattern)) return true
+			for (let i = 0; i < segments.length; i++) {
+				if (matchGlob(segments[i]!, searchPattern)) {
+					if (directoryOnly) {
+						if (i < segments.length - 1) return true
+					} else {
+						return true
+					}
+				}
 			}
 			return false
 		}
-		// Anchored to root
-		return matchGlob(segments[0] ?? "", searchPattern)
+		if (matchGlob(segments[0] ?? "", searchPattern)) {
+			if (directoryOnly) {
+				return segments.length > 1
+			}
+			return true
+		}
+		return false
 	}
 
-	// Contains / - must match full path
 	if (matchAnyDepth) {
 		const patternParts = searchPattern.split("/")
 		const patternDepth = patternParts.length
 		for (let start = 0; start <= segments.length - patternDepth; start++) {
 			const subpath = segments.slice(start, start + patternDepth).join("/")
-			if (matchGlob(subpath, searchPattern)) return true
+			if (matchGlob(subpath, searchPattern)) {
+				if (directoryOnly) {
+					if (start + patternDepth < segments.length) return true
+				} else {
+					return true
+				}
+			}
 		}
 		return false
 	}
 
-	// Anchored or unanchored with / - for root-level .gitignore both match relative to root
+	if (directoryOnly) {
+		const dirSegments = searchPattern.split("/")
+		const dirDepth = dirSegments.length
+		if (segments.length <= dirDepth) return false
+		const subpath = segments.slice(0, dirDepth).join("/")
+		return matchGlob(subpath, searchPattern)
+	}
+
 	return matchGlob(path, searchPattern)
 }
 

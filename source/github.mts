@@ -10,6 +10,7 @@ export type GitHubFetch = (url: string, options: RequestInit) => Promise<Respons
 
 export function createGithubFetch(): GitHubFetch {
 	return async function githubFetch(url: string, options: RequestInit): Promise<Response> {
+		// Intentionally only retries rate limiting (429); all other errors fail fast
 		const deadline = Date.now() + DEADLINE_MILLISECONDS
 
 		while (true) {

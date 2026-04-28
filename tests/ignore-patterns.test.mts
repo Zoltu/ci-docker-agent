@@ -85,9 +85,26 @@ describe("isPathIgnored", () => {
 		expect(isPathIgnored("important.log", ["*.log", "!important.log"])).toBe(false)
 	})
 
-	it("ignores directory-only patterns for files", () => {
+	it("matches files inside directory-only patterns", () => {
 		expect(isPathIgnored("node_modules", ["node_modules/"])).toBe(false)
-		expect(isPathIgnored("node_modules/package.json", ["node_modules/"])).toBe(false)
+		expect(isPathIgnored("node_modules/package.json", ["node_modules/"])).toBe(true)
+		expect(isPathIgnored("node_modules/pkg/file.js", ["node_modules/"])).toBe(true)
+		expect(isPathIgnored("a/node_modules/file.js", ["node_modules/"])).toBe(true)
+	})
+
+	it("matches anchored directory-only patterns at root only", () => {
+		expect(isPathIgnored("dist/bundle.js", ["/dist/"])).toBe(true)
+		expect(isPathIgnored("a/dist/bundle.js", ["/dist/"])).toBe(false)
+	})
+
+	it("matches directory-only patterns with **/ at any depth", () => {
+		expect(isPathIgnored("dist/file.js", ["**/dist/"])).toBe(true)
+		expect(isPathIgnored("a/dist/file.js", ["**/dist/"])).toBe(true)
+	})
+
+	it("matches directory-only patterns with path slashes", () => {
+		expect(isPathIgnored("src/dist/file.js", ["src/dist/"])).toBe(true)
+		expect(isPathIgnored("other/file.js", ["src/dist/"])).toBe(false)
 	})
 
 	it("matches ? wildcard", () => {

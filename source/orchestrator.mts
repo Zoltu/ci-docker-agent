@@ -23,6 +23,29 @@ export async function runAnalysis(dependencies: RunAnalysisDependencies, agentNa
 	return analyze({ callApi: dependencies.callApi }, baseCommitContext, files, binaryFiles, agents, aggregator)
 }
 
+type SubmitPrReviewDependencies = {
+	fetchPullRequestFiles: () => Promise<PullRequestFile[]>
+	fetchPullRequestBaseCommit: () => Promise<string>
+	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
+	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
+	loadAggregator: () => Promise<Agent>
+	callApi: CallApi
+	submitReview: (review: GitHubReviewPayload) => Promise<void>
+}
+
+async function submitPrReview(dependencies: SubmitPrReviewDependencies, agentNames: AgentNames): Promise<void> {
+	const files = await dependencies.fetchPullRequestFiles()
+	const binaryFiles = files.filter(file => file.patch === undefined).map(file => file.filename)
+
+	if (files.length === 0 && binaryFiles.length === 0) return console.log("No files changed, nothing to review")
+
+	const baseCommit = await dependencies.fetchPullRequestBaseCommit()
+	const aiResult = await runAnalysis(dependencies, agentNames, files, binaryFiles, baseCommit)
+	const reviewPayload = buildReviewPayload(aiResult)
+	await dependencies.submitReview(reviewPayload)
+	console.log("PR review submitted successfully")
+}
+
 type RunOnCommentTriggerDependencies = {
 	fetchPullRequestFiles: () => Promise<PullRequestFile[]>
 	fetchPullRequestBaseCommit: () => Promise<string>
@@ -40,18 +63,10 @@ export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDepen
 	if (triggerResult === "no review triggered") return
 
 	try {
-		const files = await dependencies.fetchPullRequestFiles()
-		const binaryFiles = files.filter(file => file.patch === undefined).map(file => file.filename)
-
-		if (files.length === 0 && binaryFiles.length === 0) return console.log("No files changed, nothing to review")
-
-		const baseCommit = await dependencies.fetchPullRequestBaseCommit()
-		const aiResult = await runAnalysis(dependencies, triggerResult, files, binaryFiles, baseCommit)
-		const reviewPayload = buildReviewPayload(aiResult)
-		await dependencies.submitReview(reviewPayload)
-		console.log("PR review submitted successfully")
+		await submitPrReview(dependencies, triggerResult)
 	} catch (error) {
 		try {
+			// Alert the user that something went wrong (the review itself is the positive feedback)
 			await dependencies.reactToComment(configuration.commentId, "-1")
 		} catch (reactionError) {
 			console.error(`Failed to react to comment ${configuration.commentId} with "-1":`, reactionError)
@@ -71,16 +86,7 @@ type RunOnPullRequestDependencies = {
 }
 
 export async function runOnPullRequest(dependencies: RunOnPullRequestDependencies, configuration: PullRequestConfiguration): Promise<void> {
-	const files = await dependencies.fetchPullRequestFiles()
-	const binaryFiles = files.filter(file => file.patch === undefined).map(file => file.filename)
-
-	if (files.length === 0 && binaryFiles.length === 0) return console.log("No files changed, nothing to review")
-
-	const baseCommit = await dependencies.fetchPullRequestBaseCommit()
-	const aiResult = await runAnalysis(dependencies, configuration.agents, files, binaryFiles, baseCommit)
-	const reviewPayload = buildReviewPayload(aiResult)
-	await dependencies.submitReview(reviewPayload)
-	console.log("PR review submitted successfully")
+	await submitPrReview(dependencies, configuration.agents)
 }
 
 type RunOnLocalDiffDependencies = {

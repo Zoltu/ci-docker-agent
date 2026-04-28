@@ -194,7 +194,7 @@ Leaf functions directly touch external systems: network, filesystem, subprocess,
 
 Leaf functions are exported as **factories** that return configured functions. All configuration that does not vary per call is closed over at construction time.
 
-Examples: `spawnGitDiff`, `readAgentsFromDisk`, `githubFetch`.
+Examples: `createSpawnGit`, `createReadAgentsFromDisk`, `createGithubFetch`.
 
 ### Orchestration Functions
 

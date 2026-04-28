@@ -16,7 +16,7 @@ const TEXT_FILE_EXTENSIONS = new Set([
 	"jsx",
 	"ts",
 	"tsx",
-	"mts",
+	"mts", // Also an MPEG Transport Stream video format, but text takes precedence for a code review tool
 	"cts",
 	// Python
 	"py",
@@ -360,7 +360,6 @@ const BINARY_FILE_EXTENSIONS = new Set([
 	"cache",
 	// Game / 3D
 	"fbx",
-	"obj",
 	"3ds",
 	"dae",
 	"blend",
@@ -426,9 +425,10 @@ function isTextFile(filename: string): boolean {
 	return false
 }
 
-export function createGetBaseCommitContext(spawnGitDiff: SpawnGit): (baseCommit: string) => Promise<BaseCommitContext> {
+export function createGetBaseCommitContext(spawnGit: SpawnGit): (baseCommit: string) => Promise<BaseCommitContext> {
+	// Reads the entire repo into memory — not suitable for large monorepos
 	return async function getBaseCommitContext(baseCommit: string): Promise<BaseCommitContext> {
-		const lsTreeResult = await spawnGitDiff(["ls-tree", "-r", "--name-only", baseCommit])
+		const lsTreeResult = await spawnGit(["ls-tree", "-r", "--name-only", baseCommit])
 		if (lsTreeResult.exitCode !== 0) {
 			throw new Error(`Failed to list files in base commit: ${lsTreeResult.stderr.trim()}`)
 		}
@@ -440,17 +440,17 @@ export function createGetBaseCommitContext(spawnGitDiff: SpawnGit): (baseCommit:
 
 		const ignorePatterns: string[] = [".git/"]
 
-		const gitignoreResult = await spawnGitDiff(["ls-tree", baseCommit, "--", ".gitignore"])
+		const gitignoreResult = await spawnGit(["ls-tree", baseCommit, "--", ".gitignore"])
 		if (gitignoreResult.stdout.trim().length > 0) {
-			const showResult = await spawnGitDiff(["show", `${baseCommit}:.gitignore`])
+			const showResult = await spawnGit(["show", `${baseCommit}:.gitignore`])
 			if (showResult.exitCode === 0) {
 				ignorePatterns.push(...parseIgnorePatterns(showResult.stdout))
 			}
 		}
 
-		const dockerignoreResult = await spawnGitDiff(["ls-tree", baseCommit, "--", ".dockerignore"])
+		const dockerignoreResult = await spawnGit(["ls-tree", baseCommit, "--", ".dockerignore"])
 		if (dockerignoreResult.stdout.trim().length > 0) {
-			const showResult = await spawnGitDiff(["show", `${baseCommit}:.dockerignore`])
+			const showResult = await spawnGit(["show", `${baseCommit}:.dockerignore`])
 			if (showResult.exitCode === 0) {
 				ignorePatterns.push(...parseIgnorePatterns(showResult.stdout))
 			}
@@ -462,7 +462,7 @@ export function createGetBaseCommitContext(spawnGitDiff: SpawnGit): (baseCommit:
 		for (const file of fileList) {
 			if (!isTextFile(file)) continue
 
-			const showResult = await spawnGitDiff(["show", `${baseCommit}:${file}`])
+			const showResult = await spawnGit(["show", `${baseCommit}:${file}`])
 			if (showResult.exitCode !== 0) {
 				throw new Error(`Failed to read file ${file} at commit ${baseCommit}: ${showResult.stderr.trim()}`)
 			}
