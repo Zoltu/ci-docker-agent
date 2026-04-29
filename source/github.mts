@@ -1,6 +1,5 @@
-import type { PullRequestFile, GitHubReviewPayload, GitHubConfiguration } from "./github-types.mts"
-import { FILE_STATUSES } from "./github-types.mts"
-import { includes } from "./typescript-helpers.mts"
+import type { GitHubReviewPayload, GitHubConfiguration } from "./github-types.mts"
+import { parseDiffOutput, type DiffResult } from "./diff.mts"
 
 const REQUEST_TIMEOUT_MILLISECONDS = 10_000
 const RETRY_DELAY_MILLISECONDS = 30_000
@@ -53,50 +52,22 @@ export function createGithubFetch(): GitHubFetch {
 	}
 }
 
-export function isPullRequestFile(value: unknown): value is PullRequestFile {
-	if (typeof value !== "object") return false
-	if (value === null) return false
-	const object = value
-	if (!("filename" in object) || typeof object.filename !== "string") return false
-	if (!("status" in object) || typeof object.status !== "string" || !includes(FILE_STATUSES, object.status)) return false
-	if (!("additions" in object) || typeof object.additions !== "number") return false
-	if (!("deletions" in object) || typeof object.deletions !== "number") return false
-	if (!("changes" in object) || typeof object.changes !== "number") return false
-	if ("patch" in object && object.patch !== undefined && typeof object.patch !== "string") return false
-	return true
-}
-
-export function isPullRequestFileArray(value: unknown): value is PullRequestFile[] {
-	if (!Array.isArray(value)) return false
-	return value.every(isPullRequestFile)
-}
-
-export function createFetchPullRequestFiles(githubFetch: GitHubFetch, configuration: GitHubConfiguration): () => Promise<PullRequestFile[]> {
-	return async function fetchPullRequestFiles(): Promise<PullRequestFile[]> {
+export function createFetchPullRequestDiff(githubFetch: GitHubFetch, configuration: GitHubConfiguration): () => Promise<DiffResult> {
+	return async function fetchPullRequestDiff(): Promise<DiffResult> {
 		const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
-		const allFiles: PullRequestFile[] = []
-		let page = 1
 
-		while (true) {
-			const response = await githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}/files?per_page=100&page=${page}`, {
-				method: "GET",
-				headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" }
-			})
+		const response = await githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}`, {
+			method: "GET",
+			headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.diff" },
+		})
 
-			if (!response.ok) {
-				const body = await response.text().catch(() => "")
-				throw new Error(`Failed to fetch PR files: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
-			}
-
-			const data: unknown = await response.json()
-			if (!isPullRequestFileArray(data)) throw new Error("Invalid response from GitHub API: expected array of PR files")
-
-			allFiles.push(...data)
-			if (data.length < 100) break
-			page++
+		if (!response.ok) {
+			const body = await response.text().catch(() => "")
+			throw new Error(`Failed to fetch PR diff: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
 		}
 
-		return allFiles
+		const diffText = await response.text()
+		return parseDiffOutput(diffText)
 	}
 }
 

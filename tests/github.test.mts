@@ -1,192 +1,48 @@
 import { describe, it, expect } from "bun:test"
-import { isPullRequestFile, isPullRequestFileArray, createFetchPullRequestFiles, createFetchPullRequestBaseCommit, createSubmitReview, createReactToComment, type GitHubFetch } from "../source/github.mts"
+import { createFetchPullRequestDiff, createFetchPullRequestBaseCommit, createSubmitReview, createReactToComment, type GitHubFetch } from "../source/github.mts"
 import { makeGitHubConfiguration } from "./helpers.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
 
-describe("isPullRequestFile", () => {
-	it("returns true for a valid PullRequestFile object", () => {
-		expect(isPullRequestFile({
-			filename: "src/file.ts",
-			status: "modified",
-			additions: 5,
-			deletions: 2,
-			changes: 7,
-		})).toBe(true)
+describe("createFetchPullRequestDiff", () => {
+	it("fetches and parses PR diff from GitHub API", async () => {
+		const diffText = [
+			"diff --git a/src/file.ts b/src/file.ts",
+			"--- a/src/file.ts",
+			"+++ b/src/file.ts",
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+		].join("\n")
+		const githubFetch: GitHubFetch = async () => new Response(diffText, { status: 200 })
+		const fetchPullRequestDiff = createFetchPullRequestDiff(githubFetch, makeGitHubConfiguration())
+
+		const result = await fetchPullRequestDiff()
+
+		expect(result.files).toHaveLength(1)
+		expect(result.files[0]!.filename).toBe("src/file.ts")
+		expect(result.files[0]!.status).toBe("modified")
+		expect(result.files[0]!.additions).toBe(1)
+		expect(result.files[0]!.deletions).toBe(1)
 	})
 
-	it("returns true for a PullRequestFile with patch", () => {
-		expect(isPullRequestFile({
-			filename: "src/file.ts",
-			status: "modified",
-			additions: 5,
-			deletions: 2,
-			changes: 7,
-			patch: "@@ -1 +1 @@\n-old\n+new",
-		})).toBe(true)
-	})
-
-	it("returns false when patch is not a string", () => {
-		expect(isPullRequestFile({
-			filename: "src/file.ts",
-			status: "modified",
-			additions: 5,
-			deletions: 2,
-			changes: 7,
-			patch: 123,
-		})).toBe(false)
-	})
-
-	it("returns false for null", () => {
-		expect(isPullRequestFile(null)).toBe(false)
-	})
-
-	it("returns false for a string", () => {
-		expect(isPullRequestFile("not an object")).toBe(false)
-	})
-
-	it("returns false when filename is missing", () => {
-		expect(isPullRequestFile({
-			status: "modified",
-			additions: 5,
-			deletions: 2,
-			changes: 7,
-		})).toBe(false)
-	})
-
-	it("returns false when filename is not a string", () => {
-		expect(isPullRequestFile({
-			filename: 123,
-			status: "modified",
-			additions: 5,
-			deletions: 2,
-			changes: 7,
-		})).toBe(false)
-	})
-
-	it("returns false when status is missing", () => {
-		expect(isPullRequestFile({
-			filename: "src/file.ts",
-			additions: 5,
-			deletions: 2,
-			changes: 7,
-		})).toBe(false)
-	})
-
-	it("returns false when additions is not a number", () => {
-		expect(isPullRequestFile({
-			filename: "src/file.ts",
-			status: "modified",
-			additions: "5",
-			deletions: 2,
-			changes: 7,
-		})).toBe(false)
-	})
-
-	it("returns false when deletions is not a number", () => {
-		expect(isPullRequestFile({
-			filename: "src/file.ts",
-			status: "modified",
-			additions: 5,
-			deletions: "2",
-			changes: 7,
-		})).toBe(false)
-	})
-
-	it("returns false when changes is not a number", () => {
-		expect(isPullRequestFile({
-			filename: "src/file.ts",
-			status: "modified",
-			additions: 5,
-			deletions: 2,
-			changes: "7",
-		})).toBe(false)
-	})
-
-	it("returns false for an empty object", () => {
-		expect(isPullRequestFile({})).toBe(false)
-	})
-
-	it("returns false for an unknown status value", () => {
-		expect(isPullRequestFile({
-			filename: "src/file.ts",
-			status: "deleted",
-			additions: 5,
-			deletions: 2,
-			changes: 7,
-		})).toBe(false)
-	})
-})
-
-describe("isPullRequestFileArray", () => {
-	it("returns true for an array of valid PullRequestFile objects", () => {
-		expect(isPullRequestFileArray([
-			{ filename: "a.ts", status: "added", additions: 1, deletions: 0, changes: 1 },
-			{ filename: "b.ts", status: "modified", additions: 2, deletions: 1, changes: 3 },
-		])).toBe(true)
-	})
-
-	it("returns true for an empty array", () => {
-		expect(isPullRequestFileArray([])).toBe(true)
-	})
-
-	it("returns false if one element is invalid", () => {
-		expect(isPullRequestFileArray([
-			{ filename: "a.ts", status: "added", additions: 1, deletions: 0, changes: 1 },
-			{ filename: 123, status: "added", additions: 1, deletions: 0, changes: 1 },
-		])).toBe(false)
-	})
-
-	it("returns false for a non-array", () => {
-		expect(isPullRequestFileArray("not an array")).toBe(false)
-	})
-
-	it("returns false for null", () => {
-		expect(isPullRequestFileArray(null)).toBe(false)
-	})
-})
-
-describe("createFetchPullRequestFiles", () => {
-	it("fetches PR files from GitHub API", async () => {
-		const pullRequestFile = { filename: "src/file.ts", status: "modified" as const, additions: 1, deletions: 0, changes: 1 }
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify([pullRequestFile]), { status: 200 })
-		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeGitHubConfiguration())
-
-		const files = await fetchPullRequestFiles()
-
-		expect(files).toHaveLength(1)
-		expect(files[0]).toEqual(pullRequestFile)
-	})
-
-	it("paginates when there are more than 100 files", async () => {
-		let page = 0
-		const githubFetch: GitHubFetch = async (url) => {
-			page++
-			if (page === 1) {
-				expect(url).toContain("page=1")
-				return new Response(JSON.stringify(Array.from({ length: 100 }, (_, index) => ({ filename: `file${index}.ts`, status: "modified", additions: 1, deletions: 0, changes: 1 }))), { status: 200 })
-			}
-			expect(url).toContain("page=2")
-			return new Response(JSON.stringify([{ filename: "file100.ts", status: "added", additions: 1, deletions: 0, changes: 1 }]), { status: 200 })
+	it("sends Accept: application/vnd.github.diff header", async () => {
+		let capturedHeaders: Record<string, string> = {}
+		const githubFetch: GitHubFetch = async (_url, options) => {
+			capturedHeaders = options.headers as Record<string, string>
+			return new Response("", { status: 200 })
 		}
-		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeGitHubConfiguration())
+		const fetchPullRequestDiff = createFetchPullRequestDiff(githubFetch, makeGitHubConfiguration())
 
-		const files = await fetchPullRequestFiles()
+		await fetchPullRequestDiff()
 
-		expect(files).toHaveLength(101)
+		expect(capturedHeaders.Accept).toBe("application/vnd.github.diff")
 	})
 
 	it("throws on non-ok response", async () => {
 		const githubFetch: GitHubFetch = async () => new Response("Not found", { status: 404, statusText: "Not Found" })
-		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeGitHubConfiguration())
+		const fetchPullRequestDiff = createFetchPullRequestDiff(githubFetch, makeGitHubConfiguration())
 
-		await expect(fetchPullRequestFiles()).rejects.toThrow("Failed to fetch PR files")
-	})
-
-	it("throws when response is not a valid PullRequestFile array", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify([{ bad: "data" }]), { status: 200 })
-		const fetchPullRequestFiles = createFetchPullRequestFiles(githubFetch, makeGitHubConfiguration())
-
-		await expect(fetchPullRequestFiles()).rejects.toThrow("Invalid response from GitHub API")
+		await expect(fetchPullRequestDiff()).rejects.toThrow("Failed to fetch PR diff")
 	})
 })
 

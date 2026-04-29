@@ -1,8 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { parseAggregatorOutput, analyze, type CallApi } from "../source/ai.mts"
 import type { Agent } from "../source/agents.mts"
-import { makeBaseCommitContext } from "./helpers.mts"
-import type { PullRequestFile } from "../source/github-types.mts"
+import { makeBaseCommitContext, makeDiffResult, makeDiffFile } from "./helpers.mts"
 
 describe("parseAggregatorOutput", () => {
 	it("parses valid JSON with body and comments", () => {
@@ -151,11 +150,9 @@ describe("analyze", () => {
 			{ name: "StyleAgent", prompt: "Check style" },
 		]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-		const files: PullRequestFile[] = [
-			{ filename: "src/file.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
-		]
+		const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-		const result = await analyze({ callApi }, makeBaseCommitContext(), files, [], agents, aggregator)
+		const result = await analyze({ callApi }, makeBaseCommitContext(), diffResult, agents, aggregator)
 
 		expect(calls.length).toBe(3)
 		expect(result.body).toBe("Review complete")
@@ -171,11 +168,9 @@ describe("analyze", () => {
 
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-		const files: PullRequestFile[] = [
-			{ filename: "src/file.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
-		]
+		const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-		const result = await analyze({ callApi }, makeBaseCommitContext(), files, [], agents, aggregator)
+		const result = await analyze({ callApi }, makeBaseCommitContext(), diffResult, agents, aggregator)
 
 		expect(result.body).toBe("Result 2")
 	})

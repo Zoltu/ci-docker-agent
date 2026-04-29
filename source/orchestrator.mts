@@ -1,10 +1,10 @@
-import type { PullRequestFile, GitHubReviewPayload } from "./github-types.mts"
+import type { GitHubReviewPayload } from "./github-types.mts"
 import type { AgentNames, ResolveResult, Agent } from "./agents.mts"
 import type { AiReviewResult } from "./review.mts"
 import type { CallApi } from "./ai.mts"
 import { analyze } from "./ai.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
-import type { LocalDiffResult } from "./diff.mts"
+import type { DiffResult } from "./diff.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import { getAgentsFromComment } from "./trigger.mts"
 import type { CommentTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "./configuration.mts"
@@ -16,15 +16,15 @@ type RunAnalysisDependencies = {
 	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 }
 
-export async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, files: PullRequestFile[], binaryFiles: string[], baseCommit: string): Promise<AiReviewResult> {
+export async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, diffResult: DiffResult, baseCommit: string): Promise<AiReviewResult> {
 	const { agents } = await dependencies.loadAgents(agentNames)
 	const aggregator = await dependencies.loadAggregator()
 	const baseCommitContext = await dependencies.getBaseCommitContext(baseCommit)
-	return analyze({ callApi: dependencies.callApi }, baseCommitContext, files, binaryFiles, agents, aggregator)
+	return analyze({ callApi: dependencies.callApi }, baseCommitContext, diffResult, agents, aggregator)
 }
 
 type SubmitPrReviewDependencies = {
-	fetchPullRequestFiles: () => Promise<PullRequestFile[]>
+	fetchPullRequestDiff: () => Promise<DiffResult>
 	fetchPullRequestBaseCommit: () => Promise<string>
 	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
@@ -34,21 +34,19 @@ type SubmitPrReviewDependencies = {
 }
 
 async function submitPrReview(dependencies: SubmitPrReviewDependencies, agentNames: AgentNames): Promise<void> {
-	const files = await dependencies.fetchPullRequestFiles()
-	// GitHub omits patch for binary files and files with very large diffs — not exclusively binary
-	const binaryFiles = files.filter(file => file.patch === undefined).map(file => file.filename)
+	const diffResult = await dependencies.fetchPullRequestDiff()
 
-	if (files.length === 0 && binaryFiles.length === 0) return console.log("No files changed, nothing to review")
+	if (diffResult.files.length === 0 && diffResult.binaryFiles.length === 0) return console.log("No files changed, nothing to review")
 
 	const baseCommit = await dependencies.fetchPullRequestBaseCommit()
-	const aiResult = await runAnalysis(dependencies, agentNames, files, binaryFiles, baseCommit)
+	const aiResult = await runAnalysis(dependencies, agentNames, diffResult, baseCommit)
 	const reviewPayload = buildReviewPayload(aiResult)
 	await dependencies.submitReview(reviewPayload)
 	console.log("PR review submitted successfully")
 }
 
 type RunOnCommentTriggerDependencies = {
-	fetchPullRequestFiles: () => Promise<PullRequestFile[]>
+	fetchPullRequestDiff: () => Promise<DiffResult>
 	fetchPullRequestBaseCommit: () => Promise<string>
 	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
@@ -77,7 +75,7 @@ export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDepen
 }
 
 type RunOnPullRequestDependencies = {
-	fetchPullRequestFiles: () => Promise<PullRequestFile[]>
+	fetchPullRequestDiff: () => Promise<DiffResult>
 	fetchPullRequestBaseCommit: () => Promise<string>
 	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
@@ -91,7 +89,7 @@ export async function runOnPullRequest(dependencies: RunOnPullRequestDependencie
 }
 
 type RunOnLocalDiffDependencies = {
-	generateLocalDiff: (baseCommit: string, headCommit: string) => Promise<LocalDiffResult>
+	generateLocalDiff: (baseCommit: string, headCommit: string) => Promise<DiffResult>
 	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
@@ -99,10 +97,10 @@ type RunOnLocalDiffDependencies = {
 }
 
 export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration): Promise<string> {
-	const { files, binaryFiles } = await dependencies.generateLocalDiff(configuration.baseCommit, configuration.headCommit)
+	const diffResult = await dependencies.generateLocalDiff(configuration.baseCommit, configuration.headCommit)
 
-	if (files.length === 0 && binaryFiles.length === 0) return "No files changed, nothing to review"
+	if (diffResult.files.length === 0 && diffResult.binaryFiles.length === 0) return "No files changed, nothing to review"
 
-	const aiResult = await runAnalysis(dependencies, configuration.agents, files, binaryFiles, configuration.baseCommit)
-	return formatReviewForConsole(aiResult, files)
+	const aiResult = await runAnalysis(dependencies, configuration.agents, diffResult, configuration.baseCommit)
+	return formatReviewForConsole(aiResult, diffResult)
 }

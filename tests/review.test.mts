@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { buildReviewPayload, formatReviewForConsole, type AiReviewResult } from "../source/review.mts"
-import type { PullRequestFile } from "../source/github-types.mts"
+import { makeDiffResult, makeDiffFile } from "./helpers.mts"
 
 describe("buildReviewPayload", () => {
 	it("creates a review payload with COMMENT event", () => {
@@ -61,8 +61,8 @@ describe("formatReviewForConsole", () => {
 			comments: [],
 		}
 
-		const files: PullRequestFile[] = []
-		const output = formatReviewForConsole(aiResult, files)
+		const diffResult = makeDiffResult()
+		const output = formatReviewForConsole(aiResult, diffResult)
 
 		expect(output).toContain("## CI Agent Review")
 		expect(output).toContain("Test summary")
@@ -83,8 +83,8 @@ describe("formatReviewForConsole", () => {
 			],
 		}
 
-		const files: PullRequestFile[] = []
-		const output = formatReviewForConsole(aiResult, files)
+		const diffResult = makeDiffResult()
+		const output = formatReviewForConsole(aiResult, diffResult)
 
 		expect(output).toContain("## CI Agent Review")
 		expect(output).toContain("Test summary")
@@ -111,8 +111,8 @@ describe("formatReviewForConsole", () => {
 			],
 		}
 
-		const files: PullRequestFile[] = []
-		const output = formatReviewForConsole(aiResult, files)
+		const diffResult = makeDiffResult()
+		const output = formatReviewForConsole(aiResult, diffResult)
 
 		expect(output).toContain("file1.ts:1 (RIGHT): Comment 1")
 		expect(output).toContain("file2.ts:2 (LEFT): Comment 2")
@@ -124,24 +124,14 @@ describe("formatReviewForConsole", () => {
 			comments: [],
 		}
 
-		const files: PullRequestFile[] = [
-			{
-				filename: "src/file.ts",
-				status: "modified",
-				additions: 10,
-				deletions: 5,
-				changes: 15,
-			},
-			{
-				filename: "README.md",
-				status: "added",
-				additions: 50,
-				deletions: 0,
-				changes: 50,
-			},
-		]
+		const diffResult = makeDiffResult({
+			files: [
+				makeDiffFile({ filename: "src/file.ts", status: "modified", additions: 10, deletions: 5 }),
+				makeDiffFile({ filename: "README.md", status: "added", additions: 50, deletions: 0 }),
+			],
+		})
 
-		const output = formatReviewForConsole(aiResult, files)
+		const output = formatReviewForConsole(aiResult, diffResult)
 
 		expect(output).toContain("### Files Analyzed")
 		expect(output).toContain("src/file.ts (modified): +10 -5")

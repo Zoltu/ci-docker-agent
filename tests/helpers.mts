@@ -1,18 +1,27 @@
 import type { Agent } from "../source/agents.mts"
 import type { BaseCommitContext } from "../source/base-commit.mts"
-import type { PullRequestFile, GitHubConfiguration } from "../source/github-types.mts"
+import type { DiffResult, DiffFile } from "../source/diff.mts"
+import type { GitHubConfiguration } from "../source/github-types.mts"
 
 export function makeAgent(overrides: Partial<Agent> = {}): Agent {
 	return { name: "TestAgent", prompt: "Test prompt.", ...overrides }
 }
 
-export function makePullRequestFile(overrides: Partial<PullRequestFile> = {}): PullRequestFile {
+export function makeDiffFile(overrides: Partial<DiffFile> = {}): DiffFile {
 	return {
 		filename: "src/file.ts",
 		status: "modified",
 		additions: 1,
 		deletions: 0,
-		changes: 1,
+		patch: "@@ -1 +1 @@\n-old\n+new",
+		...overrides,
+	}
+}
+
+export function makeDiffResult(overrides: Partial<DiffResult> = {}): DiffResult {
+	return {
+		files: [],
+		binaryFiles: [],
 		...overrides,
 	}
 }

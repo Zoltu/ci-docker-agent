@@ -1,15 +1,3 @@
-export const FILE_STATUSES = ["added", "modified", "removed", "renamed", "copied", "changed", "unchanged"] as const
-export type FileStatus = typeof FILE_STATUSES[number]
-
-export interface PullRequestFile {
-	filename: string
-	status: FileStatus
-	additions: number
-	deletions: number
-	changes: number
-	patch?: string
-}
-
 export const SIDES = ["LEFT", "RIGHT"] as const
 export type Side = typeof SIDES[number]
 

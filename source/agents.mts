@@ -1,4 +1,4 @@
-import type { PullRequestFile } from "./github-types.mts"
+import type { DiffResult } from "./diff.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
 import { readdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
@@ -117,7 +117,8 @@ export function createLoadAggregator(directories: AgentDirectories, readAgents: 
 	}
 }
 
-export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitContext, files: PullRequestFile[], binaryFiles: string[], agentInputs?: Map<string, string>): string {
+export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agentInputs?: Map<string, string>): string {
+	const { files, binaryFiles } = diffResult
 	const lines: string[] = []
 
 	// Repository Files (Base Commit)
@@ -147,10 +148,8 @@ export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitCont
 	// Changeset Diffs
 	lines.push("", "=== Changeset Diffs ===")
 	for (const file of files) {
-		if (file.patch) {
-			lines.push(`=== ${file.filename} ===`)
-			lines.push(file.patch)
-		}
+		lines.push(`=== ${file.filename} ===`)
+		lines.push(file.patch)
 	}
 
 	if (binaryFiles.length > 0) {

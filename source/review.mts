@@ -1,4 +1,5 @@
-import type { PullRequestFile, GitHubReviewPayload } from "./github-types.mts"
+import type { GitHubReviewPayload } from "./github-types.mts"
+import type { DiffResult } from "./diff.mts"
 
 export type AiReviewResult = Omit<GitHubReviewPayload, "event">
 
@@ -10,7 +11,7 @@ export function buildReviewPayload(aiResult: AiReviewResult): GitHubReviewPayloa
 	}
 }
 
-export function formatReviewForConsole(aiResult: AiReviewResult, files: PullRequestFile[]): string {
+export function formatReviewForConsole(aiResult: AiReviewResult, diffResult: DiffResult): string {
 	const lines = [
 		"## CI Agent Review",
 		"",
@@ -25,7 +26,7 @@ export function formatReviewForConsole(aiResult: AiReviewResult, files: PullRequ
 	}
 
 	lines.push("", "### Files Analyzed")
-	for (const file of files) {
+	for (const file of diffResult.files) {
 		lines.push(`- ${file.filename} (${file.status}): +${file.additions} -${file.deletions}`)
 	}
 
