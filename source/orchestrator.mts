@@ -35,6 +35,7 @@ type SubmitPrReviewDependencies = {
 
 async function submitPrReview(dependencies: SubmitPrReviewDependencies, agentNames: AgentNames): Promise<void> {
 	const files = await dependencies.fetchPullRequestFiles()
+	// GitHub omits patch for binary files and files with very large diffs — not exclusively binary
 	const binaryFiles = files.filter(file => file.patch === undefined).map(file => file.filename)
 
 	if (files.length === 0 && binaryFiles.length === 0) return console.log("No files changed, nothing to review")

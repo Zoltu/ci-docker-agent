@@ -59,7 +59,7 @@ function isValidAiReviewResult(data: unknown): data is AiReviewResult {
 
 export function parseAggregatorOutput(output: string): AiReviewResult {
 	const parsed: unknown = JSON.parse(output)
-	if (!isValidAiReviewResult(parsed)) throw new Error("Parsed output does not match expected AiReviewResult shape")
+	if (!isValidAiReviewResult(parsed)) throw new Error(`Parsed output does not match expected AiReviewResult shape: ${output}`)
 	return parsed
 }
 

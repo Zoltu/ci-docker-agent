@@ -8,7 +8,7 @@ export interface BaseCommitContext {
 
 // Reasonable list of common text file extensions found in typical GitHub repositories.
 // Not exhaustive — intended to cover the 99% case without needing complex text/binary heuristics.
-const TEXT_FILE_EXTENSIONS = new Set([
+export const TEXT_FILE_EXTENSIONS = new Set([
 	// JavaScript / TypeScript
 	"js",
 	"mjs",
@@ -16,7 +16,6 @@ const TEXT_FILE_EXTENSIONS = new Set([
 	"jsx",
 	"ts",
 	"tsx",
-	"mts", // Also an MPEG Transport Stream video format, but text takes precedence for a code review tool
 	"cts",
 	// Python
 	"py",
@@ -207,7 +206,7 @@ const TEXT_FILE_EXTENSIONS = new Set([
 	"security",
 ])
 
-const BINARY_FILE_EXTENSIONS = new Set([
+export const BINARY_FILE_EXTENSIONS = new Set([
 	// Images
 	"png",
 	"jpg",
@@ -245,7 +244,6 @@ const BINARY_FILE_EXTENSIONS = new Set([
 	"mpeg",
 	"3gp",
 	"3g2",
-	"mts",
 	"m2ts",
 	"vob",
 	"ogv",
@@ -396,6 +394,11 @@ const BINARY_FILE_EXTENSIONS = new Set([
 	"rev",
 ])
 
+// Extensions that have both text and binary uses; fallback to binary detection heuristic
+export const AMBIGUOUS_FILE_EXTENSIONS = new Set([
+	"mts", // TypeScript module or MPEG Transport Stream
+])
+
 const TEXT_FILE_NAMES = new Set([
 	"dockerfile",
 	"jenkinsfile",
@@ -416,6 +419,7 @@ function isTextFile(filename: string): boolean {
 	if (TEXT_FILE_NAMES.has(lowerBasename)) return true
 
 	const ext = getExtension(filename)
+	if (AMBIGUOUS_FILE_EXTENSIONS.has(ext)) return false
 	if (TEXT_FILE_EXTENSIONS.has(ext)) return true
 	if (BINARY_FILE_EXTENSIONS.has(ext)) return false
 	// For files with no extension, also check against known text extensions

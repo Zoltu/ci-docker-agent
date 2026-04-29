@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { createGetBaseCommitContext } from "../source/base-commit.mts"
+import { createGetBaseCommitContext, TEXT_FILE_EXTENSIONS, BINARY_FILE_EXTENSIONS, AMBIGUOUS_FILE_EXTENSIONS } from "../source/base-commit.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import { join } from "node:path"
 import { existsSync } from "node:fs"
@@ -36,8 +36,8 @@ describe("createGetBaseCommitContext", () => {
 
 		expect(context.fileList.length).toBeGreaterThan(0)
 		expect(context.fileList).toContain("source/index.mts")
-		expect(context.fileContents.has("source/index.mts")).toBe(true)
-		expect(context.fileContents.get("source/index.mts")!.length).toBeGreaterThan(0)
+		expect(context.fileContents.has("source/index.mts")).toBe(false)
+		expect(context.fileContents.has("package.json")).toBe(true)
 	})
 
 	it("includes text files in fileContents", async () => {
@@ -97,5 +97,23 @@ describe("createGetBaseCommitContext", () => {
 		const getBaseCommitContext = createGetBaseCommitContext(spawnGit)
 
 		await expect(getBaseCommitContext("abc123")).rejects.toThrow("Failed to read file src/index.ts at commit abc123")
+	})
+})
+
+describe("file extension sets", () => {
+	it("has no duplicates across text, binary, and ambiguous extension sets", () => {
+		const allExtensions = [
+			...[...TEXT_FILE_EXTENSIONS].map(ext => [ext, "text"] as const),
+			...[...BINARY_FILE_EXTENSIONS].map(ext => [ext, "binary"] as const),
+			...[...AMBIGUOUS_FILE_EXTENSIONS].map(ext => [ext, "ambiguous"] as const),
+		]
+		const seen = new Map<string, string>()
+		for (const [ext, setName] of allExtensions) {
+			const existing = seen.get(ext)
+			if (existing) {
+				throw new Error(`Extension "${ext}" appears in both "${existing}" and "${setName}" sets`)
+			}
+			seen.set(ext, setName)
+		}
 	})
 })
