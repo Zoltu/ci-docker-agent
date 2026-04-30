@@ -1,5 +1,5 @@
-import { describe, it, expect } from "bun:test"
-import { isContentText, classifyFileByExtension } from "../source/text-detection.mts"
+import { describe, expect, it } from "bun:test"
+import { classifyFileByExtension, isContentText } from "../source/text-detection.mts"
 
 describe("isContentText", () => {
 	it("returns true for plain ASCII text", () => {
@@ -87,5 +87,48 @@ describe("classifyFileByExtension", () => {
 
 	it("classifies zip file as binary", () => {
 		expect(classifyFileByExtension("archive.zip")).toBe("binary")
+	})
+})
+
+describe("integration: classifyFileByExtension with isContentText fallback", () => {
+	it("accepts ambiguous .mts file with TypeScript content", () => {
+		expect(classifyFileByExtension("module.mts")).toBe("ambiguous")
+		expect(isContentText("import { foo } from './bar'\nexport function hello() { return 42 }\n")).toBe(true)
+	})
+
+	it("rejects ambiguous .mts file with binary content", () => {
+		expect(classifyFileByExtension("video.mts")).toBe("ambiguous")
+		const binaryContent = "\x00\x00\x00\x00ftypisom"
+		expect(isContentText(binaryContent)).toBe(false)
+	})
+
+	it("accepts unknown extension file with text content", () => {
+		expect(classifyFileByExtension("config.xyz")).toBe("ambiguous")
+		expect(isContentText("server.host = localhost\nserver.port = 8080\n")).toBe(true)
+	})
+
+	it("rejects unknown extension file with high-entropy binary content", () => {
+		expect(classifyFileByExtension("data.xyz")).toBe("ambiguous")
+		expect(isContentText("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F")).toBe(false)
+	})
+
+	it("accepts ambiguous .mts with real-world TypeScript source", () => {
+		expect(classifyFileByExtension("source/ai.mts")).toBe("ambiguous")
+		expect(isContentText("import type { LineComment } from './github-types.mts'\nexport type CallApi = (prompt: string) => Promise<string>\n")).toBe(true)
+	})
+
+	it("does not misclassify text content of known-binary extensions as text", () => {
+		expect(classifyFileByExtension("logo.png")).toBe("binary")
+	})
+
+	it("accepts ambiguous .mts with UTF-8 source containing special characters", () => {
+		expect(classifyFileByExtension("i18n.mts")).toBe("ambiguous")
+		expect(isContentText("const messages = { ja: 'こんにちは', fr: 'Bonjour' }\n")).toBe(true)
+	})
+
+	it("rejects unknown extension null-byte file", () => {
+		expect(classifyFileByExtension("dump.heapsnapshot")).toBe("ambiguous")
+		const manyNulls = "\x00".repeat(500)
+		expect(isContentText(manyNulls)).toBe(false)
 	})
 })

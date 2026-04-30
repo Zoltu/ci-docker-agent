@@ -1,13 +1,13 @@
-import { createGetConfiguration } from "./configuration.mts"
-import { createGithubFetch, createFetchPullRequestDiff, createFetchPullRequestBaseCommit, createSubmitReview, createReactToComment } from "./github.mts"
-import { createSpawnGit, createGenerateLocalDiff } from "./diff.mts"
-import { getBaseCommitContext } from "./base-commit.mts"
-import { createDefaultCallApi } from "./ai.mts"
 import { createLoadAgents, createLoadAggregator, createReadAgentsFromDisk } from "./agents.mts"
-import { runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "./orchestrator.mts"
+import { createDefaultCallApi } from "./ai.mts"
+import { getBaseCommitContext } from "./base-commit.mts"
+import { createGetConfiguration } from "./configuration.mts"
+import { createGenerateLocalDiff, createSpawnGit, createValidateGitRepository } from "./diff.mts"
+import { createFetchPullRequestBaseCommit, createFetchPullRequestDiff, createGithubFetch, createReactToComment, createSubmitReview } from "./github.mts"
 import { createLogger } from "./logger.mts"
+import { runOnCommentTrigger, runOnLocalDiff, runOnPullRequest } from "./orchestrator.mts"
+import { BUILTIN_AGENTS_DIRECTORY, USER_AGENTS_DIRECTORY } from "./paths.mts"
 import { assertNever } from "./typescript-helpers.mts"
-import { USER_AGENTS_DIRECTORY, BUILTIN_AGENTS_DIRECTORY } from "./paths.mts"
 
 async function main(): Promise<void> {
 	const getConfiguration = createGetConfiguration(Bun.env)
@@ -16,14 +16,16 @@ async function main(): Promise<void> {
 
 	const log = createLogger()
 	const readAgentsFromDisk = createReadAgentsFromDisk()
-	const spawnGit = createSpawnGit(configuration.workspaceDirectory)
+	const validateGitRepository = createValidateGitRepository()
+	const spawnGit = createSpawnGit()
+	const callApi = createDefaultCallApi(Bun.env)
 	const loadAgents = createLoadAgents(agentDirectories, readAgentsFromDisk)
 	const loadAggregator = createLoadAggregator(agentDirectories, readAgentsFromDisk)
-	const callApi = createDefaultCallApi(Bun.env)
 	const githubFetch = createGithubFetch(log)
 
 	const dependencies = {
 		spawnGit,
+		validateGitRepository,
 		getBaseCommitContext: (baseCommit: string) => getBaseCommitContext({ spawnGit }, baseCommit),
 		loadAgents,
 		loadAggregator,

@@ -77,17 +77,6 @@ describe("getConfiguration", () => {
 			expect(configuration.type).toBe("local-diff")
 		})
 
-		it("defaults workspaceDirectory to /github/workspace", () => {
-			const configuration = getLocalDiffConfiguration()
-
-			expect(configuration.workspaceDirectory).toBe("/github/workspace")
-		})
-
-		it("uses WORKSPACE_DIRECTORY from environment when provided", () => {
-			const configuration = getLocalDiffConfiguration({ WORKSPACE_DIRECTORY: "/custom/workspace" })
-
-			expect(configuration.workspaceDirectory).toBe("/custom/workspace")
-		})
 	})
 
 	describe("comment-trigger configuration", () => {

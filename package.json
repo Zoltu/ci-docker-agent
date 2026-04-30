@@ -5,6 +5,7 @@
 	},
 	"scripts": {
 		"setup": "bun install --frozen-lockfile",
+		"setup-production": "bun install --frozen-lockfile --production true",
 		"typecheck": "bun --bun tsc --noEmit",
 		"test": "bun test"
 	},

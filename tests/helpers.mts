@@ -33,7 +33,6 @@ export function makeCommentTriggerConfiguration(overrides: Partial<CommentTrigge
 		github: makeGitHubConfiguration(),
 		commentBody: "/review",
 		commentId: 1,
-		workspaceDirectory: "/workspace",
 		...overrides,
 	}
 }
@@ -43,7 +42,6 @@ export function makePullRequestConfiguration(overrides: Partial<PullRequestConfi
 		type: "pull-request",
 		agents: "run all agents",
 		github: makeGitHubConfiguration(),
-		workspaceDirectory: "/workspace",
 		...overrides,
 	}
 }
@@ -54,7 +52,6 @@ export function makeLocalDiffConfiguration(overrides: Partial<LocalDiffConfigura
 		agents: "run all agents",
 		baseCommit: "abc",
 		headCommit: "def",
-		workspaceDirectory: "/workspace",
 		...overrides,
 	}
 }

@@ -1,9 +1,9 @@
-import type { LineComment } from "./github-types.mts"
-import { SIDES } from "./github-types.mts"
-import type { AiReviewResult } from "./review.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
+import type { LineComment } from "./github-types.mts"
+import { SIDES } from "./github-types.mts"
 import type { Log } from "./logger.mts"
+import type { AiReviewResult } from "./review.mts"
 import { includes } from "./typescript-helpers.mts"
 
 export type CallApi = (prompt: string) => Promise<string>

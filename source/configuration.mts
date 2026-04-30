@@ -1,7 +1,6 @@
 import type { AgentNames } from "./agents.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
 import { includes } from "./typescript-helpers.mts"
-import { WORKSPACE_DIRECTORY } from "./paths.mts"
 
 const EVENT_TYPES = ["pull_request_target", "workflow_dispatch", "issue_comment", "local"] as const
 
@@ -12,14 +11,12 @@ export interface CommentTriggerConfiguration {
 	github: GitHubConfiguration
 	commentBody: string
 	commentId: number
-	workspaceDirectory: string
 }
 
 export interface PullRequestConfiguration {
 	type: "pull-request"
 	agents: AgentNames
 	github: GitHubConfiguration
-	workspaceDirectory: string
 }
 
 export interface LocalDiffConfiguration {
@@ -27,7 +24,6 @@ export interface LocalDiffConfiguration {
 	agents: AgentNames
 	baseCommit: string
 	headCommit: string
-	workspaceDirectory: string
 }
 
 export type Configuration = CommentTriggerConfiguration | PullRequestConfiguration | LocalDiffConfiguration
@@ -79,9 +75,7 @@ function tryGetLocalDiffConfiguration(environment: Record<string, string | undef
 		return { ok: false, reason: "BASE_COMMIT is required when HEAD_COMMIT is provided" }
 	}
 
-	const workspaceDirectory = environment.WORKSPACE_DIRECTORY ?? WORKSPACE_DIRECTORY
-
-	return { ok: true, value: { type: "local-diff", agents, baseCommit, headCommit, workspaceDirectory } }
+	return { ok: true, value: { type: "local-diff", agents, baseCommit, headCommit } }
 }
 
 function tryGetCommentTriggerConfiguration(environment: Record<string, string | undefined>): TryResult<CommentTriggerConfiguration> {
@@ -98,7 +92,7 @@ function tryGetCommentTriggerConfiguration(environment: Record<string, string | 
 
 	const commentBody = environment.COMMENT_BODY ?? ""
 
-	return { ok: true, value: { type: "comment-trigger", github: githubResult.value, commentBody, commentId, workspaceDirectory: WORKSPACE_DIRECTORY } }
+	return { ok: true, value: { type: "comment-trigger", github: githubResult.value, commentBody, commentId } }
 }
 
 function tryGetPullRequestConfiguration(environment: Record<string, string | undefined>, agents: AgentNames): TryResult<PullRequestConfiguration> {
@@ -110,7 +104,7 @@ function tryGetPullRequestConfiguration(environment: Record<string, string | und
 	const githubResult = tryParseGitHubConfiguration(environment)
 	if (!githubResult.ok) return githubResult
 
-	return { ok: true, value: { type: "pull-request", agents, github: githubResult.value, workspaceDirectory: WORKSPACE_DIRECTORY } }
+	return { ok: true, value: { type: "pull-request", agents, github: githubResult.value } }
 }
 
 export function createGetConfiguration(environment: Record<string, string | undefined>): () => Configuration {

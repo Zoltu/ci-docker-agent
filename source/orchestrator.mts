@@ -1,15 +1,15 @@
-import type { GitHubReviewPayload } from "./github-types.mts"
-import type { AgentNames, ResolveResult, Agent } from "./agents.mts"
-import type { AiReviewResult } from "./review.mts"
+import type { Agent, AgentNames, ResolveResult } from "./agents.mts"
 import type { CallApi } from "./ai.mts"
 import { analyze } from "./ai.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
+import type { CommentTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
 import type { SpawnGit } from "./diff.mts"
 import { validateGitEnvironment } from "./diff.mts"
+import type { GitHubReviewPayload } from "./github-types.mts"
 import type { Log } from "./logger.mts"
+import type { AiReviewResult } from "./review.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import { getAgentsFromComment } from "./trigger.mts"
-import type { CommentTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "./configuration.mts"
 
 type RunAnalysisDependencies = {
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
@@ -67,7 +67,10 @@ type RunOnCommentTriggerDependencies = {
 export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDependencies, configuration: CommentTriggerConfiguration): Promise<void> {
 	const triggerResult = getAgentsFromComment(configuration.commentBody)
 
-	if (triggerResult === "no review triggered") return
+	if (triggerResult === "no review triggered") {
+		dependencies.log("No /review trigger found in comment")
+		return
+	}
 
 	try {
 		await submitPrReview(dependencies, triggerResult)
@@ -100,6 +103,7 @@ export async function runOnPullRequest(dependencies: RunOnPullRequestDependencie
 type RunOnLocalDiffDependencies = {
 	spawnGit: SpawnGit
 	generateLocalDiff: (baseCommit: string, headCommit: string) => Promise<string>
+	validateGitRepository: () => void
 	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
@@ -108,7 +112,7 @@ type RunOnLocalDiffDependencies = {
 }
 
 export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration): Promise<string> {
-	await validateGitEnvironment({ spawnGit: dependencies.spawnGit }, configuration.baseCommit, configuration.headCommit, configuration.workspaceDirectory)
+	await validateGitEnvironment({ spawnGit: dependencies.spawnGit, validateGitRepository: dependencies.validateGitRepository }, configuration.baseCommit, configuration.headCommit)
 
 	const diffText = await dependencies.generateLocalDiff(configuration.baseCommit, configuration.headCommit)
 

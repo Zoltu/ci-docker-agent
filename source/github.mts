@@ -1,4 +1,4 @@
-import type { GitHubReviewPayload, GitHubConfiguration } from "./github-types.mts"
+import type { GitHubConfiguration, GitHubReviewPayload } from "./github-types.mts"
 import type { Log } from "./logger.mts"
 
 const REQUEST_TIMEOUT_MILLISECONDS = 10_000
@@ -102,7 +102,7 @@ export function createReactToComment(githubFetch: GitHubFetch, configuration: Gi
 	}
 }
 
-function isValidPrBaseResponse(data: unknown): data is { base: { sha: string } } {
+function isValidPrMetadata(data: unknown): data is { base: { sha: string } } {
 	if (typeof data !== "object") return false
 	if (data === null) return false
 	if (!("base" in data) || typeof data.base !== "object" || data.base === null) return false
@@ -125,7 +125,7 @@ export function createFetchPullRequestBaseCommit(githubFetch: GitHubFetch, confi
 		}
 
 		const data: unknown = await response.json()
-		if (!isValidPrBaseResponse(data)) throw new Error("Invalid PR response: missing base.sha")
+		if (!isValidPrMetadata(data)) throw new Error("Invalid PR response: missing base.sha")
 
 		return data.base.sha
 	}

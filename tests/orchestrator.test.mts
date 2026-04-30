@@ -184,6 +184,7 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => "",
+				validateGitRepository: () => {},
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
@@ -201,6 +202,7 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => SAMPLE_DIFF,
+				validateGitRepository: () => {},
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),

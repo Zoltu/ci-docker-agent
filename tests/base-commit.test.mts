@@ -27,8 +27,16 @@ describe("getBaseCommitContext", () => {
 	it("returns file list and contents from a real commit", async () => {
 		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
 
-		const { createSpawnGit } = await import("../source/diff.mts")
-		const spawnGit = createSpawnGit(PROJECT_ROOT)
+		// Intentional integration test: runs real git against the project repository.
+		// Leaf factories are normally not tested, but we keep one integration test to
+		// verify the full pipeline against a real git repo.
+		const spawnGit: SpawnGit = async (parameters) => {
+			const process = Bun.spawn(["git", ...parameters], { cwd: PROJECT_ROOT, stderr: "pipe", stdout: "pipe" })
+			await process.exited
+			const stdout = await Bun.readableStreamToText(process.stdout)
+			const stderr = await Bun.readableStreamToText(process.stderr)
+			return { stdout, stderr, exitCode: process.exitCode, signalCode: process.signalCode }
+		}
 		const head = (await spawnGit(["rev-parse", "HEAD"])).stdout.trim()
 
 		const context = await getBaseCommitContext({ spawnGit }, head)
