@@ -4,7 +4,7 @@ import { makeGitHubConfiguration } from "./helpers.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
 
 describe("createFetchPullRequestDiff", () => {
-	it("fetches and parses PR diff from GitHub API", async () => {
+	it("fetches PR diff text from GitHub API", async () => {
 		const diffText = [
 			"diff --git a/src/file.ts b/src/file.ts",
 			"--- a/src/file.ts",
@@ -18,11 +18,7 @@ describe("createFetchPullRequestDiff", () => {
 
 		const result = await fetchPullRequestDiff()
 
-		expect(result.files).toHaveLength(1)
-		expect(result.files[0]!.filename).toBe("src/file.ts")
-		expect(result.files[0]!.status).toBe("modified")
-		expect(result.files[0]!.additions).toBe(1)
-		expect(result.files[0]!.deletions).toBe(1)
+		expect(result).toBe(diffText)
 	})
 
 	it("sends Accept: application/vnd.github.diff header", async () => {

@@ -43,7 +43,6 @@ describe("getBaseCommitContext", () => {
 		const spawnGit = makeSpawnGit(new Map([
 			["ls-tree -r --name-only abc123", ok("README.md\npackage.json\n")],
 			["ls-tree abc123 -- .gitignore", ok("")],
-			["ls-tree abc123 -- .dockerignore", ok("")],
 			["show abc123:README.md", ok("# Project")],
 			["show abc123:package.json", ok('{"name": "test"}')],
 		]))
@@ -58,7 +57,6 @@ describe("getBaseCommitContext", () => {
 		const spawnGit = makeSpawnGit(new Map([
 			["ls-tree -r --name-only abc123", ok("logo.png\nREADME.md\n")],
 			["ls-tree abc123 -- .gitignore", ok("")],
-			["ls-tree abc123 -- .dockerignore", ok("")],
 			["show abc123:README.md", ok("# Project")],
 		]))
 		const context = await getBaseCommitContext({ spawnGit }, "abc123")
@@ -72,7 +70,6 @@ describe("getBaseCommitContext", () => {
 		const spawnGit = makeSpawnGit(new Map([
 			["ls-tree -r --name-only abc123", ok(".gitignore\n.eslintrc\n")],
 			["ls-tree abc123 -- .gitignore", ok("")],
-			["ls-tree abc123 -- .dockerignore", ok("")],
 			["show abc123:.gitignore", ok("node_modules/\n")],
 			["show abc123:.eslintrc", ok('{"root": true}\n')],
 		]))
@@ -87,7 +84,6 @@ describe("getBaseCommitContext", () => {
 		const spawnGit = makeSpawnGit(new Map([
 			["ls-tree -r --name-only abc123", ok("src/index.ts\n")],
 			["ls-tree abc123 -- .gitignore", ok("")],
-			["ls-tree abc123 -- .dockerignore", ok("")],
 			["show abc123:src/index.ts", err("fatal: Path 'src/index.ts' does not exist")],
 		]))
 
@@ -98,7 +94,6 @@ describe("getBaseCommitContext", () => {
 		const spawnGit = makeSpawnGit(new Map([
 			["ls-tree -r --name-only abc123", ok("module.mts\nREADME.md\n")],
 			["ls-tree abc123 -- .gitignore", ok("")],
-			["ls-tree abc123 -- .dockerignore", ok("")],
 			["show abc123:module.mts", ok("export function hello() { return 42 }\n")],
 			["show abc123:README.md", ok("# Project")],
 		]))
@@ -115,7 +110,6 @@ describe("getBaseCommitContext", () => {
 		const spawnGit = makeSpawnGit(new Map([
 			["ls-tree -r --name-only abc123", ok("video.mts\nREADME.md\n")],
 			["ls-tree abc123 -- .gitignore", ok("")],
-			["ls-tree abc123 -- .dockerignore", ok("")],
 			["show abc123:video.mts", ok(binaryContent)],
 			["show abc123:README.md", ok("# Project")],
 		]))
@@ -123,6 +117,21 @@ describe("getBaseCommitContext", () => {
 
 		expect(context.fileList).toEqual(["video.mts", "README.md"])
 		expect(context.fileContents.has("video.mts")).toBe(false)
+		expect(context.fileContents.get("README.md")).toBe("# Project")
+	})
+
+	it("respects .gitignore patterns", async () => {
+		const spawnGit = makeSpawnGit(new Map([
+			["ls-tree -r --name-only abc123", ok("src/index.ts\nnode_modules/foo/index.js\nREADME.md\n")],
+			["ls-tree abc123 -- .gitignore", ok("100644 blob abcdef .gitignore\n")],
+			["show abc123:.gitignore", ok("node_modules/\n")],
+			["show abc123:src/index.ts", ok("export const x = 1\n")],
+			["show abc123:README.md", ok("# Project")],
+		]))
+		const context = await getBaseCommitContext({ spawnGit }, "abc123")
+
+		expect(context.fileList).toEqual(["src/index.ts", "README.md"])
+		expect(context.fileContents.get("src/index.ts")).toBe("export const x = 1\n")
 		expect(context.fileContents.get("README.md")).toBe("# Project")
 	})
 })

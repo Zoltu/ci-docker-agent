@@ -1,7 +1,16 @@
 import { describe, it, expect } from "bun:test"
 import { analyze, type CallApi } from "../source/ai.mts"
 import type { Agent } from "../source/agents.mts"
-import { makeBaseCommitContext, makeDiffResult, makeDiffFile } from "./helpers.mts"
+import { makeBaseCommitContext } from "./helpers.mts"
+
+const SAMPLE_DIFF = [
+	"diff --git a/src/file.ts b/src/file.ts",
+	"--- a/src/file.ts",
+	"+++ b/src/file.ts",
+	"@@ -1 +1 @@",
+	"-old",
+	"+new",
+].join("\n")
 
 function makeCallApiWithAggregatorOutput(aggregatorOutput: string): CallApi {
 	let callCount = 0
@@ -27,9 +36,8 @@ describe("analyze", () => {
 			{ name: "StyleAgent", prompt: "Check style" },
 		]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-		const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-		const result = await analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)
+		const result = await analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
 
 		expect(calls.length).toBe(3)
 		expect(result.body).toBe("Review complete")
@@ -45,9 +53,8 @@ describe("analyze", () => {
 
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-		const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-		const result = await analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)
+		const result = await analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
 
 		expect(result.body).toBe("Result 2")
 	})
@@ -60,9 +67,8 @@ describe("analyze", () => {
 			}))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			const result = await analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)
+			const result = await analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
 
 			expect(result.body).toBe("Looks good")
 			expect(result.comments).toHaveLength(1)
@@ -76,9 +82,8 @@ describe("analyze", () => {
 			}))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			const result = await analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)
+			const result = await analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
 
 			expect(result.body).toBe("No issues found")
 			expect(result.comments).toEqual([])
@@ -88,72 +93,64 @@ describe("analyze", () => {
 			const callApi = makeCallApiWithAggregatorOutput("not json")
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow(SyntaxError)
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow(SyntaxError)
 		})
 
 		it("throws SyntaxError when aggregator output is empty string", async () => {
 			const callApi = makeCallApiWithAggregatorOutput("")
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow(SyntaxError)
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow(SyntaxError)
 		})
 
 		it("throws when aggregator output does not match expected shape", async () => {
 			const callApi = makeCallApiWithAggregatorOutput(JSON.stringify({ wrong: "shape" }))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator body is not a string", async () => {
 			const callApi = makeCallApiWithAggregatorOutput(JSON.stringify({ body: 123, comments: [] }))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator comments is not an array", async () => {
 			const callApi = makeCallApiWithAggregatorOutput(JSON.stringify({ body: "test", comments: "not array" }))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator comments is missing", async () => {
 			const callApi = makeCallApiWithAggregatorOutput(JSON.stringify({ body: "test" }))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator body is empty string", async () => {
 			const callApi = makeCallApiWithAggregatorOutput(JSON.stringify({ body: "", comments: [] }))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator body is missing", async () => {
 			const callApi = makeCallApiWithAggregatorOutput(JSON.stringify({ comments: [] }))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects line number zero in aggregator comments", async () => {
@@ -163,9 +160,8 @@ describe("analyze", () => {
 			}))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects negative line number in aggregator comments", async () => {
@@ -175,9 +171,8 @@ describe("analyze", () => {
 			}))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects non-integer line number in aggregator comments", async () => {
@@ -187,9 +182,8 @@ describe("analyze", () => {
 			}))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects empty comment body in aggregator comments", async () => {
@@ -199,9 +193,8 @@ describe("analyze", () => {
 			}))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-			const diffResult = makeDiffResult({ files: [makeDiffFile()] })
 
-			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), diffResult, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ callApi, log: () => {} }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 	})
 })

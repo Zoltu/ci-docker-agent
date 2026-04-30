@@ -1,17 +1,26 @@
 import { describe, it, expect } from "bun:test"
 import { buildAgentPrompt } from "../source/agents.mts"
-import { makeAgent, makeDiffFile, makeDiffResult, makeBaseCommitContext } from "./helpers.mts"
+import { makeAgent, makeBaseCommitContext } from "./helpers.mts"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
 const PROJECT_ROOT = join(import.meta.dir, "..")
+
+const SAMPLE_DIFF = [
+	"diff --git a/src/file.ts b/src/file.ts",
+	"--- a/src/file.ts",
+	"+++ b/src/file.ts",
+	"@@ -1 +1 @@",
+	"-old",
+	"+new",
+].join("\n")
 
 describe("buildAgentPrompt", () => {
 	it("includes repository file list from base commit", () => {
 		const agent = makeAgent()
 		const result = buildAgentPrompt(agent, makeBaseCommitContext({
 			fileList: ["README.md", "src/index.ts"],
-		}), makeDiffResult())
+		}), "")
 
 		expect(result).toContain("=== Repository Files (Base Commit) ===")
 		expect(result).toContain("- README.md")
@@ -23,7 +32,7 @@ describe("buildAgentPrompt", () => {
 		const result = buildAgentPrompt(agent, makeBaseCommitContext({
 			fileList: ["README.md", "src/index.ts"],
 			fileContents: new Map([["README.md", "# Project"], ["src/index.ts", "console.log('hello')"]]),
-		}), makeDiffResult())
+		}), "")
 
 		expect(result).toContain("=== File Contents (Base Commit) ===")
 		expect(result).toContain("=== README.md ===")
@@ -32,43 +41,14 @@ describe("buildAgentPrompt", () => {
 		expect(result).toContain("console.log('hello')")
 	})
 
-	it("includes changeset statistics", () => {
+	it("includes changeset diffs", () => {
 		const agent = makeAgent()
-		const diffResult = makeDiffResult({ files: [makeDiffFile({ filename: "src/app.ts", status: "added", additions: 10, deletions: 0 })] })
-
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), diffResult)
-
-		expect(result).toContain("=== Changeset Statistics ===")
-		expect(result).toContain("Total files changed: 1")
-		expect(result).toContain("Additions: +10, Deletions: -0")
-		expect(result).toContain("- src/app.ts (added): +10 -0")
-	})
-
-	it("includes changeset diffs for all files", () => {
-		const agent = makeAgent()
-		const diffResult = makeDiffResult({ files: [makeDiffFile({ patch: "@@ -1 +1 @@\n-old\n+new" })] })
-
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), diffResult)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), SAMPLE_DIFF)
 
 		expect(result).toContain("=== Changeset Diffs ===")
-		expect(result).toContain("@@ -1 +1 @@\n-old\n+new")
-	})
-
-	it("includes binary diff notifications", () => {
-		const agent = makeAgent()
-		const diffResult = makeDiffResult({ binaryFiles: ["logo.png"] })
-
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), diffResult)
-
-		expect(result).toContain("=== Binary/Image Diffs ===")
-		expect(result).toContain("- logo.png: binary diff present")
-	})
-
-	it("omits binary diff section when no binary files", () => {
-		const agent = makeAgent()
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), makeDiffResult())
-
-		expect(result).not.toContain("=== Binary/Image Diffs ===")
+		expect(result).toContain("@@ -1 +1 @@")
+		expect(result).toContain("-old")
+		expect(result).toContain("+new")
 	})
 
 	it("includes agent feedback when agentInputs provided", () => {
@@ -77,7 +57,7 @@ describe("buildAgentPrompt", () => {
 		inputs.set("SecurityAgent", "Found a vulnerability")
 		inputs.set("StyleAgent", "Use camelCase")
 
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), makeDiffResult(), inputs)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), "", inputs)
 
 		expect(result).toContain("=== Agent Feedback ===")
 		expect(result).toContain("=== Agent: SecurityAgent ===")
@@ -90,7 +70,7 @@ describe("buildAgentPrompt", () => {
 		const agent = makeAgent()
 		const inputs = new Map<string, string>()
 
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), makeDiffResult(), inputs)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), "", inputs)
 
 		expect(result).not.toContain("=== Agent Feedback ===")
 	})
@@ -98,23 +78,23 @@ describe("buildAgentPrompt", () => {
 	it("does not include agent feedback section when agentInputs is undefined", () => {
 		const agent = makeAgent()
 
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), makeDiffResult())
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), "")
 
 		expect(result).not.toContain("=== Agent Feedback ===")
 	})
 
 	it("places agent instructions at the end", () => {
 		const agent = makeAgent({ prompt: "You are a reviewer." })
-		const diffResult = makeDiffResult({ files: [makeDiffFile()], binaryFiles: ["img.png"] })
 
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), diffResult)
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), SAMPLE_DIFF)
 
 		expect(result.endsWith("You are a reviewer.")).toBe(true)
 	})
 
 	it("includes agent instructions section", () => {
 		const agent = makeAgent({ prompt: "You are a reviewer." })
-		const result = buildAgentPrompt(agent, makeBaseCommitContext(), makeDiffResult())
+
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), "")
 
 		expect(result).toContain("=== Agent Instructions ===")
 		expect(result).toContain("You are a reviewer.")
@@ -130,5 +110,3 @@ describe("required builtin agents", () => {
 		expect(existsSync(join(PROJECT_ROOT, "agents", "Aggregator.md"))).toBe(true)
 	})
 })
-
-

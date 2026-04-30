@@ -1,6 +1,5 @@
 import { describe, it, expect } from "bun:test"
 import { buildReviewPayload, formatReviewForConsole, type AiReviewResult } from "../source/review.mts"
-import { makeDiffResult, makeDiffFile } from "./helpers.mts"
 
 describe("buildReviewPayload", () => {
 	it("creates a review payload with COMMENT event", () => {
@@ -55,19 +54,17 @@ describe("buildReviewPayload", () => {
 })
 
 describe("formatReviewForConsole", () => {
-	it("formats review with no line comments and no files", () => {
+	it("formats review with no line comments", () => {
 		const aiResult: AiReviewResult = {
 			body: "Test summary",
 			comments: [],
 		}
 
-		const diffResult = makeDiffResult()
-		const output = formatReviewForConsole(aiResult, diffResult)
+		const output = formatReviewForConsole(aiResult)
 
 		expect(output).toContain("## CI Agent Review")
 		expect(output).toContain("Test summary")
 		expect(output).not.toContain("Line Comments")
-		expect(output).toContain("### Files Analyzed")
 	})
 
 	it("formats review with line comments", () => {
@@ -83,8 +80,7 @@ describe("formatReviewForConsole", () => {
 			],
 		}
 
-		const diffResult = makeDiffResult()
-		const output = formatReviewForConsole(aiResult, diffResult)
+		const output = formatReviewForConsole(aiResult)
 
 		expect(output).toContain("## CI Agent Review")
 		expect(output).toContain("Test summary")
@@ -111,61 +107,9 @@ describe("formatReviewForConsole", () => {
 			],
 		}
 
-		const diffResult = makeDiffResult()
-		const output = formatReviewForConsole(aiResult, diffResult)
+		const output = formatReviewForConsole(aiResult)
 
 		expect(output).toContain("file1.ts:1 (RIGHT): Comment 1")
 		expect(output).toContain("file2.ts:2 (LEFT): Comment 2")
-	})
-
-	it("includes file summary in output", () => {
-		const aiResult: AiReviewResult = {
-			body: "Test summary",
-			comments: [],
-		}
-
-		const diffResult = makeDiffResult({
-			files: [
-				makeDiffFile({ filename: "src/file.ts", status: "modified", additions: 10, deletions: 5 }),
-				makeDiffFile({ filename: "README.md", status: "added", additions: 50, deletions: 0 }),
-			],
-		})
-
-		const output = formatReviewForConsole(aiResult, diffResult)
-
-		expect(output).toContain("### Files Analyzed")
-		expect(output).toContain("src/file.ts (modified): +10 -5")
-		expect(output).toContain("README.md (added): +50 -0")
-	})
-
-	it("includes binary files not analyzed", () => {
-		const aiResult: AiReviewResult = {
-			body: "Test summary",
-			comments: [],
-		}
-
-		const diffResult = makeDiffResult({
-			files: [makeDiffFile()],
-			binaryFiles: ["logo.png", "icon.svg"],
-		})
-
-		const output = formatReviewForConsole(aiResult, diffResult)
-
-		expect(output).toContain("### Binary Files (Not Analyzed)")
-		expect(output).toContain("- logo.png")
-		expect(output).toContain("- icon.svg")
-	})
-
-	it("omits binary files section when no binary files", () => {
-		const aiResult: AiReviewResult = {
-			body: "Test summary",
-			comments: [],
-		}
-
-		const diffResult = makeDiffResult({ files: [makeDiffFile()] })
-
-		const output = formatReviewForConsole(aiResult, diffResult)
-
-		expect(output).not.toContain("### Binary Files (Not Analyzed)")
 	})
 })

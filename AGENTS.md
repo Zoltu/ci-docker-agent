@@ -231,6 +231,39 @@ When adding a new function, use this to decide its pattern:
 
 ---
 
+## Control Flow Rules
+
+### Prefer Guard Clauses
+
+**Keep the primary code path at the root level of functions.** When a condition should cause an early exit, use a guard clause rather than wrapping the rest of the function in a conditional block.
+
+**Wrong:**
+```typescript
+function process(entries) {
+	for (const entry of entries) {
+		if (entry.isValid) {
+			doSomething(entry)
+			doMore(entry)
+		}
+	}
+}
+```
+
+**Right:**
+```typescript
+function process(entries) {
+	for (const entry of entries) {
+		if (!entry.isValid) continue
+		doSomething(entry)
+		doMore(entry)
+	}
+}
+```
+
+One-line `return` or `continue` guards are especially encouraged when they let the main logic sit unindented at the top level of the function or loop.
+
+---
+
 ## General Principles
 
 1. **TypeScript should catch errors at compile time, not runtime**

@@ -417,7 +417,7 @@ export function classifyFileByExtension(filename: string): FileClassification {
 	if (BINARY_FILE_EXTENSIONS.has(ext)) return "binary"
 	if (ext === "" && TEXT_FILE_EXTENSIONS.has(lowerBasename)) return "text"
 	if (lowerBasename.startsWith(".") && TEXT_FILE_EXTENSIONS.has(lowerBasename.slice(1))) return "text"
-	return "binary"
+	return "ambiguous"
 }
 
 export function isContentText(content: string): boolean {

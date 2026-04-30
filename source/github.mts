@@ -1,5 +1,4 @@
 import type { GitHubReviewPayload, GitHubConfiguration } from "./github-types.mts"
-import { parseDiffOutput, type DiffResult } from "./diff.mts"
 import type { Log } from "./logger.mts"
 
 const REQUEST_TIMEOUT_MILLISECONDS = 10_000
@@ -37,9 +36,7 @@ export function createGithubFetch(log: Log): GitHubFetch {
 			} catch (error) {
 				clearTimeout(timeoutId)
 
-				if (!controller.signal.aborted) {
-					throw error
-				}
+				if (!controller.signal.aborted) throw error
 
 				if (Date.now() >= deadline) {
 					throw new Error(`GitHub API request exceeded ${DEADLINE_MILLISECONDS / 1000}s deadline`)
@@ -53,8 +50,8 @@ export function createGithubFetch(log: Log): GitHubFetch {
 	}
 }
 
-export function createFetchPullRequestDiff(githubFetch: GitHubFetch, configuration: GitHubConfiguration): () => Promise<DiffResult> {
-	return async function fetchPullRequestDiff(): Promise<DiffResult> {
+export function createFetchPullRequestDiff(githubFetch: GitHubFetch, configuration: GitHubConfiguration): () => Promise<string> {
+	return async function fetchPullRequestDiff(): Promise<string> {
 		const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
 
 		const response = await githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}`, {
@@ -67,8 +64,7 @@ export function createFetchPullRequestDiff(githubFetch: GitHubFetch, configurati
 			throw new Error(`Failed to fetch PR diff: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
 		}
 
-		const diffText = await response.text()
-		return parseDiffOutput(diffText)
+		return response.text()
 	}
 }
 

@@ -1,17 +1,12 @@
 import type { GitHubReviewPayload } from "./github-types.mts"
-import type { DiffResult } from "./diff.mts"
 
 export type AiReviewResult = Omit<GitHubReviewPayload, "event">
 
 export function buildReviewPayload(aiResult: AiReviewResult): GitHubReviewPayload {
-	return {
-		event: "COMMENT",
-		body: `## CI Agent Review\n\n${aiResult.body}`,
-		comments: aiResult.comments,
-	}
+	return { event: "COMMENT", body: `## CI Agent Review\n\n${aiResult.body}`, comments: aiResult.comments }
 }
 
-export function formatReviewForConsole(aiResult: AiReviewResult, diffResult: DiffResult): string {
+export function formatReviewForConsole(aiResult: AiReviewResult): string {
 	const lines = [
 		"## CI Agent Review",
 		"",
@@ -22,18 +17,6 @@ export function formatReviewForConsole(aiResult: AiReviewResult, diffResult: Dif
 		lines.push("", "### Line Comments")
 		for (const comment of aiResult.comments) {
 			lines.push(`- ${comment.path}:${comment.line} (${comment.side}): ${comment.body}`)
-		}
-	}
-
-	lines.push("", "### Files Analyzed")
-	for (const file of diffResult.files) {
-		lines.push(`- ${file.filename} (${file.status}): +${file.additions} -${file.deletions}`)
-	}
-
-	if (diffResult.binaryFiles.length > 0) {
-		lines.push("", "### Binary Files (Not Analyzed)")
-		for (const filename of diffResult.binaryFiles) {
-			lines.push(`- ${filename}`)
 		}
 	}
 

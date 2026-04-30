@@ -58,9 +58,8 @@ docker run -it \
 
 When running in GitHub Actions, the agent can be triggered via PR comments:
 
-- `/review` - Run CI analysis
-- `/review SecurityAgent, StyleAgent` - Run specific agents (comma-separated)
 - `/review` - Run all user-provided agents or Default if none exist
+- `/review SecurityAgent, StyleAgent` - Run specific agents (comma-separated)
 
 ## Agents
 
@@ -68,7 +67,7 @@ The CI Agent uses a multi-agent architecture where each agent provides feedback 
 
 ### Context Window
 
-The agent reads the entire repository at the base commit into the context window (excluding `.git/` and files matched by `.gitignore` and `.dockerignore`). This is designed for well-maintained, focused repositories rather than large monorepos.
+The agent reads the entire repository at the base commit into the context window (excluding `.git/` and files matched by `.gitignore`). This is designed for well-maintained, focused repositories rather than large monorepos.
 
 ### Adding Custom Agents
 

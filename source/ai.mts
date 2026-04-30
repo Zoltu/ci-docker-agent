@@ -3,7 +3,6 @@ import { SIDES } from "./github-types.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
-import type { DiffResult } from "./diff.mts"
 import type { Log } from "./logger.mts"
 import { includes } from "./typescript-helpers.mts"
 
@@ -15,17 +14,17 @@ export function createDefaultCallApi(_environment: Record<string, string | undef
 	}
 }
 
-async function runAgent(dependencies: { callApi: CallApi; log: Log }, agent: Agent, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agentInputs?: Map<string, string>): Promise<string> {
-	const prompt = buildAgentPrompt(agent, baseCommitContext, diffResult, agentInputs)
-	const output = await dependencies.callApi(prompt)
+async function runAgent(dependencies: { callApi: CallApi; log: Log }, agent: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs?: Map<string, string>): Promise<string> {
+	const prompt = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
 	dependencies.log(`Running agent: ${agent.name}`)
+	const output = await dependencies.callApi(prompt)
 	return output
 }
 
-async function runAgents(dependencies: { callApi: CallApi; log: Log }, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agents: Agent[]): Promise<Map<string, string>> {
+async function runAgents(dependencies: { callApi: CallApi; log: Log }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[]): Promise<Map<string, string>> {
 	const reviewResults = await Promise.all(
 		agents.map(async agent => {
-			const output = await runAgent(dependencies, agent, baseCommitContext, diffResult)
+			const output = await runAgent(dependencies, agent, baseCommitContext, diffText)
 			return [agent.name, output] as const
 		})
 	)
@@ -33,10 +32,10 @@ async function runAgents(dependencies: { callApi: CallApi; log: Log }, baseCommi
 	return new Map(reviewResults)
 }
 
-async function runAggregator(dependencies: { callApi: CallApi; log: Log }, aggregator: Agent, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agentInputs: Map<string, string>): Promise<string> {
-	const prompt = buildAgentPrompt(aggregator, baseCommitContext, diffResult, agentInputs)
-	const output = await dependencies.callApi(prompt)
+async function runAggregator(dependencies: { callApi: CallApi; log: Log }, aggregator: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs: Map<string, string>): Promise<string> {
+	const prompt = buildAgentPrompt(aggregator, baseCommitContext, diffText, agentInputs)
 	dependencies.log(`Running agent: ${aggregator.name}`)
+	const output = await dependencies.callApi(prompt)
 	return output
 }
 
@@ -65,13 +64,12 @@ function parseAggregatorOutput(output: string): AiReviewResult {
 	return parsed
 }
 
-export async function analyze(dependencies: { callApi: CallApi; log: Log }, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
-	dependencies.log(`Analyzing ${diffResult.files.length} files...`)
+export async function analyze(dependencies: { callApi: CallApi; log: Log }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
 	dependencies.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 	dependencies.log(`Using aggregator: ${aggregator.name}`)
 
-	const agentOutputs = await runAgents(dependencies, baseCommitContext, diffResult, agents)
-	const finalOutput = await runAggregator(dependencies, aggregator, baseCommitContext, diffResult, agentOutputs)
+	const agentOutputs = await runAgents(dependencies, baseCommitContext, diffText, agents)
+	const finalOutput = await runAggregator(dependencies, aggregator, baseCommitContext, diffText, agentOutputs)
 
 	dependencies.log("Agent analysis complete")
 

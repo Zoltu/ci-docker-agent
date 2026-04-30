@@ -1,8 +1,8 @@
+import ignore from "ignore"
 import type { SpawnGit } from "./diff.mts"
-import { parseIgnorePatterns, isPathIgnored } from "./ignore-patterns.mts"
 import { classifyFileByExtension, isContentText } from "./text-detection.mts"
 
-export { TEXT_FILE_EXTENSIONS, BINARY_FILE_EXTENSIONS, AMBIGUOUS_FILE_EXTENSIONS } from "./text-detection.mts"
+export { AMBIGUOUS_FILE_EXTENSIONS, BINARY_FILE_EXTENSIONS, TEXT_FILE_EXTENSIONS } from "./text-detection.mts"
 
 export interface BaseCommitContext {
 	fileList: string[]
@@ -25,25 +25,18 @@ export async function getBaseCommitContext(dependencies: GetBaseCommitContextDep
 		.map(line => line.trim())
 		.filter(line => line.length > 0)
 
-	const ignorePatterns: string[] = [".git/"]
+	const ig = ignore()
+	ig.add(".git/")
 
 	const gitignoreResult = await spawnGit(["ls-tree", baseCommit, "--", ".gitignore"])
 	if (gitignoreResult.stdout.trim().length > 0) {
 		const showResult = await spawnGit(["show", `${baseCommit}:.gitignore`])
 		if (showResult.exitCode === 0) {
-			ignorePatterns.push(...parseIgnorePatterns(showResult.stdout))
+			ig.add(showResult.stdout)
 		}
 	}
 
-	const dockerignoreResult = await spawnGit(["ls-tree", baseCommit, "--", ".dockerignore"])
-	if (dockerignoreResult.stdout.trim().length > 0) {
-		const showResult = await spawnGit(["show", `${baseCommit}:.dockerignore`])
-		if (showResult.exitCode === 0) {
-			ignorePatterns.push(...parseIgnorePatterns(showResult.stdout))
-		}
-	}
-
-	const fileList = allFiles.filter(file => !isPathIgnored(file, ignorePatterns))
+	const fileList = ig.filter(allFiles)
 
 	const classifications = new Map<string, "text" | "binary" | "ambiguous">()
 	for (const file of fileList) {
@@ -65,9 +58,8 @@ export async function getBaseCommitContext(dependencies: GetBaseCommitContextDep
 	const fileContents = new Map<string, string>()
 	for (const [file, content] of rawResults) {
 		const classification = classifications.get(file)
-		if (classification === "text" || isContentText(content)) {
-			fileContents.set(file, content)
-		}
+		if (classification !== "text" && !isContentText(content)) continue
+		fileContents.set(file, content)
 	}
 
 	return { fileList, fileContents }

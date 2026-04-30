@@ -1,4 +1,3 @@
-import type { DiffResult } from "./diff.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
 import { readdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
@@ -25,12 +24,11 @@ export function createReadAgentsFromDisk(): AgentReader {
 		const agents: Agent[] = []
 		const entries = await readdir(directory)
 		for (const entry of entries) {
-			if (entry.toLowerCase().endsWith(".md")) {
-				const filePath = join(directory, entry)
-				const name = entry.replace(/\.md$/i, "")
-				const content = await Bun.file(filePath).text()
-				agents.push({ name, prompt: content })
-			}
+			if (!entry.toLowerCase().endsWith(".md")) continue
+			const filePath = join(directory, entry)
+			const name = entry.replace(/\.md$/i, "")
+			const content = await Bun.file(filePath).text()
+			agents.push({ name, prompt: content })
 		}
 
 		return agents
@@ -95,10 +93,7 @@ export function createLoadAgents(directories: AgentDirectories, readAgents: Agen
 
 		const result = resolveAgents(agentNames, allUserAgents, allBuiltinAgents)
 
-		if (result.unresolvedNames.length > 0) {
-			throw new Error(`Unresolved agents: ${result.unresolvedNames.join(", ")}.  Each name must match a markdown file in .ci-agents/ or the built-in agents directory (case-insensitive, without .md extension).`)
-		}
-
+		if (result.unresolvedNames.length !== 0) throw new Error(`Unresolved agents: ${result.unresolvedNames.join(", ")}.  Each name must match a markdown file in .ci-agents/ or the built-in agents directory (case-insensitive, without .md extension).`)
 		return result
 	}
 }
@@ -117,8 +112,7 @@ export function createLoadAggregator(directories: AgentDirectories, readAgents: 
 	}
 }
 
-export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agentInputs?: Map<string, string>): string {
-	const { files, binaryFiles } = diffResult
+export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs?: Map<string, string>): string {
 	const lines: string[] = []
 
 	// Repository Files (Base Commit)
@@ -134,30 +128,9 @@ export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitCont
 		lines.push(content)
 	}
 
-	// Changeset Statistics
-	const totalAdditions = files.reduce((sum, file) => sum + file.additions, 0)
-	const totalDeletions = files.reduce((sum, file) => sum + file.deletions, 0)
-	lines.push("", "=== Changeset Statistics ===")
-	lines.push(`Total files changed: ${files.length}`)
-	lines.push(`Additions: +${totalAdditions}, Deletions: -${totalDeletions}`)
-	lines.push("")
-	for (const file of files) {
-		lines.push(`- ${file.filename} (${file.status}): +${file.additions} -${file.deletions}`)
-	}
-
 	// Changeset Diffs
 	lines.push("", "=== Changeset Diffs ===")
-	for (const file of files) {
-		lines.push(`=== ${file.filename} ===`)
-		lines.push(file.patch)
-	}
-
-	if (binaryFiles.length > 0) {
-		lines.push("", "=== Binary/Image Diffs ===")
-		for (const filename of binaryFiles) {
-			lines.push(`- ${filename}: binary diff present`)
-		}
-	}
+	lines.push(diffText)
 
 	// Agent Feedback (for aggregator)
 	if (agentInputs && agentInputs.size > 0) {

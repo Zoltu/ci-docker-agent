@@ -61,8 +61,8 @@ describe("classifyFileByExtension", () => {
 		expect(classifyFileByExtension("video.mts")).toBe("ambiguous")
 	})
 
-	it("classifies unknown extension as binary", () => {
-		expect(classifyFileByExtension("data.xyz")).toBe("binary")
+	it("classifies unknown extension as ambiguous", () => {
+		expect(classifyFileByExtension("data.xyz")).toBe("ambiguous")
 	})
 
 	it("classifies dotfile with known text part as text", () => {

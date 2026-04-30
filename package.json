@@ -7,5 +7,8 @@
 		"setup": "bun install --frozen-lockfile",
 		"typecheck": "bun --bun tsc --noEmit",
 		"test": "bun test"
+	},
+	"dependencies": {
+		"ignore": "7.0.5"
 	}
 }

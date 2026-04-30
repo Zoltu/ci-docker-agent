@@ -3,7 +3,7 @@ import { runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source
 import type { Agent, AgentNames, ResolveResult } from "../source/agents.mts"
 import type { BaseCommitContext } from "../source/base-commit.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
-import { makeAgent, makeDiffFile, makeDiffResult, makeBaseCommitContext, makeCommentTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration } from "./helpers.mts"
+import { makeAgent, makeBaseCommitContext, makeCommentTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration } from "./helpers.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
 import type { CallApi } from "../source/ai.mts"
 
@@ -29,6 +29,15 @@ function makeSpawnGitOk(): SpawnGit {
 	return async () => ({ stdout: "", stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult)
 }
 
+const SAMPLE_DIFF = [
+	"diff --git a/src/file.ts b/src/file.ts",
+	"--- a/src/file.ts",
+	"+++ b/src/file.ts",
+	"@@ -1 +1 @@",
+	"-old",
+	"+new",
+].join("\n")
+
 describe("runOnCommentTrigger", () => {
 	it("returns early when comment does not trigger review", async () => {
 		let fetchCalled = false
@@ -37,7 +46,7 @@ describe("runOnCommentTrigger", () => {
 
 		await runOnCommentTrigger(
 			{
-				fetchPullRequestDiff: async () => { fetchCalled = true; return makeDiffResult() },
+				fetchPullRequestDiff: async () => { fetchCalled = true; return "" },
 				fetchPullRequestBaseCommit: async () => "base123",
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
@@ -60,7 +69,7 @@ describe("runOnCommentTrigger", () => {
 
 		await runOnCommentTrigger(
 			{
-				fetchPullRequestDiff: async () => makeDiffResult(),
+				fetchPullRequestDiff: async () => "",
 				fetchPullRequestBaseCommit: async () => "base123",
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
@@ -81,7 +90,7 @@ describe("runOnCommentTrigger", () => {
 
 		await runOnCommentTrigger(
 			{
-				fetchPullRequestDiff: async () => makeDiffResult({ files: [makeDiffFile()] }),
+				fetchPullRequestDiff: async () => SAMPLE_DIFF,
 				fetchPullRequestBaseCommit: async () => "base123",
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([makeAgent()]),
@@ -106,7 +115,7 @@ describe("runOnCommentTrigger", () => {
 		try {
 			await runOnCommentTrigger(
 				{
-					fetchPullRequestDiff: async () => makeDiffResult({ files: [makeDiffFile()] }),
+					fetchPullRequestDiff: async () => SAMPLE_DIFF,
 					fetchPullRequestBaseCommit: async () => "base123",
 					getBaseCommitContext: makeGetBaseCommitContext(),
 					loadAgents: makeLoadAgents([makeAgent()]),
@@ -132,7 +141,7 @@ describe("runOnPullRequest", () => {
 
 		await runOnPullRequest(
 			{
-				fetchPullRequestDiff: async () => makeDiffResult(),
+				fetchPullRequestDiff: async () => "",
 				fetchPullRequestBaseCommit: async () => "base123",
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
@@ -152,7 +161,7 @@ describe("runOnPullRequest", () => {
 
 		await runOnPullRequest(
 			{
-				fetchPullRequestDiff: async () => makeDiffResult({ files: [makeDiffFile()] }),
+				fetchPullRequestDiff: async () => SAMPLE_DIFF,
 				fetchPullRequestBaseCommit: async () => "base123",
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([makeAgent()]),
@@ -174,7 +183,7 @@ describe("runOnLocalDiff", () => {
 		const result = await runOnLocalDiff(
 			{
 				spawnGit: makeSpawnGitOk(),
-				generateLocalDiff: async () => makeDiffResult(),
+				generateLocalDiff: async () => "",
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
@@ -191,7 +200,7 @@ describe("runOnLocalDiff", () => {
 		const result = await runOnLocalDiff(
 			{
 				spawnGit: makeSpawnGitOk(),
-				generateLocalDiff: async () => makeDiffResult({ files: [makeDiffFile()] }),
+				generateLocalDiff: async () => SAMPLE_DIFF,
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
@@ -202,6 +211,5 @@ describe("runOnLocalDiff", () => {
 		)
 
 		expect(result).toContain("Looks good")
-		expect(result).toContain("src/file.ts")
 	})
 })
