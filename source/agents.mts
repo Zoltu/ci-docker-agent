@@ -50,7 +50,7 @@ export interface ResolveResult {
 	unresolvedNames: string[]
 }
 
-export function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinAgents: Agent[]): ResolveResult {
+function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinAgents: Agent[]): ResolveResult {
 	const filteredUserAgents = filterOutAggregator(userAgents)
 	const filteredBuiltinAgents = filterOutAggregator(builtinAgents)
 

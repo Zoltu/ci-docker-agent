@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { parseDiffOutput, createGenerateLocalDiff, createSpawnGit } from "../source/diff.mts"
+import { parseDiffOutput, createGenerateLocalDiff, createSpawnGit, validateGitEnvironment } from "../source/diff.mts"
 import { join } from "node:path"
 import { existsSync } from "node:fs"
 
@@ -235,7 +235,9 @@ describe("createGenerateLocalDiff", () => {
 		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
 		const head1 = (await gitRevParse("HEAD~1", PROJECT_ROOT)).trim()
 
-		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGit(PROJECT_ROOT))
+		const spawnGit = createSpawnGit(PROJECT_ROOT)
+		await validateGitEnvironment({ spawnGit }, head1, head, PROJECT_ROOT)
+		const generateLocalDiff = createGenerateLocalDiff(spawnGit)
 		const result = await generateLocalDiff(head1, head)
 
 		expect(result.files.length + result.binaryFiles.length).toBeGreaterThan(0)
@@ -253,35 +255,45 @@ describe("createGenerateLocalDiff", () => {
 
 		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
 
-		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGit(PROJECT_ROOT))
+		const spawnGit = createSpawnGit(PROJECT_ROOT)
+		await validateGitEnvironment({ spawnGit }, head, head, PROJECT_ROOT)
+		const generateLocalDiff = createGenerateLocalDiff(spawnGit)
 		const result = await generateLocalDiff(head, head)
 
 		expect(result.files).toEqual([])
 		expect(result.binaryFiles).toEqual([])
 	})
+})
+
+describe("validateGitEnvironment", () => {
+	it("succeeds when repository and commits exist", async () => {
+		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
+
+		const spawnGit = createSpawnGit(PROJECT_ROOT)
+		const head = (await spawnGit(["rev-parse", "HEAD"])).stdout.trim()
+		expect(validateGitEnvironment({ spawnGit }, head, head, PROJECT_ROOT)).resolves.toBeUndefined()
+	})
 
 	it("throws when workspace is not a git repository", async () => {
 		const notAGitRepo = import.meta.dir
 
-		const generateLocalDiff = createGenerateLocalDiff(notAGitRepo, createSpawnGit(notAGitRepo))
-		await expect(generateLocalDiff("abc123", "def456")).rejects.toThrow("No git repository found")
+		const spawnGit = createSpawnGit(notAGitRepo)
+		expect(validateGitEnvironment({ spawnGit }, "abc123", "def456", notAGitRepo)).rejects.toThrow("No git repository found")
 	})
 
 	it("throws when base commit does not exist", async () => {
 		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
 
-		const head = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
-
-		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGit(PROJECT_ROOT))
-		await expect(generateLocalDiff("nonexistent000000", head)).rejects.toThrow("Base commit")
+		const spawnGit = createSpawnGit(PROJECT_ROOT)
+		const head = (await spawnGit(["rev-parse", "HEAD"])).stdout.trim()
+		expect(validateGitEnvironment({ spawnGit }, "nonexistent000000", head, PROJECT_ROOT)).rejects.toThrow("Base commit")
 	})
 
 	it("throws when head commit does not exist", async () => {
 		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
 
-		const base = (await gitRevParse("HEAD", PROJECT_ROOT)).trim()
-
-		const generateLocalDiff = createGenerateLocalDiff(PROJECT_ROOT, createSpawnGit(PROJECT_ROOT))
-		await expect(generateLocalDiff(base, "nonexistent000000")).rejects.toThrow("Head commit")
+		const spawnGit = createSpawnGit(PROJECT_ROOT)
+		const base = (await spawnGit(["rev-parse", "HEAD"])).stdout.trim()
+		expect(validateGitEnvironment({ spawnGit }, base, "nonexistent000000", PROJECT_ROOT)).rejects.toThrow("Head commit")
 	})
 })

@@ -4,6 +4,7 @@ import type { AiReviewResult } from "./review.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
 import type { DiffResult } from "./diff.mts"
+import type { Log } from "./logger.mts"
 import { includes } from "./typescript-helpers.mts"
 
 export type CallApi = (prompt: string) => Promise<string>
@@ -14,14 +15,14 @@ export function createDefaultCallApi(_environment: Record<string, string | undef
 	}
 }
 
-async function runAgent(dependencies: { callApi: CallApi }, agent: Agent, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agentInputs?: Map<string, string>): Promise<string> {
+async function runAgent(dependencies: { callApi: CallApi; log: Log }, agent: Agent, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agentInputs?: Map<string, string>): Promise<string> {
 	const prompt = buildAgentPrompt(agent, baseCommitContext, diffResult, agentInputs)
 	const output = await dependencies.callApi(prompt)
-	console.log(`Running agent: ${agent.name}`)
+	dependencies.log(`Running agent: ${agent.name}`)
 	return output
 }
 
-async function runAgents(dependencies: { callApi: CallApi }, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agents: Agent[]): Promise<Map<string, string>> {
+async function runAgents(dependencies: { callApi: CallApi; log: Log }, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agents: Agent[]): Promise<Map<string, string>> {
 	const reviewResults = await Promise.all(
 		agents.map(async agent => {
 			const output = await runAgent(dependencies, agent, baseCommitContext, diffResult)
@@ -32,10 +33,10 @@ async function runAgents(dependencies: { callApi: CallApi }, baseCommitContext: 
 	return new Map(reviewResults)
 }
 
-async function runAggregator(dependencies: { callApi: CallApi }, aggregator: Agent, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agentInputs: Map<string, string>): Promise<string> {
+async function runAggregator(dependencies: { callApi: CallApi; log: Log }, aggregator: Agent, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agentInputs: Map<string, string>): Promise<string> {
 	const prompt = buildAgentPrompt(aggregator, baseCommitContext, diffResult, agentInputs)
 	const output = await dependencies.callApi(prompt)
-	console.log(`Running agent: ${aggregator.name}`)
+	dependencies.log(`Running agent: ${aggregator.name}`)
 	return output
 }
 
@@ -58,21 +59,21 @@ function isValidAiReviewResult(data: unknown): data is AiReviewResult {
 	return true
 }
 
-export function parseAggregatorOutput(output: string): AiReviewResult {
+function parseAggregatorOutput(output: string): AiReviewResult {
 	const parsed: unknown = JSON.parse(output)
 	if (!isValidAiReviewResult(parsed)) throw new Error(`Parsed output does not match expected AiReviewResult shape: ${output}`)
 	return parsed
 }
 
-export async function analyze(dependencies: { callApi: CallApi }, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
-	console.log(`Analyzing ${diffResult.files.length} files...`)
-	console.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
-	console.log(`Using aggregator: ${aggregator.name}`)
+export async function analyze(dependencies: { callApi: CallApi; log: Log }, baseCommitContext: BaseCommitContext, diffResult: DiffResult, agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
+	dependencies.log(`Analyzing ${diffResult.files.length} files...`)
+	dependencies.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
+	dependencies.log(`Using aggregator: ${aggregator.name}`)
 
 	const agentOutputs = await runAgents(dependencies, baseCommitContext, diffResult, agents)
 	const finalOutput = await runAggregator(dependencies, aggregator, baseCommitContext, diffResult, agentOutputs)
 
-	console.log("Agent analysis complete")
+	dependencies.log("Agent analysis complete")
 
 	return parseAggregatorOutput(finalOutput)
 }

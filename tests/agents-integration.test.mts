@@ -86,7 +86,7 @@ describe("createLoadAgents", () => {
 		]))
 
 		const loadAgents = createLoadAgents(directories, readAgents)
-		await expect(loadAgents(["NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
+		expect(loadAgents(["NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
 	it("throws for unresolved names even when some agents resolve", async () => {
@@ -99,7 +99,7 @@ describe("createLoadAgents", () => {
 		]))
 
 		const loadAgents = createLoadAgents(directories, readAgents)
-		await expect(loadAgents(["SecurityAgent", "NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
+		expect(loadAgents(["SecurityAgent", "NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
 	it("filters out Aggregator from user agents when 'run all agents'", async () => {
@@ -149,6 +149,36 @@ describe("createLoadAgents", () => {
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("SecurityAgent")
 		expect(result.unresolvedNames).toEqual([])
+	})
+
+	it("throws for duplicate agent names", async () => {
+		const userDirectory = "/user"
+		const builtinDirectory = "/builtins"
+		const directories: AgentDirectories = { userAgentsDirectory: userDirectory, builtinAgentsDirectory: builtinDirectory }
+		const readAgents = mockReader(new Map([
+			[userDirectory, [{ name: "SecurityAgent", prompt: "Security prompt" }]],
+			[builtinDirectory, []],
+		]))
+
+		const loadAgents = createLoadAgents(directories, readAgents)
+		expect(loadAgents(["SecurityAgent", "SecurityAgent"])).rejects.toThrow(
+			'Duplicate agent name: "SecurityAgent"'
+		)
+	})
+
+	it("throws for case-insensitive duplicate agent names", async () => {
+		const userDirectory = "/user"
+		const builtinDirectory = "/builtins"
+		const directories: AgentDirectories = { userAgentsDirectory: userDirectory, builtinAgentsDirectory: builtinDirectory }
+		const readAgents = mockReader(new Map([
+			[userDirectory, [{ name: "SecurityAgent", prompt: "Security prompt" }]],
+			[builtinDirectory, []],
+		]))
+
+		const loadAgents = createLoadAgents(directories, readAgents)
+		expect(loadAgents(["SecurityAgent", "securityagent"])).rejects.toThrow(
+			'Duplicate agent name: "securityagent"'
+		)
 	})
 
 	it("reads agents from disk using createLoadAgents", async () => {

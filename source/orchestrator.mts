@@ -4,7 +4,9 @@ import type { AiReviewResult } from "./review.mts"
 import type { CallApi } from "./ai.mts"
 import { analyze } from "./ai.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
-import type { DiffResult } from "./diff.mts"
+import type { DiffResult, SpawnGit } from "./diff.mts"
+import { validateGitEnvironment } from "./diff.mts"
+import type { Log } from "./logger.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import { getAgentsFromComment } from "./trigger.mts"
 import type { CommentTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "./configuration.mts"
@@ -13,14 +15,15 @@ type RunAnalysisDependencies = {
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi
+	log: Log
 	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 }
 
-export async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, diffResult: DiffResult, baseCommit: string): Promise<AiReviewResult> {
+async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, diffResult: DiffResult, baseCommit: string): Promise<AiReviewResult> {
 	const { agents } = await dependencies.loadAgents(agentNames)
 	const aggregator = await dependencies.loadAggregator()
 	const baseCommitContext = await dependencies.getBaseCommitContext(baseCommit)
-	return analyze({ callApi: dependencies.callApi }, baseCommitContext, diffResult, agents, aggregator)
+	return analyze({ callApi: dependencies.callApi, log: dependencies.log }, baseCommitContext, diffResult, agents, aggregator)
 }
 
 type SubmitPrReviewDependencies = {
@@ -30,19 +33,23 @@ type SubmitPrReviewDependencies = {
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi
+	log: Log
 	submitReview: (review: GitHubReviewPayload) => Promise<void>
 }
 
 async function submitPrReview(dependencies: SubmitPrReviewDependencies, agentNames: AgentNames): Promise<void> {
 	const diffResult = await dependencies.fetchPullRequestDiff()
 
-	if (diffResult.files.length === 0 && diffResult.binaryFiles.length === 0) return console.log("No files changed, nothing to review")
+	if (diffResult.files.length === 0 && diffResult.binaryFiles.length === 0) {
+		dependencies.log("No files changed, nothing to review")
+		return
+	}
 
 	const baseCommit = await dependencies.fetchPullRequestBaseCommit()
 	const aiResult = await runAnalysis(dependencies, agentNames, diffResult, baseCommit)
 	const reviewPayload = buildReviewPayload(aiResult)
 	await dependencies.submitReview(reviewPayload)
-	console.log("PR review submitted successfully")
+	dependencies.log("PR review submitted successfully")
 }
 
 type RunOnCommentTriggerDependencies = {
@@ -52,6 +59,7 @@ type RunOnCommentTriggerDependencies = {
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi
+	log: Log
 	submitReview: (review: GitHubReviewPayload) => Promise<void>
 	reactToComment: (commentId: number, content: string) => Promise<void>
 }
@@ -81,6 +89,7 @@ type RunOnPullRequestDependencies = {
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi
+	log: Log
 	submitReview: (review: GitHubReviewPayload) => Promise<void>
 }
 
@@ -89,14 +98,18 @@ export async function runOnPullRequest(dependencies: RunOnPullRequestDependencie
 }
 
 type RunOnLocalDiffDependencies = {
+	spawnGit: SpawnGit
 	generateLocalDiff: (baseCommit: string, headCommit: string) => Promise<DiffResult>
 	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi
+	log: Log
 }
 
 export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration): Promise<string> {
+	await validateGitEnvironment({ spawnGit: dependencies.spawnGit }, configuration.baseCommit, configuration.headCommit, configuration.workspaceDirectory)
+
 	const diffResult = await dependencies.generateLocalDiff(configuration.baseCommit, configuration.headCommit)
 
 	if (diffResult.files.length === 0 && diffResult.binaryFiles.length === 0) return "No files changed, nothing to review"

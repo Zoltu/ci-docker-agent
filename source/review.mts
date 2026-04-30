@@ -30,5 +30,12 @@ export function formatReviewForConsole(aiResult: AiReviewResult, diffResult: Dif
 		lines.push(`- ${file.filename} (${file.status}): +${file.additions} -${file.deletions}`)
 	}
 
+	if (diffResult.binaryFiles.length > 0) {
+		lines.push("", "### Binary Files (Not Analyzed)")
+		for (const filename of diffResult.binaryFiles) {
+			lines.push(`- ${filename}`)
+		}
+	}
+
 	return lines.join("\n")
 }

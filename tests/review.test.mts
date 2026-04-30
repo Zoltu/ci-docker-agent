@@ -137,4 +137,35 @@ describe("formatReviewForConsole", () => {
 		expect(output).toContain("src/file.ts (modified): +10 -5")
 		expect(output).toContain("README.md (added): +50 -0")
 	})
+
+	it("includes binary files not analyzed", () => {
+		const aiResult: AiReviewResult = {
+			body: "Test summary",
+			comments: [],
+		}
+
+		const diffResult = makeDiffResult({
+			files: [makeDiffFile()],
+			binaryFiles: ["logo.png", "icon.svg"],
+		})
+
+		const output = formatReviewForConsole(aiResult, diffResult)
+
+		expect(output).toContain("### Binary Files (Not Analyzed)")
+		expect(output).toContain("- logo.png")
+		expect(output).toContain("- icon.svg")
+	})
+
+	it("omits binary files section when no binary files", () => {
+		const aiResult: AiReviewResult = {
+			body: "Test summary",
+			comments: [],
+		}
+
+		const diffResult = makeDiffResult({ files: [makeDiffFile()] })
+
+		const output = formatReviewForConsole(aiResult, diffResult)
+
+		expect(output).not.toContain("### Binary Files (Not Analyzed)")
+	})
 })

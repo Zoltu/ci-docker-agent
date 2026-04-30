@@ -42,7 +42,7 @@ describe("createFetchPullRequestDiff", () => {
 		const githubFetch: GitHubFetch = async () => new Response("Not found", { status: 404, statusText: "Not Found" })
 		const fetchPullRequestDiff = createFetchPullRequestDiff(githubFetch, makeGitHubConfiguration())
 
-		await expect(fetchPullRequestDiff()).rejects.toThrow("Failed to fetch PR diff")
+		expect(fetchPullRequestDiff()).rejects.toThrow("Failed to fetch PR diff")
 	})
 })
 
@@ -60,7 +60,7 @@ describe("createSubmitReview", () => {
 		const submitReview = createSubmitReview(githubFetch, makeGitHubConfiguration())
 
 		const review: GitHubReviewPayload = { event: "COMMENT", body: "Great work", comments: [] }
-		await expect(submitReview(review)).rejects.toThrow("Failed to submit review")
+		expect(submitReview(review)).rejects.toThrow("Failed to submit review")
 	})
 })
 
@@ -76,7 +76,7 @@ describe("createReactToComment", () => {
 		const githubFetch: GitHubFetch = async () => new Response("Error", { status: 403, statusText: "Forbidden" })
 		const reactToComment = createReactToComment(githubFetch, makeGitHubConfiguration())
 
-		await expect(reactToComment(123, "-1")).rejects.toThrow("Failed to react to comment")
+		expect(reactToComment(123, "-1")).rejects.toThrow("Failed to react to comment")
 	})
 })
 
@@ -94,20 +94,20 @@ describe("createFetchPullRequestBaseCommit", () => {
 		const githubFetch: GitHubFetch = async () => new Response("Not found", { status: 404, statusText: "Not Found" })
 		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeGitHubConfiguration())
 
-		await expect(fetchPullRequestBaseCommit()).rejects.toThrow("Failed to fetch PR base commit")
+		expect(fetchPullRequestBaseCommit()).rejects.toThrow("Failed to fetch PR base commit")
 	})
 
 	it("throws when response is missing base.sha", async () => {
 		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ head: { sha: "abc" } }), { status: 200 })
 		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeGitHubConfiguration())
 
-		await expect(fetchPullRequestBaseCommit()).rejects.toThrow("Invalid PR response")
+		expect(fetchPullRequestBaseCommit()).rejects.toThrow("Invalid PR response")
 	})
 
 	it("throws when base.sha is not a string", async () => {
 		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: 123 } }), { status: 200 })
 		const fetchPullRequestBaseCommit = createFetchPullRequestBaseCommit(githubFetch, makeGitHubConfiguration())
 
-		await expect(fetchPullRequestBaseCommit()).rejects.toThrow("Invalid PR response")
+		expect(fetchPullRequestBaseCommit()).rejects.toThrow("Invalid PR response")
 	})
 })

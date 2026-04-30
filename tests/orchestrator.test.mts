@@ -1,14 +1,16 @@
 import { describe, it, expect } from "bun:test"
-import { runAnalysis, runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
-import type { Agent, ResolveResult } from "../source/agents.mts"
+import { runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
+import type { Agent, AgentNames, ResolveResult } from "../source/agents.mts"
 import type { BaseCommitContext } from "../source/base-commit.mts"
-import { makeAgent, makeDiffFile, makeDiffResult, makeBaseCommitContext, makeGitHubConfiguration } from "./helpers.mts"
+import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
+import { makeAgent, makeDiffFile, makeDiffResult, makeBaseCommitContext, makeCommentTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration } from "./helpers.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
 import type { CallApi } from "../source/ai.mts"
 
+const silentLog = () => {}
 
-function makeLoadAgents(agents: Agent[]): () => Promise<ResolveResult> {
-	return async () => ({ agents, unresolvedNames: [] })
+function makeLoadAgents(agents: Agent[]): (agentNames: AgentNames) => Promise<ResolveResult> {
+	return async (_agentNames: AgentNames) => ({ agents, unresolvedNames: [] })
 }
 
 function makeLoadAggregator(overrides: Partial<Agent> = {}): () => Promise<Agent> {
@@ -23,24 +25,9 @@ function makeGetBaseCommitContext(overrides: Partial<BaseCommitContext> = {}): (
 	return async () => makeBaseCommitContext(overrides)
 }
 
-describe("runAnalysis", () => {
-	it("calls loadAgents, loadAggregator, and analyze", async () => {
-		const agents = [makeAgent()]
-		const loadAgents = makeLoadAgents(agents)
-		const loadAggregator = makeLoadAggregator()
-		let callApiCount = 0
-		const callApi = async () => {
-			callApiCount++
-			return JSON.stringify({ body: `Result ${callApiCount}`, comments: [] })
-		}
-		const diffResult = makeDiffResult({ files: [makeDiffFile()] })
-
-		const result = await runAnalysis({ loadAgents, loadAggregator, callApi, getBaseCommitContext: makeGetBaseCommitContext() }, "run all agents", diffResult, "base123")
-
-		expect(result.body).toBe("Result 2")
-		expect(callApiCount).toBe(2)
-	})
-})
+function makeSpawnGitOk(): SpawnGit {
+	return async () => ({ stdout: "", stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult)
+}
 
 describe("runOnCommentTrigger", () => {
 	it("returns early when comment does not trigger review", async () => {
@@ -56,10 +43,11 @@ describe("runOnCommentTrigger", () => {
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
+				log: silentLog,
 				submitReview: async () => { submitCalled = true },
 				reactToComment: async () => { reactCalled = true },
 			},
-			{ type: "comment-trigger", github: makeGitHubConfiguration(), commentBody: "just a comment", commentId: 1 }
+			makeCommentTriggerConfiguration({ commentBody: "just a comment" })
 		)
 
 		expect(fetchCalled).toBe(false)
@@ -78,10 +66,11 @@ describe("runOnCommentTrigger", () => {
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
+				log: silentLog,
 				submitReview: async () => { submitCalled = true },
 				reactToComment: async () => {},
 			},
-			{ type: "comment-trigger", github: makeGitHubConfiguration(), commentBody: "/review", commentId: 1 }
+			makeCommentTriggerConfiguration()
 		)
 
 		expect(submitCalled).toBe(false)
@@ -98,10 +87,11 @@ describe("runOnCommentTrigger", () => {
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Good work"),
+				log: silentLog,
 				submitReview: async (review) => { submittedReview = review },
 				reactToComment: async () => {},
 			},
-			{ type: "comment-trigger", github: makeGitHubConfiguration(), commentBody: "/review", commentId: 1 }
+			makeCommentTriggerConfiguration()
 		)
 
 		expect(submittedReview).not.toBeNull()
@@ -122,12 +112,13 @@ describe("runOnCommentTrigger", () => {
 					loadAgents: makeLoadAgents([makeAgent()]),
 					loadAggregator: makeLoadAggregator(),
 					callApi: makeCallApi("Good work"),
+					log: silentLog,
 					submitReview: async () => { throw new Error("submit failed") },
 					reactToComment: async (id, content) => { reactedId = id; reactedContent = content },
 				},
-				{ type: "comment-trigger", github: makeGitHubConfiguration(), commentBody: "/review", commentId: 42 }
+				makeCommentTriggerConfiguration({ commentId: 42 })
 			)
-			expect(false).toBe(true) // should throw
+			expect(false).toBe(true)
 		} catch {
 			expect(reactedId).toBe(42)
 			expect(reactedContent).toBe("-1")
@@ -147,9 +138,10 @@ describe("runOnPullRequest", () => {
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
+				log: silentLog,
 				submitReview: async () => { submitCalled = true },
 			},
-			{ type: "pull-request", agents: "run all agents", github: makeGitHubConfiguration() }
+			makePullRequestConfiguration()
 		)
 
 		expect(submitCalled).toBe(false)
@@ -166,9 +158,10 @@ describe("runOnPullRequest", () => {
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Great work"),
+				log: silentLog,
 				submitReview: async (review) => { submittedReview = review },
 			},
-			{ type: "pull-request", agents: "run all agents", github: makeGitHubConfiguration() }
+			makePullRequestConfiguration()
 		)
 
 		expect(submittedReview).not.toBeNull()
@@ -180,13 +173,15 @@ describe("runOnLocalDiff", () => {
 	it("returns early when no files changed", async () => {
 		const result = await runOnLocalDiff(
 			{
+				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => makeDiffResult(),
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
+				log: silentLog,
 			},
-			{ type: "local-diff", agents: "run all agents", baseCommit: "abc", headCommit: "def", workspaceDirectory: "/workspace" }
+			makeLocalDiffConfiguration()
 		)
 
 		expect(result).toBe("No files changed, nothing to review")
@@ -195,13 +190,15 @@ describe("runOnLocalDiff", () => {
 	it("formats review to console", async () => {
 		const result = await runOnLocalDiff(
 			{
+				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => makeDiffResult({ files: [makeDiffFile()] }),
 				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Looks good"),
+				log: silentLog,
 			},
-			{ type: "local-diff", agents: "run all agents", baseCommit: "abc", headCommit: "def", workspaceDirectory: "/workspace" }
+			makeLocalDiffConfiguration()
 		)
 
 		expect(result).toContain("Looks good")

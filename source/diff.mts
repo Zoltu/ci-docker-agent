@@ -28,6 +28,7 @@ export function parseDiffOutput(output: string): DiffResult {
 
 	function saveCurrentFile(): void {
 		if (toFilename !== null || fromFilename !== null) {
+			// The outer condition guarantees at least one is non-null, so the assertion is safe
 			const filename = toFilename ?? fromFilename!
 			let status: DiffFileStatus
 			if (fromFilename === null) {
@@ -40,13 +41,7 @@ export function parseDiffOutput(output: string): DiffResult {
 				status = "modified"
 			}
 
-			files.push({
-				filename,
-				status,
-				additions,
-				deletions,
-				patch: patchLines.join("\n"),
-			})
+			files.push({ filename, status, additions, deletions, patch: patchLines.join("\n") })
 		}
 	}
 
@@ -144,7 +139,7 @@ async function validateCommitExists(dependencies: { spawnGit: SpawnGit }, commit
 	}
 }
 
-async function validateGitEnvironment(dependencies: { spawnGit: SpawnGit }, baseCommit: string, headCommit: string, workspaceDirectory: string): Promise<void> {
+export async function validateGitEnvironment(dependencies: { spawnGit: SpawnGit }, baseCommit: string, headCommit: string, workspaceDirectory: string): Promise<void> {
 	if (!existsSync(`${workspaceDirectory}/.git`)) {
 		throw new Error(
 			`No git repository found at ${workspaceDirectory}\n` +
@@ -157,10 +152,8 @@ async function validateGitEnvironment(dependencies: { spawnGit: SpawnGit }, base
 	await validateCommitExists(dependencies, headCommit, "Head")
 }
 
-export function createGenerateLocalDiff(workspaceDirectory: string, spawnGit: SpawnGit): (baseCommit: string, headCommit: string) => Promise<DiffResult> {
+export function createGenerateLocalDiff(spawnGit: SpawnGit): (baseCommit: string, headCommit: string) => Promise<DiffResult> {
 	return async function generateLocalDiff(baseCommit: string, headCommit: string): Promise<DiffResult> {
-		await validateGitEnvironment({ spawnGit }, baseCommit, headCommit, workspaceDirectory)
-
 		const result = await spawnGit(["diff", "--unified=3", baseCommit, headCommit])
 		if (result.exitCode === null && result.signalCode !== null) throw new Error(`Command "git diff --unified=3" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
 		if (result.exitCode !== 0) {

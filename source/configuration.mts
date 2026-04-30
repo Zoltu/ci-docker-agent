@@ -12,12 +12,14 @@ export interface CommentTriggerConfiguration {
 	github: GitHubConfiguration
 	commentBody: string
 	commentId: number
+	workspaceDirectory: string
 }
 
 export interface PullRequestConfiguration {
 	type: "pull-request"
 	agents: AgentNames
 	github: GitHubConfiguration
+	workspaceDirectory: string
 }
 
 export interface LocalDiffConfiguration {
@@ -96,7 +98,7 @@ function tryGetCommentTriggerConfiguration(environment: Record<string, string | 
 
 	const commentBody = environment.COMMENT_BODY ?? ""
 
-	return { ok: true, value: { type: "comment-trigger", github: githubResult.value, commentBody, commentId } }
+	return { ok: true, value: { type: "comment-trigger", github: githubResult.value, commentBody, commentId, workspaceDirectory: WORKSPACE_DIRECTORY } }
 }
 
 function tryGetPullRequestConfiguration(environment: Record<string, string | undefined>, agents: AgentNames): TryResult<PullRequestConfiguration> {
@@ -108,7 +110,7 @@ function tryGetPullRequestConfiguration(environment: Record<string, string | und
 	const githubResult = tryParseGitHubConfiguration(environment)
 	if (!githubResult.ok) return githubResult
 
-	return { ok: true, value: { type: "pull-request", agents, github: githubResult.value } }
+	return { ok: true, value: { type: "pull-request", agents, github: githubResult.value, workspaceDirectory: WORKSPACE_DIRECTORY } }
 }
 
 export function createGetConfiguration(environment: Record<string, string | undefined>): () => Configuration {
