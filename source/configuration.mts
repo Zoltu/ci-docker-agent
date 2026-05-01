@@ -10,7 +10,6 @@ export interface CommentTriggerConfiguration {
 	type: "comment-trigger"
 	github: GitHubConfiguration
 	commentBody: string
-	commentId: number
 }
 
 export interface PullRequestConfiguration {
@@ -85,14 +84,9 @@ function tryGetCommentTriggerConfiguration(environment: Record<string, string | 
 	const githubResult = tryParseGitHubConfiguration(environment)
 	if (!githubResult.ok) return githubResult
 
-	const commentIdString = environment.COMMENT_ID
-	if (!commentIdString) return { ok: false, reason: "COMMENT_ID is required for comment trigger mode" }
-	const commentId = Number.parseInt(commentIdString, 10)
-	if (Number.isNaN(commentId)) return { ok: false, reason: `COMMENT_ID must be a valid number, got: ${commentIdString}` }
-
 	const commentBody = environment.COMMENT_BODY ?? ""
 
-	return { ok: true, value: { type: "comment-trigger", github: githubResult.value, commentBody, commentId } }
+	return { ok: true, value: { type: "comment-trigger", github: githubResult.value, commentBody } }
 }
 
 function tryGetPullRequestConfiguration(environment: Record<string, string | undefined>, agents: AgentNames): TryResult<PullRequestConfiguration> {

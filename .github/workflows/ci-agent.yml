@@ -31,4 +31,3 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT_TYPE: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
-          COMMENT_ID: ${{ github.event.comment.id }}

@@ -32,7 +32,6 @@ export function makeCommentTriggerConfiguration(overrides: Partial<CommentTrigge
 		type: "comment-trigger",
 		github: makeGitHubConfiguration(),
 		commentBody: "/review",
-		commentId: 1,
 		...overrides,
 	}
 }

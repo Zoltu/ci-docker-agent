@@ -17,7 +17,6 @@ function getCommentTriggerConfiguration(environment: Record<string, string | und
 		GITHUB_TOKEN: "my-token",
 		PR_NUMBER: "42",
 		REPO: "owner/repo",
-		COMMENT_ID: "12345",
 		COMMENT_BODY: "/review",
 		...environment,
 	})
@@ -93,7 +92,6 @@ describe("getConfiguration", () => {
 				pullRequestNumber: 42,
 			})
 			expect(configuration.commentBody).toBe("/review")
-			expect(configuration.commentId).toBe(12345)
 		})
 
 		it("defaults commentBody to empty string when not provided", () => {
@@ -106,25 +104,6 @@ describe("getConfiguration", () => {
 			const configuration = getCommentTriggerConfiguration({ GITHUB_API_URL: "https://github.enterprise.com/api/v3" })
 
 			expect(configuration.github.apiUrl).toBe("https://github.enterprise.com/api/v3")
-		})
-
-		it("throws when COMMENT_ID is not provided", () => {
-			expect(() => getConfiguration({
-				EVENT_TYPE: "issue_comment",
-				GITHUB_TOKEN: "my-token",
-				PR_NUMBER: "42",
-				REPO: "owner/repo",
-			})).toThrow("COMMENT_ID is required for comment trigger mode")
-		})
-
-		it("throws when COMMENT_ID is not a valid number", () => {
-			expect(() => getConfiguration({
-				EVENT_TYPE: "issue_comment",
-				GITHUB_TOKEN: "my-token",
-				PR_NUMBER: "42",
-				REPO: "owner/repo",
-				COMMENT_ID: "not-a-number",
-			})).toThrow("COMMENT_ID must be a valid number, got: not-a-number")
 		})
 	})
 
