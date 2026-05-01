@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs"
 import { WORKSPACE_DIRECTORY } from "./paths.mts"
 
 const SUBPROCESS_TIMEOUT_MILLISECONDS = 30_000
@@ -33,20 +32,29 @@ async function validateCommitExists(dependencies: { spawnGit: SpawnGit }, commit
 	)
 }
 
-export function createValidateGitRepository(): () => void {
-	return function validateGitRepository(): void {
-		if (!existsSync(`${WORKSPACE_DIRECTORY}/.git`)) {
-			throw new Error(
-				`No git repository found at ${WORKSPACE_DIRECTORY}\n` +
-				`Please ensure you are mounting a git repository to ${WORKSPACE_DIRECTORY}\n` +
-				`Example: docker run -v "$(pwd)":${WORKSPACE_DIRECTORY} ci-agent:latest`
-			)
-		}
+export function createValidateGitRepository(spawnGit: SpawnGit): () => Promise<void> {
+	return async function validateGitRepository(): Promise<void> {
+		const result = await spawnGit(["rev-parse", "--git-dir"])
+		if (result.exitCode === 0) return
+		throw new Error(
+			`No git repository found at ${WORKSPACE_DIRECTORY}\n` +
+			`Please ensure you are mounting a git repository to ${WORKSPACE_DIRECTORY}\n` +
+			`Error: ${result.stderr.trim()}`
+		)
 	}
 }
 
-export async function validateGitEnvironment(dependencies: { spawnGit: SpawnGit; validateGitRepository: () => void }, baseCommit: string, headCommit: string): Promise<void> {
-	dependencies.validateGitRepository()
+export async function ensureCommitAvailable(dependencies: { spawnGit: SpawnGit }, commit: string): Promise<void> {
+	const check = await dependencies.spawnGit(["cat-file", "-t", commit])
+	if (check.exitCode === 0) return
+
+	const fetch = await dependencies.spawnGit(["fetch", "--depth=1", "origin", commit])
+	if (fetch.exitCode === null && fetch.signalCode !== null) throw new Error(`Command "git fetch --depth=1 origin ${commit}" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
+	if (fetch.exitCode !== 0) throw new Error(`Failed to fetch commit ${commit}: ${fetch.stderr.trim()}`)
+}
+
+export async function validateGitEnvironment(dependencies: { spawnGit: SpawnGit; validateGitRepository: () => Promise<void> }, baseCommit: string, headCommit: string): Promise<void> {
+	await dependencies.validateGitRepository()
 
 	await validateCommitExists(dependencies, baseCommit, "Base")
 	await validateCommitExists(dependencies, headCommit, "Head")

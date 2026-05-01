@@ -16,12 +16,10 @@ export async function getBaseCommitContext(dependencies: GetBaseCommitContextDep
 		throw new Error(`Failed to list files in base commit: ${lsTreeResult.stderr.trim()}`)
 	}
 
-	const allFiles = lsTreeResult.stdout
+	const fileList = lsTreeResult.stdout
 		.split("\n")
 		.map(line => line.trim())
 		.filter(line => line.length > 0)
-
-	const fileList = allFiles
 
 	const filesToFetch = fileList.filter(file => !isBinaryExtension(file))
 

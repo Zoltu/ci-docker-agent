@@ -230,7 +230,7 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => "",
-				validateGitRepository: () => {},
+				validateGitRepository: async () => {},
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -247,7 +247,7 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => SAMPLE_DIFF,
-				validateGitRepository: () => {},
+				validateGitRepository: async () => {},
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Looks good"),
@@ -279,7 +279,7 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => { throw new Error("Diff failed") },
-				validateGitRepository: () => {},
+				validateGitRepository: async () => {},
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -296,7 +296,7 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => SAMPLE_DIFF,
-				validateGitRepository: () => {},
+				validateGitRepository: async () => {},
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi,

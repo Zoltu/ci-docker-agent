@@ -24,6 +24,7 @@ function err(stderr: string): GitDiffResult {
 }
 
 describe("getBaseCommitContext", () => {
+	// Intentionally an integration test against the real .git directory; we keep a small number of these around because they catch environmental issues that mocks cannot.
 	it("returns file list and contents from a real commit", async () => {
 		expect(existsSync(join(PROJECT_ROOT, ".git"))).toBe(true)
 

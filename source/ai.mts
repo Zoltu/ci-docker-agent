@@ -24,8 +24,14 @@ async function runAgent(dependencies: { callApi: CallApi; log: Log }, agent: Age
 async function runAgents(dependencies: { callApi: CallApi; log: Log }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[]): Promise<Map<string, string>> {
 	const reviewResults = await Promise.all(
 		agents.map(async agent => {
-			const output = await runAgent(dependencies, agent, baseCommitContext, diffText)
-			return [agent.name, output] as const
+			try {
+				const output = await runAgent(dependencies, agent, baseCommitContext, diffText)
+				return [agent.name, output] as const
+			} catch (error) {
+				const originalMessage = error instanceof Error ? error.message : String(error)
+				const wrapped = new Error(`Agent "${agent.name}" failed: ${originalMessage}`, { cause: error })
+				throw wrapped
+			}
 		})
 	)
 

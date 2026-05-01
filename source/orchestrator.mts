@@ -4,7 +4,7 @@ import { analyze } from "./ai.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
 import type { CommentTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
 import type { SpawnGit } from "./diff.mts"
-import { validateGitEnvironment } from "./diff.mts"
+import { ensureCommitAvailable, validateGitEnvironment } from "./diff.mts"
 import type { GitHubReviewPayload } from "./github-types.mts"
 import type { Log } from "./logger.mts"
 import type { AiReviewResult } from "./review.mts"
@@ -22,6 +22,7 @@ type RunAnalysisDependencies = {
 async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, diffText: string, baseCommit: string): Promise<AiReviewResult> {
 	const { agents } = await dependencies.loadAgents(agentNames)
 	const aggregator = await dependencies.loadAggregator()
+	await ensureCommitAvailable({ spawnGit: dependencies.spawnGit }, baseCommit)
 	const baseCommitContext = await getBaseCommitContext({ spawnGit: dependencies.spawnGit }, baseCommit)
 	return analyze({ callApi: dependencies.callApi, log: dependencies.log }, baseCommitContext, diffText, agents, aggregator)
 }
@@ -92,7 +93,7 @@ export async function runOnPullRequest(dependencies: RunOnPullRequestDependencie
 type RunOnLocalDiffDependencies = {
 	spawnGit: SpawnGit
 	generateLocalDiff: (baseCommit: string, headCommit: string) => Promise<string>
-	validateGitRepository: () => void
+	validateGitRepository: () => Promise<void>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi

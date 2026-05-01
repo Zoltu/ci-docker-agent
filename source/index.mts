@@ -15,8 +15,8 @@ async function main(): Promise<void> {
 
 	const log = createLogger()
 	const readAgentsFromDisk = createReadAgentsFromDisk()
-	const validateGitRepository = createValidateGitRepository()
 	const spawnGit = createSpawnGit()
+	const validateGitRepository = createValidateGitRepository(spawnGit)
 	const callApi = createDefaultCallApi(Bun.env)
 	const loadAgents = createLoadAgents(agentDirectories, readAgentsFromDisk)
 	const loadAggregator = createLoadAggregator(agentDirectories, readAgentsFromDisk)
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
 				...dependencies,
 				generateLocalDiff: createGenerateLocalDiff(spawnGit),
 			}, configuration)
-			console.log(result)
+			log(result)
 			return
 		}
 		default: assertNever(configuration)
