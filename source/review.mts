@@ -1,6 +1,9 @@
-import type { GitHubReviewPayload } from "./github-types.mts"
+import type { GitHubReviewPayload, LineComment } from "./github-types.mts"
 
-export type AiReviewResult = Omit<GitHubReviewPayload, "event">
+export type AiReviewResult = {
+	body: string
+	comments: LineComment[]
+}
 
 export function buildReviewPayload(aiResult: AiReviewResult): GitHubReviewPayload {
 	return { event: "COMMENT", body: `## CI Agent Review\n\n${aiResult.body}`, comments: aiResult.comments }

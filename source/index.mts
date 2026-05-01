@@ -1,6 +1,5 @@
 import { createLoadAgents, createLoadAggregator, createReadAgentsFromDisk } from "./agents.mts"
 import { createDefaultCallApi } from "./ai.mts"
-import { getBaseCommitContext } from "./base-commit.mts"
 import { createGetConfiguration } from "./configuration.mts"
 import { createGenerateLocalDiff, createSpawnGit, createValidateGitRepository } from "./diff.mts"
 import { createFetchPullRequestBaseCommit, createFetchPullRequestDiff, createGithubFetch, createSubmitReview } from "./github.mts"
@@ -26,7 +25,6 @@ async function main(): Promise<void> {
 	const dependencies = {
 		spawnGit,
 		validateGitRepository,
-		getBaseCommitContext: (baseCommit: string) => getBaseCommitContext({ spawnGit }, baseCommit),
 		loadAgents,
 		loadAggregator,
 		callApi,

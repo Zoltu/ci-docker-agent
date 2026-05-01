@@ -22,16 +22,16 @@ describe("createFetchPullRequestDiff", () => {
 	})
 
 	it("sends Accept: application/vnd.github.diff header", async () => {
-		let capturedHeaders: Record<string, string> = {}
+		let capturedHeaders = new Headers()
 		const githubFetch: GitHubFetch = async (_url, options) => {
-			capturedHeaders = options.headers as Record<string, string>
+			capturedHeaders = new Headers(options.headers)
 			return new Response("", { status: 200 })
 		}
 		const fetchPullRequestDiff = createFetchPullRequestDiff(githubFetch, makeGitHubConfiguration())
 
 		await fetchPullRequestDiff()
 
-		expect(capturedHeaders.Accept).toBe("application/vnd.github.diff")
+		expect(capturedHeaders.get("Accept")).toBe("application/vnd.github.diff")
 	})
 
 	it("throws on non-ok response", async () => {

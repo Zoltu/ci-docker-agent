@@ -1,7 +1,7 @@
 import type { Agent, AgentNames, ResolveResult } from "./agents.mts"
 import type { CallApi } from "./ai.mts"
 import { analyze } from "./ai.mts"
-import type { BaseCommitContext } from "./base-commit.mts"
+import { getBaseCommitContext } from "./base-commit.mts"
 import type { CommentTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
 import type { SpawnGit } from "./diff.mts"
 import { validateGitEnvironment } from "./diff.mts"
@@ -12,24 +12,24 @@ import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import { getAgentsFromComment } from "./trigger.mts"
 
 type RunAnalysisDependencies = {
+	spawnGit: SpawnGit
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi
 	log: Log
-	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 }
 
 async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, diffText: string, baseCommit: string): Promise<AiReviewResult> {
 	const { agents } = await dependencies.loadAgents(agentNames)
 	const aggregator = await dependencies.loadAggregator()
-	const baseCommitContext = await dependencies.getBaseCommitContext(baseCommit)
+	const baseCommitContext = await getBaseCommitContext({ spawnGit: dependencies.spawnGit }, baseCommit)
 	return analyze({ callApi: dependencies.callApi, log: dependencies.log }, baseCommitContext, diffText, agents, aggregator)
 }
 
 type SubmitPrReviewDependencies = {
+	spawnGit: SpawnGit
 	fetchPullRequestDiff: () => Promise<string>
 	fetchPullRequestBaseCommit: () => Promise<string>
-	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi
@@ -53,9 +53,9 @@ async function submitPrReview(dependencies: SubmitPrReviewDependencies, agentNam
 }
 
 type RunOnCommentTriggerDependencies = {
+	spawnGit: SpawnGit
 	fetchPullRequestDiff: () => Promise<string>
 	fetchPullRequestBaseCommit: () => Promise<string>
-	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi
@@ -75,9 +75,9 @@ export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDepen
 }
 
 type RunOnPullRequestDependencies = {
+	spawnGit: SpawnGit
 	fetchPullRequestDiff: () => Promise<string>
 	fetchPullRequestBaseCommit: () => Promise<string>
-	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi
@@ -93,7 +93,6 @@ type RunOnLocalDiffDependencies = {
 	spawnGit: SpawnGit
 	generateLocalDiff: (baseCommit: string, headCommit: string) => Promise<string>
 	validateGitRepository: () => void
-	getBaseCommitContext: (baseCommit: string) => Promise<BaseCommitContext>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
 	callApi: CallApi

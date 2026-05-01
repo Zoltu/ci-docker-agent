@@ -29,9 +29,7 @@ export async function getBaseCommitContext(dependencies: GetBaseCommitContextDep
 	const rawResults = await Promise.all(
 		filesToFetch.map(async file => {
 			const showResult = await spawnGit(["show", `${baseCommit}:${file}`])
-			if (showResult.exitCode !== 0) {
-				throw new Error(`Failed to read file ${file} at commit ${baseCommit}: ${showResult.stderr.trim()}`)
-			}
+			if (showResult.exitCode !== 0) throw new Error(`Failed to read file ${file} at commit ${baseCommit}: ${showResult.stderr.trim()}`)
 			return [file, showResult.stdout] as const
 		})
 	)

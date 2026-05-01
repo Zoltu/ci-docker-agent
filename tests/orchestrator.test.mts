@@ -1,9 +1,8 @@
 import { describe, it, expect } from "bun:test"
 import { runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
 import type { Agent, AgentNames, ResolveResult } from "../source/agents.mts"
-import type { BaseCommitContext } from "../source/base-commit.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
-import { makeAgent, makeBaseCommitContext, makeCommentTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration } from "./helpers.mts"
+import { makeAgent, makeCommentTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration } from "./helpers.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
 import type { CallApi } from "../source/ai.mts"
 
@@ -19,10 +18,6 @@ function makeLoadAggregator(overrides: Partial<Agent> = {}): () => Promise<Agent
 
 function makeCallApi(body: string): CallApi {
 	return async () => JSON.stringify({ body, comments: [] })
-}
-
-function makeGetBaseCommitContext(overrides: Partial<BaseCommitContext> = {}): (baseCommit: string) => Promise<BaseCommitContext> {
-	return async () => makeBaseCommitContext(overrides)
 }
 
 function makeSpawnGitOk(): SpawnGit {
@@ -47,7 +42,7 @@ describe("runOnCommentTrigger", () => {
 			{
 				fetchPullRequestDiff: async () => { fetchCalled = true; return "" },
 				fetchPullRequestBaseCommit: async () => "base123",
-				getBaseCommitContext: makeGetBaseCommitContext(),
+				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -68,7 +63,7 @@ describe("runOnCommentTrigger", () => {
 			{
 				fetchPullRequestDiff: async () => "",
 				fetchPullRequestBaseCommit: async () => "base123",
-				getBaseCommitContext: makeGetBaseCommitContext(),
+				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -88,7 +83,7 @@ describe("runOnCommentTrigger", () => {
 			{
 				fetchPullRequestDiff: async () => SAMPLE_DIFF,
 				fetchPullRequestBaseCommit: async () => "base123",
-				getBaseCommitContext: makeGetBaseCommitContext(),
+				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Good work"),
@@ -112,7 +107,7 @@ describe("runOnPullRequest", () => {
 			{
 				fetchPullRequestDiff: async () => "",
 				fetchPullRequestBaseCommit: async () => "base123",
-				getBaseCommitContext: makeGetBaseCommitContext(),
+				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -132,7 +127,7 @@ describe("runOnPullRequest", () => {
 			{
 				fetchPullRequestDiff: async () => SAMPLE_DIFF,
 				fetchPullRequestBaseCommit: async () => "base123",
-				getBaseCommitContext: makeGetBaseCommitContext(),
+				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Great work"),
@@ -154,7 +149,6 @@ describe("runOnLocalDiff", () => {
 				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => "",
 				validateGitRepository: () => {},
-				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi(""),
@@ -172,7 +166,6 @@ describe("runOnLocalDiff", () => {
 				spawnGit: makeSpawnGitOk(),
 				generateLocalDiff: async () => SAMPLE_DIFF,
 				validateGitRepository: () => {},
-				getBaseCommitContext: makeGetBaseCommitContext(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
 				callApi: makeCallApi("Looks good"),

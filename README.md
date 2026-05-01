@@ -132,10 +132,6 @@ Output is printed to stdout in a human-readable format:
 ### Line Comments
 - file.ts:42 (RIGHT): [Specific feedback]
 - other.ts:10 (LEFT): [Specific feedback]
-
-### Files Analyzed
-- file.ts (modified): +10 -5
-- other.ts (added): +20 -0
 ```
 
 ### GitHub PR Mode
