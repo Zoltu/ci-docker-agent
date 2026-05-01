@@ -85,23 +85,6 @@ export function createSubmitReview(githubFetch: GitHubFetch, configuration: GitH
 	}
 }
 
-export function createReactToComment(githubFetch: GitHubFetch, configuration: GitHubConfiguration): (commentId: number, content: string) => Promise<void> {
-	return async function reactToComment(commentId: number, content: string): Promise<void> {
-		const { apiUrl, token, owner, repositoryName } = configuration
-
-		const response = await githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/issues/comments/${commentId}/reactions`, {
-			method: "POST",
-			headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" },
-			body: JSON.stringify({ content }),
-		})
-
-		if (!response.ok) {
-			const body = await response.text().catch(() => "")
-			throw new Error(`Failed to react to comment: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
-		}
-	}
-}
-
 function isValidPrMetadata(data: unknown): data is { base: { sha: string } } {
 	if (typeof data !== "object") return false
 	if (data === null) return false

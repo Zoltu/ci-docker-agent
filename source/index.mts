@@ -3,7 +3,7 @@ import { createDefaultCallApi } from "./ai.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
 import { createGetConfiguration } from "./configuration.mts"
 import { createGenerateLocalDiff, createSpawnGit, createValidateGitRepository } from "./diff.mts"
-import { createFetchPullRequestBaseCommit, createFetchPullRequestDiff, createGithubFetch, createReactToComment, createSubmitReview } from "./github.mts"
+import { createFetchPullRequestBaseCommit, createFetchPullRequestDiff, createGithubFetch, createSubmitReview } from "./github.mts"
 import { createLogger } from "./logger.mts"
 import { runOnCommentTrigger, runOnLocalDiff, runOnPullRequest } from "./orchestrator.mts"
 import { BUILTIN_AGENTS_DIRECTORY, USER_AGENTS_DIRECTORY } from "./paths.mts"
@@ -40,7 +40,6 @@ async function main(): Promise<void> {
 				fetchPullRequestDiff: createFetchPullRequestDiff(githubFetch, configuration.github),
 				fetchPullRequestBaseCommit: createFetchPullRequestBaseCommit(githubFetch, configuration.github),
 				submitReview: createSubmitReview(githubFetch, configuration.github),
-				reactToComment: createReactToComment(githubFetch, configuration.github),
 			}, configuration)
 		}
 		case "pull-request": {

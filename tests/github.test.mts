@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { createFetchPullRequestDiff, createFetchPullRequestBaseCommit, createSubmitReview, createReactToComment, type GitHubFetch } from "../source/github.mts"
+import { createFetchPullRequestDiff, createFetchPullRequestBaseCommit, createSubmitReview, type GitHubFetch } from "../source/github.mts"
 import { makeGitHubConfiguration } from "./helpers.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
 
@@ -57,22 +57,6 @@ describe("createSubmitReview", () => {
 
 		const review: GitHubReviewPayload = { event: "COMMENT", body: "Great work", comments: [] }
 		expect(submitReview(review)).rejects.toThrow("Failed to submit review")
-	})
-})
-
-describe("createReactToComment", () => {
-	it("reacts to a comment successfully", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(null, { status: 200 })
-		const reactToComment = createReactToComment(githubFetch, makeGitHubConfiguration())
-
-		await reactToComment(123, "-1")
-	})
-
-	it("throws on non-ok response", async () => {
-		const githubFetch: GitHubFetch = async () => new Response("Error", { status: 403, statusText: "Forbidden" })
-		const reactToComment = createReactToComment(githubFetch, makeGitHubConfiguration())
-
-		expect(reactToComment(123, "-1")).rejects.toThrow("Failed to react to comment")
 	})
 })
 

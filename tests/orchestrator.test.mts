@@ -42,7 +42,6 @@ describe("runOnCommentTrigger", () => {
 	it("returns early when comment does not trigger review", async () => {
 		let fetchCalled = false
 		let submitCalled = false
-		let reactCalled = false
 
 		await runOnCommentTrigger(
 			{
@@ -54,14 +53,12 @@ describe("runOnCommentTrigger", () => {
 				callApi: makeCallApi(""),
 				log: silentLog,
 				submitReview: async () => { submitCalled = true },
-				reactToComment: async () => { reactCalled = true },
 			},
 			makeCommentTriggerConfiguration({ commentBody: "just a comment" })
 		)
 
 		expect(fetchCalled).toBe(false)
 		expect(submitCalled).toBe(false)
-		expect(reactCalled).toBe(false)
 	})
 
 	it("returns early when no files changed", async () => {
@@ -77,7 +74,6 @@ describe("runOnCommentTrigger", () => {
 				callApi: makeCallApi(""),
 				log: silentLog,
 				submitReview: async () => { submitCalled = true },
-				reactToComment: async () => {},
 			},
 			makeCommentTriggerConfiguration()
 		)
@@ -98,7 +94,6 @@ describe("runOnCommentTrigger", () => {
 				callApi: makeCallApi("Good work"),
 				log: silentLog,
 				submitReview: async (review) => { submittedReview = review },
-				reactToComment: async () => {},
 			},
 			makeCommentTriggerConfiguration()
 		)
@@ -106,32 +101,6 @@ describe("runOnCommentTrigger", () => {
 		expect(submittedReview).not.toBeNull()
 		expect(submittedReview!.event).toBe("COMMENT")
 		expect(submittedReview!.body).toContain("Good work")
-	})
-
-	it("reacts with -1 on error", async () => {
-		let reactedId = 0
-		let reactedContent = ""
-
-		try {
-			await runOnCommentTrigger(
-				{
-					fetchPullRequestDiff: async () => SAMPLE_DIFF,
-					fetchPullRequestBaseCommit: async () => "base123",
-					getBaseCommitContext: makeGetBaseCommitContext(),
-					loadAgents: makeLoadAgents([makeAgent()]),
-					loadAggregator: makeLoadAggregator(),
-					callApi: makeCallApi("Good work"),
-					log: silentLog,
-					submitReview: async () => { throw new Error("submit failed") },
-					reactToComment: async (id, content) => { reactedId = id; reactedContent = content },
-				},
-				makeCommentTriggerConfiguration({ commentId: 42 })
-			)
-			expect(false).toBe(true)
-		} catch {
-			expect(reactedId).toBe(42)
-			expect(reactedContent).toBe("-1")
-		}
 	})
 })
 

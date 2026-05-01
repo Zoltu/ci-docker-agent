@@ -1,8 +1,5 @@
-import ignore from "ignore"
 import type { SpawnGit } from "./diff.mts"
-import { classifyFileByExtension, isContentText } from "./text-detection.mts"
-
-export { AMBIGUOUS_FILE_EXTENSIONS, BINARY_FILE_EXTENSIONS, TEXT_FILE_EXTENSIONS } from "./text-detection.mts"
+import { isBinaryExtension, isContentText } from "./text-detection.mts"
 
 export interface BaseCommitContext {
 	fileList: string[]
@@ -25,25 +22,9 @@ export async function getBaseCommitContext(dependencies: GetBaseCommitContextDep
 		.map(line => line.trim())
 		.filter(line => line.length > 0)
 
-	const ig = ignore()
-	ig.add(".git/")
+	const fileList = allFiles
 
-	const gitignoreResult = await spawnGit(["ls-tree", baseCommit, "--", ".gitignore"])
-	if (gitignoreResult.stdout.trim().length > 0) {
-		const showResult = await spawnGit(["show", `${baseCommit}:.gitignore`])
-		if (showResult.exitCode === 0) {
-			ig.add(showResult.stdout)
-		}
-	}
-
-	const fileList = ig.filter(allFiles)
-
-	const classifications = new Map<string, "text" | "binary" | "ambiguous">()
-	for (const file of fileList) {
-		classifications.set(file, classifyFileByExtension(file))
-	}
-
-	const filesToFetch = fileList.filter(file => classifications.get(file) !== "binary")
+	const filesToFetch = fileList.filter(file => !isBinaryExtension(file))
 
 	const rawResults = await Promise.all(
 		filesToFetch.map(async file => {
@@ -57,8 +38,7 @@ export async function getBaseCommitContext(dependencies: GetBaseCommitContextDep
 
 	const fileContents = new Map<string, string>()
 	for (const [file, content] of rawResults) {
-		const classification = classifications.get(file)
-		if (classification !== "text" && !isContentText(content)) continue
+		if (!isContentText(content)) continue
 		fileContents.set(file, content)
 	}
 

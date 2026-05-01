@@ -61,7 +61,6 @@ type RunOnCommentTriggerDependencies = {
 	callApi: CallApi
 	log: Log
 	submitReview: (review: GitHubReviewPayload) => Promise<void>
-	reactToComment: (commentId: number, content: string) => Promise<void>
 }
 
 export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDependencies, configuration: CommentTriggerConfiguration): Promise<void> {
@@ -72,17 +71,7 @@ export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDepen
 		return
 	}
 
-	try {
-		await submitPrReview(dependencies, triggerResult)
-	} catch (error) {
-		try {
-			// Alert the user that something went wrong (the review itself is the positive feedback)
-			await dependencies.reactToComment(configuration.commentId, "-1")
-		} catch (reactionError) {
-			console.error(`Failed to react to comment ${configuration.commentId} with "-1":`, reactionError)
-		}
-		throw error
-	}
+	await submitPrReview(dependencies, triggerResult)
 }
 
 type RunOnPullRequestDependencies = {
