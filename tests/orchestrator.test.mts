@@ -97,6 +97,55 @@ describe("runOnCommentTrigger", () => {
 		expect(submittedReview!.event).toBe("COMMENT")
 		expect(submittedReview!.body).toContain("Good work")
 	})
+	it("propagates error when loadAgents throws", async () => {
+		const loadAgents = async (): Promise<ResolveResult> => { throw new Error("Agent load failure") }
+
+		expect(runOnCommentTrigger(
+			{
+				fetchPullRequestDiff: async () => SAMPLE_DIFF,
+				fetchPullRequestBaseCommit: async () => "base123",
+				spawnGit: makeSpawnGitOk(),
+				loadAgents,
+				loadAggregator: makeLoadAggregator(),
+				callApi: makeCallApi(""),
+				log: silentLog,
+				submitReview: async () => {},
+			},
+			makeCommentTriggerConfiguration()
+		)).rejects.toThrow("Agent load failure")
+	})
+
+	it("propagates error when fetchPullRequestDiff throws", async () => {
+		expect(runOnCommentTrigger(
+			{
+				fetchPullRequestDiff: async () => { throw new Error("API error") },
+				fetchPullRequestBaseCommit: async () => "base123",
+				spawnGit: makeSpawnGitOk(),
+				loadAgents: makeLoadAgents([]),
+				loadAggregator: makeLoadAggregator(),
+				callApi: makeCallApi(""),
+				log: silentLog,
+				submitReview: async () => {},
+			},
+			makeCommentTriggerConfiguration()
+		)).rejects.toThrow("API error")
+	})
+
+	it("propagates error when submitReview throws", async () => {
+		expect(runOnCommentTrigger(
+			{
+				fetchPullRequestDiff: async () => SAMPLE_DIFF,
+				fetchPullRequestBaseCommit: async () => "base123",
+				spawnGit: makeSpawnGitOk(),
+				loadAgents: makeLoadAgents([makeAgent()]),
+				loadAggregator: makeLoadAggregator(),
+				callApi: makeCallApi("Good work"),
+				log: silentLog,
+				submitReview: async () => { throw new Error("Submit failed") },
+			},
+			makeCommentTriggerConfiguration()
+		)).rejects.toThrow("Submit failed")
+	})
 })
 
 describe("runOnPullRequest", () => {
@@ -140,6 +189,39 @@ describe("runOnPullRequest", () => {
 		expect(submittedReview).not.toBeNull()
 		expect(submittedReview!.body).toContain("Great work")
 	})
+	it("propagates error when loadAgents throws", async () => {
+		const loadAgents = async (): Promise<ResolveResult> => { throw new Error("Agent load failure") }
+
+		expect(runOnPullRequest(
+			{
+				fetchPullRequestDiff: async () => SAMPLE_DIFF,
+				fetchPullRequestBaseCommit: async () => "base123",
+				spawnGit: makeSpawnGitOk(),
+				loadAgents,
+				loadAggregator: makeLoadAggregator(),
+				callApi: makeCallApi(""),
+				log: silentLog,
+				submitReview: async () => {},
+			},
+			makePullRequestConfiguration()
+		)).rejects.toThrow("Agent load failure")
+	})
+
+	it("propagates error when fetchPullRequestDiff throws", async () => {
+		expect(runOnPullRequest(
+			{
+				fetchPullRequestDiff: async () => { throw new Error("API error") },
+				fetchPullRequestBaseCommit: async () => "base123",
+				spawnGit: makeSpawnGitOk(),
+				loadAgents: makeLoadAgents([]),
+				loadAggregator: makeLoadAggregator(),
+				callApi: makeCallApi(""),
+				log: silentLog,
+				submitReview: async () => {},
+			},
+			makePullRequestConfiguration()
+		)).rejects.toThrow("API error")
+	})
 })
 
 describe("runOnLocalDiff", () => {
@@ -175,5 +257,52 @@ describe("runOnLocalDiff", () => {
 		)
 
 		expect(result).toContain("Looks good")
+	})
+
+	it("propagates error when validateGitRepository throws", async () => {
+		expect(runOnLocalDiff(
+			{
+				spawnGit: makeSpawnGitOk(),
+				generateLocalDiff: async () => "",
+				validateGitRepository: () => { throw new Error("No git repository") },
+				loadAgents: makeLoadAgents([]),
+				loadAggregator: makeLoadAggregator(),
+				callApi: makeCallApi(""),
+				log: silentLog,
+			},
+			makeLocalDiffConfiguration()
+		)).rejects.toThrow("No git repository")
+	})
+
+	it("propagates error when generateLocalDiff throws", async () => {
+		expect(runOnLocalDiff(
+			{
+				spawnGit: makeSpawnGitOk(),
+				generateLocalDiff: async () => { throw new Error("Diff failed") },
+				validateGitRepository: () => {},
+				loadAgents: makeLoadAgents([]),
+				loadAggregator: makeLoadAggregator(),
+				callApi: makeCallApi(""),
+				log: silentLog,
+			},
+			makeLocalDiffConfiguration()
+		)).rejects.toThrow("Diff failed")
+	})
+
+	it("propagates error when callApi returns invalid JSON", async () => {
+		const callApi: CallApi = async () => "not json"
+
+		expect(runOnLocalDiff(
+			{
+				spawnGit: makeSpawnGitOk(),
+				generateLocalDiff: async () => SAMPLE_DIFF,
+				validateGitRepository: () => {},
+				loadAgents: makeLoadAgents([makeAgent()]),
+				loadAggregator: makeLoadAggregator(),
+				callApi,
+				log: silentLog,
+			},
+			makeLocalDiffConfiguration()
+		)).rejects.toThrow(SyntaxError)
 	})
 })

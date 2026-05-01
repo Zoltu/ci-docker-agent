@@ -15,8 +15,12 @@ describe("getAgentsFromComment", () => {
 			expect(getAgentsFromComment("hello world")).toBe("no review triggered")
 		})
 
-		it("returns 'no review triggered' when /review is not at start of line", () => {
+		it("returns 'no review triggered' when /review is not at start of comment", () => {
 			expect(getAgentsFromComment("please /review")).toBe("no review triggered")
+		})
+
+		it("returns 'no review triggered' when /review is inside a code block", () => {
+			expect(getAgentsFromComment("```\n/review SecurityAgent\n```")).toBe("no review triggered")
 		})
 	})
 

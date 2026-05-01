@@ -11,8 +11,7 @@ type GetBaseCommitContextDependencies = {
 }
 
 export async function getBaseCommitContext(dependencies: GetBaseCommitContextDependencies, baseCommit: string): Promise<BaseCommitContext> {
-	const { spawnGit } = dependencies
-	const lsTreeResult = await spawnGit(["ls-tree", "-r", "--name-only", baseCommit])
+	const lsTreeResult = await dependencies.spawnGit(["ls-tree", "-r", "--name-only", baseCommit])
 	if (lsTreeResult.exitCode !== 0) {
 		throw new Error(`Failed to list files in base commit: ${lsTreeResult.stderr.trim()}`)
 	}
@@ -28,7 +27,7 @@ export async function getBaseCommitContext(dependencies: GetBaseCommitContextDep
 
 	const rawResults = await Promise.all(
 		filesToFetch.map(async file => {
-			const showResult = await spawnGit(["show", `${baseCommit}:${file}`])
+			const showResult = await dependencies.spawnGit(["show", `${baseCommit}:${file}`])
 			if (showResult.exitCode !== 0) throw new Error(`Failed to read file ${file} at commit ${baseCommit}: ${showResult.stderr.trim()}`)
 			return [file, showResult.stdout] as const
 		})

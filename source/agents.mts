@@ -59,22 +59,20 @@ function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinA
 		: requestedNames
 
 	const seenNames = new Set<string>()
+	const agents: Agent[] = []
+	const unresolvedNames: string[] = []
 	for (const name of resolvedNames) {
 		const key = name.toLowerCase()
 		if (seenNames.has(key)) throw new Error(`Duplicate agent name: "${name}"`)
 		seenNames.add(key)
-	}
 
-	const agents: Agent[] = []
-	const unresolvedNames: string[] = []
-	for (const name of resolvedNames) {
-		const userAgent = filteredUserAgents.find(a => a.name.toLowerCase() === name.toLowerCase())
+		const userAgent = filteredUserAgents.find(a => a.name.toLowerCase() === key)
 		if (userAgent) {
 			agents.push(userAgent)
 			continue
 		}
 
-		const builtinAgent = filteredBuiltinAgents.find(a => a.name.toLowerCase() === name.toLowerCase())
+		const builtinAgent = filteredBuiltinAgents.find(a => a.name.toLowerCase() === key)
 		if (builtinAgent) {
 			agents.push(builtinAgent)
 			continue

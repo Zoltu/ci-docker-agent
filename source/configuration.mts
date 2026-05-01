@@ -1,6 +1,6 @@
 import type { AgentNames } from "./agents.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
-import { includes } from "./typescript-helpers.mts"
+import { includes, parseCommaSeparatedList } from "./typescript-helpers.mts"
 
 const EVENT_TYPES = ["pull_request_target", "workflow_dispatch", "issue_comment", "local"] as const
 
@@ -32,7 +32,7 @@ type TryResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 
 function parseAgents(value: string | undefined): AgentNames {
 	if (!value) return "run all agents"
-	return value.split(",").map(a => a.trim()).filter(a => a.length > 0)
+	return parseCommaSeparatedList(value)
 }
 
 function tryParseGitHubConfiguration(environment: Record<string, string | undefined>): TryResult<GitHubConfiguration> {
