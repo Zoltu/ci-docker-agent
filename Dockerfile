@@ -68,10 +68,9 @@ WORKDIR /github/workspace
 # Must stay in sync with source/paths.mts BUILTIN_AGENTS_DIRECTORY
 COPY --from=builder /ci-agent/agents/ /ci-agent/agents/
 COPY --from=builder /ci-agent/source/ /ci-agent/source/
-COPY --from=builder /ci-agent/package.json /ci-agent/package.json
-COPY --from=builder /ci-agent/bun.lock /ci-agent/bun.lock
-WORKDIR /ci-agent
-RUN bun run setup-production
-WORKDIR /github/workspace
+
+# Must stay in sync with source/paths.mts DEBUG_DIRECTORY
+RUN mkdir -p /debug
+VOLUME /debug
 
 ENTRYPOINT ["bun", "/ci-agent/source/index.mts"]

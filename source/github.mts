@@ -1,5 +1,5 @@
 import type { GitHubConfiguration, GitHubReviewPayload } from "./github-types.mts"
-import type { Log } from "./logger.mts"
+import type { Logger } from "./logger.mts"
 
 const REQUEST_TIMEOUT_MILLISECONDS = 10_000
 const RETRY_DELAY_MILLISECONDS = 30_000
@@ -7,7 +7,7 @@ const DEADLINE_MILLISECONDS = 300_000
 
 export type GitHubFetch = (url: string, options: RequestInit) => Promise<Response>
 
-export function createGithubFetch(log: Log): GitHubFetch {
+export function createGithubFetch(logger: Logger): GitHubFetch {
 	return async function githubFetch(url: string, options: RequestInit): Promise<Response> {
 		// Intentionally only retries rate limiting (429); all other errors fail fast
 		const deadline = Date.now() + DEADLINE_MILLISECONDS
@@ -27,7 +27,7 @@ export function createGithubFetch(log: Log): GitHubFetch {
 
 					const retryAfter = response.headers.get("Retry-After")
 					const delay = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : RETRY_DELAY_MILLISECONDS
-					log(`Rate limited (429), retrying in ${delay / 1000}s`)
+					logger.log(`Rate limited (429), retrying in ${delay / 1000}s`)
 					await new Promise(resolve => setTimeout(resolve, delay))
 					continue
 				}
@@ -42,7 +42,7 @@ export function createGithubFetch(log: Log): GitHubFetch {
 					throw new Error(`GitHub API request exceeded ${DEADLINE_MILLISECONDS / 1000}s deadline`)
 				}
 
-				log(`Request timed out after ${REQUEST_TIMEOUT_MILLISECONDS / 1000}s, retrying in ${RETRY_DELAY_MILLISECONDS / 1000}s`)
+				logger.log(`Request timed out after ${REQUEST_TIMEOUT_MILLISECONDS / 1000}s, retrying in ${RETRY_DELAY_MILLISECONDS / 1000}s`)
 
 				await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MILLISECONDS))
 			}

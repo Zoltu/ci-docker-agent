@@ -21,13 +21,16 @@ Analyze the difference between two git commits locally. The output is printed to
 #### Example
 
 ```bash
-docker container run --rm -it --mount="type=bind,source=$(pwd),target=/github/workspace" --workdir='/github/workspace' --env="BASE_COMMIT=$(git rev-parse HEAD~1)" --env="HEAD_COMMIT=$(git rev-parse HEAD)" ci-agent:latest
+docker container run --rm -it --mount="type=bind,source=$(pwd),target=/github/workspace" --env="BASE_COMMIT=$(git rev-parse HEAD~1)" --env="HEAD_COMMIT=$(git rev-parse HEAD)" --env="AI_API_URL=https://api.ppq.ai" --env="AI_MODEL=z-ai/glm-5.1" --env="AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxx" ci-agent:latest
 ```
 
 #### Environment Variables
 - `BASE_COMMIT` - The base commit hash (required)
 - `HEAD_COMMIT` - The head commit hash (required)
 - `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
+- `AI_API_URL` - Base URL of the OpenAI-compatible API (required, e.g. `https://api.openai.com/v1`)
+- `AI_MODEL` - Model name to use (required, e.g. `gpt-4`)
+- `AI_API_KEY` - API key for authentication (optional, omit for local models that don't require auth)
 
 ### Mode 2: GitHub PR Review
 
@@ -53,6 +56,9 @@ docker run -it \
 - `REPO` - The repository in `owner/name` format (required)
 - `GITHUB_API_URL` - Custom GitHub API URL (optional, defaults to `https://api.github.com`)
 - `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
+- `AI_API_URL` - Base URL of the OpenAI-compatible API (required, e.g. `https://api.openai.com/v1`)
+- `AI_MODEL` - Model name to use (required, e.g. `gpt-4`)
+- `AI_API_KEY` - API key for authentication (optional, omit for local models that don't require auth)
 
 ### Trigger Commands (GitHub Mode)
 

@@ -2,11 +2,13 @@ import { describe, it, expect } from "bun:test"
 import { runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
 import type { Agent, AgentNames, ResolveResult } from "../source/agents.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
-import { makeAgent, makeCommentTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration } from "./helpers.mts"
+import { makeAgent, makeCommentTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration, createMockLogger, createMockStream, wrapInSse } from "./helpers.mts"
+import type { DebugWriter } from "../source/debug.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
-import type { CallApi } from "../source/ai.mts"
+import type { AiFetch } from "../source/ai.mts"
 
-const silentLog = () => {}
+const silentLogger = createMockLogger()
+const noopDebugWriter: DebugWriter = { writePrompt: () => {}, writeContent: () => {}, writeReasoning: () => {} }
 
 function makeLoadAgents(agents: Agent[]): (agentNames: AgentNames) => Promise<ResolveResult> {
 	return async (_agentNames: AgentNames) => ({ agents, unresolvedNames: [] })
@@ -16,8 +18,9 @@ function makeLoadAggregator(overrides: Partial<Agent> = {}): () => Promise<Agent
 	return async () => ({ name: "Aggregator", prompt: "Aggregate.", ...overrides })
 }
 
-function makeCallApi(body: string): CallApi {
-	return async () => JSON.stringify({ body, comments: [] })
+function makeAiFetch(body: string): AiFetch {
+	const output = JSON.stringify({ body, comments: [] })
+	return async (_prompt: string, _signal: AbortSignal) => createMockStream([wrapInSse(output)])
 }
 
 function makeSpawnGitOk(): SpawnGit {
@@ -45,8 +48,9 @@ describe("runOnCommentTrigger", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async () => { submitCalled = true },
 			},
 			makeCommentTriggerConfiguration({ commentBody: "just a comment" })
@@ -66,8 +70,9 @@ describe("runOnCommentTrigger", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async () => { submitCalled = true },
 			},
 			makeCommentTriggerConfiguration()
@@ -86,8 +91,9 @@ describe("runOnCommentTrigger", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi("Good work"),
-				log: silentLog,
+				aiFetch: makeAiFetch("Good work"),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async (review) => { submittedReview = review },
 			},
 			makeCommentTriggerConfiguration()
@@ -107,8 +113,9 @@ describe("runOnCommentTrigger", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents,
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async () => {},
 			},
 			makeCommentTriggerConfiguration()
@@ -123,8 +130,9 @@ describe("runOnCommentTrigger", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async () => {},
 			},
 			makeCommentTriggerConfiguration()
@@ -139,8 +147,9 @@ describe("runOnCommentTrigger", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi("Good work"),
-				log: silentLog,
+				aiFetch: makeAiFetch("Good work"),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async () => { throw new Error("Submit failed") },
 			},
 			makeCommentTriggerConfiguration()
@@ -159,8 +168,9 @@ describe("runOnPullRequest", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async () => { submitCalled = true },
 			},
 			makePullRequestConfiguration()
@@ -179,8 +189,9 @@ describe("runOnPullRequest", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi("Great work"),
-				log: silentLog,
+				aiFetch: makeAiFetch("Great work"),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async (review) => { submittedReview = review },
 			},
 			makePullRequestConfiguration()
@@ -199,8 +210,9 @@ describe("runOnPullRequest", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents,
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async () => {},
 			},
 			makePullRequestConfiguration()
@@ -215,8 +227,9 @@ describe("runOnPullRequest", () => {
 				spawnGit: makeSpawnGitOk(),
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 				submitReview: async () => {},
 			},
 			makePullRequestConfiguration()
@@ -233,8 +246,9 @@ describe("runOnLocalDiff", () => {
 				validateGitRepository: async () => {},
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration()
 		)
@@ -250,8 +264,9 @@ describe("runOnLocalDiff", () => {
 				validateGitRepository: async () => {},
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi("Looks good"),
-				log: silentLog,
+				aiFetch: makeAiFetch("Looks good"),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration()
 		)
@@ -267,8 +282,9 @@ describe("runOnLocalDiff", () => {
 				validateGitRepository: () => { throw new Error("No git repository") },
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration()
 		)).rejects.toThrow("No git repository")
@@ -282,15 +298,16 @@ describe("runOnLocalDiff", () => {
 				validateGitRepository: async () => {},
 				loadAgents: makeLoadAgents([]),
 				loadAggregator: makeLoadAggregator(),
-				callApi: makeCallApi(""),
-				log: silentLog,
+				aiFetch: makeAiFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration()
 		)).rejects.toThrow("Diff failed")
 	})
 
-	it("propagates error when callApi returns invalid JSON", async () => {
-		const callApi: CallApi = async () => "not json"
+	it("propagates error when aiFetch returns invalid JSON", async () => {
+		const aiFetch: AiFetch = async (_prompt, _signal) => createMockStream([wrapInSse("not json")])
 
 		expect(runOnLocalDiff(
 			{
@@ -299,10 +316,11 @@ describe("runOnLocalDiff", () => {
 				validateGitRepository: async () => {},
 				loadAgents: makeLoadAgents([makeAgent()]),
 				loadAggregator: makeLoadAggregator(),
-				callApi,
-				log: silentLog,
+				aiFetch,
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration()
-		)).rejects.toThrow(SyntaxError)
+		)).rejects.toThrow(/Failed to parse aggregator output as JSON/)
 	})
 })

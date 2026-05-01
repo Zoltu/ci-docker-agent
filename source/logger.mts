@@ -1,7 +1,9 @@
-export type Log = (...data: unknown[]) => void
+export interface Logger {
+	log: (...data: unknown[]) => void
+}
 
-export function createLogger(): Log {
-	return function log(...data: unknown[]): void {
-		console.log(...data)
+export function createLogger(): Logger {
+	return {
+		log: (...data: unknown[]): void => { console.log(...data) },
 	}
 }

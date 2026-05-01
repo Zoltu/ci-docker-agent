@@ -1,11 +1,12 @@
+import { createAiFetch, parseAiConfiguration } from "./ai.mts"
 import { createLoadAgents, createLoadAggregator, createReadAgentsFromDisk } from "./agents.mts"
-import { createDefaultCallApi } from "./ai.mts"
 import { createGetConfiguration } from "./configuration.mts"
 import { createGenerateLocalDiff, createSpawnGit, createValidateGitRepository } from "./diff.mts"
+import { createDebugWriter } from "./debug.mts"
 import { createFetchPullRequestBaseCommit, createFetchPullRequestDiff, createGithubFetch, createSubmitReview } from "./github.mts"
 import { createLogger } from "./logger.mts"
 import { runOnCommentTrigger, runOnLocalDiff, runOnPullRequest } from "./orchestrator.mts"
-import { BUILTIN_AGENTS_DIRECTORY, USER_AGENTS_DIRECTORY } from "./paths.mts"
+import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, USER_AGENTS_DIRECTORY } from "./paths.mts"
 import { assertNever } from "./typescript-helpers.mts"
 
 async function main(): Promise<void> {
@@ -13,22 +14,25 @@ async function main(): Promise<void> {
 	const configuration = getConfiguration()
 	const agentDirectories = { userAgentsDirectory: USER_AGENTS_DIRECTORY, builtinAgentsDirectory: BUILTIN_AGENTS_DIRECTORY }
 
-	const log = createLogger()
+	const logger = createLogger()
+	const debugWriter = createDebugWriter(DEBUG_DIRECTORY)
 	const readAgentsFromDisk = createReadAgentsFromDisk()
 	const spawnGit = createSpawnGit()
 	const validateGitRepository = createValidateGitRepository(spawnGit)
-	const callApi = createDefaultCallApi(Bun.env)
+	const aiConfiguration = parseAiConfiguration(Bun.env)
+	const aiFetch = createAiFetch(aiConfiguration)
 	const loadAgents = createLoadAgents(agentDirectories, readAgentsFromDisk)
 	const loadAggregator = createLoadAggregator(agentDirectories, readAgentsFromDisk)
-	const githubFetch = createGithubFetch(log)
+	const githubFetch = createGithubFetch(logger)
 
 	const dependencies = {
 		spawnGit,
 		validateGitRepository,
 		loadAgents,
 		loadAggregator,
-		callApi,
-		log,
+		aiFetch,
+		logger,
+		debugWriter,
 	}
 
 	switch (configuration.type) {
@@ -53,12 +57,15 @@ async function main(): Promise<void> {
 				...dependencies,
 				generateLocalDiff: createGenerateLocalDiff(spawnGit),
 			}, configuration)
-			log(result)
+			logger.log(result)
 			return
 		}
 		default: assertNever(configuration)
 	}
 }
+
+process.on("SIGINT", () => process.exit(130))
+process.on("SIGTERM", () => process.exit(143))
 
 main().catch(error => {
 	console.error("CI Agent failed:", error)

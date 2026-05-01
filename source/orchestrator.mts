@@ -1,12 +1,13 @@
 import type { Agent, AgentNames, ResolveResult } from "./agents.mts"
-import type { CallApi } from "./ai.mts"
+import type { AiFetch } from "./ai.mts"
 import { analyze } from "./ai.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
 import type { CommentTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
 import type { SpawnGit } from "./diff.mts"
 import { ensureCommitAvailable, validateGitEnvironment } from "./diff.mts"
+import type { DebugWriter } from "./debug.mts"
 import type { GitHubReviewPayload } from "./github-types.mts"
-import type { Log } from "./logger.mts"
+import type { Logger } from "./logger.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import { getAgentsFromComment } from "./trigger.mts"
@@ -15,8 +16,9 @@ type RunAnalysisDependencies = {
 	spawnGit: SpawnGit
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
-	callApi: CallApi
-	log: Log
+	aiFetch: AiFetch
+	logger: Logger
+	debugWriter: DebugWriter
 }
 
 async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, diffText: string, baseCommit: string): Promise<AiReviewResult> {
@@ -24,7 +26,7 @@ async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: Ag
 	const aggregator = await dependencies.loadAggregator()
 	await ensureCommitAvailable({ spawnGit: dependencies.spawnGit }, baseCommit)
 	const baseCommitContext = await getBaseCommitContext({ spawnGit: dependencies.spawnGit }, baseCommit)
-	return analyze({ callApi: dependencies.callApi, log: dependencies.log }, baseCommitContext, diffText, agents, aggregator)
+	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator)
 }
 
 type SubmitPrReviewDependencies = {
@@ -33,24 +35,27 @@ type SubmitPrReviewDependencies = {
 	fetchPullRequestBaseCommit: () => Promise<string>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
-	callApi: CallApi
-	log: Log
+	aiFetch: AiFetch
+	logger: Logger
 	submitReview: (review: GitHubReviewPayload) => Promise<void>
+	debugWriter: DebugWriter
 }
 
 async function submitPrReview(dependencies: SubmitPrReviewDependencies, agentNames: AgentNames): Promise<void> {
-	const diffText = await dependencies.fetchPullRequestDiff()
+	const [diffText, baseCommit] = await Promise.all([
+		dependencies.fetchPullRequestDiff(),
+		dependencies.fetchPullRequestBaseCommit(),
+	])
 
 	if (diffText.trim() === "") {
-		dependencies.log("No files changed, nothing to review")
+		dependencies.logger.log("No files changed, nothing to review")
 		return
 	}
 
-	const baseCommit = await dependencies.fetchPullRequestBaseCommit()
 	const aiResult = await runAnalysis(dependencies, agentNames, diffText, baseCommit)
 	const reviewPayload = buildReviewPayload(aiResult)
 	await dependencies.submitReview(reviewPayload)
-	dependencies.log("PR review submitted successfully")
+	dependencies.logger.log("PR review submitted successfully")
 }
 
 type RunOnCommentTriggerDependencies = {
@@ -59,16 +64,17 @@ type RunOnCommentTriggerDependencies = {
 	fetchPullRequestBaseCommit: () => Promise<string>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
-	callApi: CallApi
-	log: Log
+	aiFetch: AiFetch
+	logger: Logger
 	submitReview: (review: GitHubReviewPayload) => Promise<void>
+	debugWriter: DebugWriter
 }
 
 export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDependencies, configuration: CommentTriggerConfiguration): Promise<void> {
 	const triggerResult = getAgentsFromComment(configuration.commentBody)
 
 	if (triggerResult === "no review triggered") {
-		dependencies.log("No /review trigger found in comment")
+		dependencies.logger.log("No /review trigger found in comment")
 		return
 	}
 
@@ -81,9 +87,10 @@ type RunOnPullRequestDependencies = {
 	fetchPullRequestBaseCommit: () => Promise<string>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
-	callApi: CallApi
-	log: Log
+	aiFetch: AiFetch
+	logger: Logger
 	submitReview: (review: GitHubReviewPayload) => Promise<void>
+	debugWriter: DebugWriter
 }
 
 export async function runOnPullRequest(dependencies: RunOnPullRequestDependencies, configuration: PullRequestConfiguration): Promise<void> {
@@ -96,8 +103,9 @@ type RunOnLocalDiffDependencies = {
 	validateGitRepository: () => Promise<void>
 	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
 	loadAggregator: () => Promise<Agent>
-	callApi: CallApi
-	log: Log
+	aiFetch: AiFetch
+	logger: Logger
+	debugWriter: DebugWriter
 }
 
 export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration): Promise<string> {

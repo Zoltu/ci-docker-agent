@@ -1,7 +1,8 @@
 import type { Agent } from "../source/agents.mts"
 import type { BaseCommitContext } from "../source/base-commit.mts"
-import type { GitHubConfiguration } from "../source/github-types.mts"
 import type { CommentTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "../source/configuration.mts"
+import type { GitHubConfiguration } from "../source/github-types.mts"
+import type { Logger } from "../source/logger.mts"
 
 export function makeAgent(overrides: Partial<Agent> = {}): Agent {
 	return { name: "TestAgent", prompt: "Test prompt.", ...overrides }
@@ -52,5 +53,31 @@ export function makeLocalDiffConfiguration(overrides: Partial<LocalDiffConfigura
 		baseCommit: "abc",
 		headCommit: "def",
 		...overrides,
+	}
+}
+
+export function createMockStream(chunks: string[]): ReadableStream<Uint8Array> {
+	const encoder = new TextEncoder()
+	const encodedChunks = chunks.map(chunk => encoder.encode(chunk))
+	let index = 0
+	return new ReadableStream({
+		pull(controller) {
+			if (index >= encodedChunks.length) {
+				controller.close()
+				return
+			}
+			controller.enqueue(encodedChunks[index])
+			index++
+		}
+	})
+}
+
+export function wrapInSse(content: string): string {
+	return `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`
+}
+
+export function createMockLogger(): Logger {
+	return {
+		log: () => {},
 	}
 }

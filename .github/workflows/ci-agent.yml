@@ -31,3 +31,6 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT_TYPE: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
+          AI_API_URL: ${{ secrets.AI_API_URL }}
+          AI_MODEL: ${{ secrets.AI_MODEL }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
