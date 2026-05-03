@@ -5,6 +5,7 @@ import type { LineComment } from "./github-types.mts"
 import { SIDES } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
 import type { AiReviewResult } from "./review.mts"
+import type { ToolCallRequest, ToolCallResult, ToolDefinition, ToolExecutor } from "./tool-executor.mts"
 import { includes } from "./typescript-helpers.mts"
 
 export interface AiConfiguration {
@@ -24,17 +25,33 @@ export function parseAiConfiguration(environment: Record<string, string | undefi
 	return { apiUrl, model, apiKey }
 }
 
-export type AiFetch = (prompt: string, signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>
+export interface AiToolCall {
+	id: string
+	type: "function"
+	function: { name: string; arguments: string }
+}
+
+export interface AiMessage {
+	role: "user" | "assistant" | "tool"
+	content?: string | null
+	tool_calls?: AiToolCall[]
+	tool_call_id?: string
+}
+
+export type AiFetch = (messages: AiMessage[], tools: ToolDefinition[], signal: AbortSignal) => Promise<ReadableStream<Uint8Array>>
 
 export function createAiFetch(configuration: AiConfiguration): AiFetch {
-	return async function aiFetch(prompt: string, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+	return async function aiFetch(messages: AiMessage[], tools: ToolDefinition[], signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
 		const url = `${configuration.apiUrl}/chat/completions`
 		const headers: Record<string, string> = { "Content-Type": "application/json" }
 		if (configuration.apiKey) headers["Authorization"] = `Bearer ${configuration.apiKey}`
 		const body = JSON.stringify({
 			model: configuration.model,
-			messages: [{ role: "user", content: prompt }],
+			messages,
+			tools: tools.length > 0 ? tools : undefined,
 			stream: true,
+			// TODO: This should be a percentage of the context_length of the selected model
+			max_tokens: 100_000,
 			reasoning: { enabled: true, effort: "high" },
 			reasoning_effort: "high",
 			venice_parameters: {
@@ -70,7 +87,7 @@ export async function* readStreamChunks(stream: ReadableStream<Uint8Array>): Asy
 	}
 }
 
-export function parseSseLine(line: string): { type: "content"; payload: string } | { type: "done" } | { type: "ignore" } {
+export function parseSseLine(line: string): { type: "data"; payload: string } | { type: "done" } | { type: "ignore" } {
 	const trimmed = line.trim()
 	if (trimmed === "") return { type: "ignore" }
 	if (!trimmed.startsWith("data: ")) return { type: "ignore" }
@@ -78,18 +95,45 @@ export function parseSseLine(line: string): { type: "content"; payload: string }
 	const payload = trimmed.slice(6)
 	if (payload === "[DONE]") return { type: "done" }
 
-	return { type: "content", payload }
+	return { type: "data", payload }
 }
 
 export interface DeltaText {
 	content?: string
 	reasoning?: string
+	toolCalls?: ToolCallDelta[]
+	finishReason?: string | null
+}
+
+export interface ToolCallDelta {
+	index: number
+	id?: string
+	functionName?: string
+	functionArguments?: string
 }
 
 function isReasoningDetail(value: unknown): value is { text: string } {
 	if (typeof value !== "object" || value === null) return false
 	if (!("text" in value) || typeof value.text !== "string") return false
 	return true
+}
+
+function extractToolCallDeltas(delta: unknown): ToolCallDelta[] {
+	if (typeof delta !== "object" || delta === null) return []
+	if (!("tool_calls" in delta) || !Array.isArray(delta.tool_calls)) return []
+
+	const results: ToolCallDelta[] = []
+	for (const tc of delta.tool_calls) {
+		if (typeof tc !== "object" || tc === null) continue
+		const entry: ToolCallDelta = { index: typeof tc.index === "number" ? tc.index : 0 }
+		if ("id" in tc && typeof tc.id === "string") entry.id = tc.id
+		if ("function" in tc && typeof tc.function === "object" && tc.function !== null) {
+			if ("name" in tc.function && typeof tc.function.name === "string") entry.functionName = tc.function.name
+			if ("arguments" in tc.function && typeof tc.function.arguments === "string") entry.functionArguments = tc.function.arguments
+		}
+		results.push(entry)
+	}
+	return results
 }
 
 export function extractDelta(data: unknown): DeltaText {
@@ -108,6 +152,8 @@ export function extractDelta(data: unknown): DeltaText {
 
 	if ("reasoning" in firstChoice.delta && typeof firstChoice.delta.reasoning === "string" && firstChoice.delta.reasoning !== "") {
 		result.reasoning = firstChoice.delta.reasoning
+	} else if ("reasoning_content" in firstChoice.delta && typeof firstChoice.delta.reasoning_content === "string" && firstChoice.delta.reasoning_content !== "") {
+		result.reasoning = firstChoice.delta.reasoning_content
 	} else if ("reasoning_details" in firstChoice.delta && Array.isArray(firstChoice.delta.reasoning_details)) {
 		const details: unknown[] = firstChoice.delta.reasoning_details
 		const reasoningText = details
@@ -117,87 +163,237 @@ export function extractDelta(data: unknown): DeltaText {
 		if (reasoningText !== "") result.reasoning = reasoningText
 	}
 
+	const toolCallDeltas = extractToolCallDeltas(firstChoice.delta)
+	if (toolCallDeltas.length > 0) result.toolCalls = toolCallDeltas
+
+	if ("finish_reason" in firstChoice && firstChoice.finish_reason != null) {
+		result.finishReason = String(firstChoice.finish_reason)
+	}
+
 	return result
+}
+
+const RECOGNIZED_DELTA_KEYS = new Set(["content", "reasoning", "reasoning_content", "reasoning_details", "tool_calls", "role"])
+
+function extractCachedTokens(data: unknown): number | null {
+	if (typeof data !== "object" || data === null) return null
+	if (!("usage" in data) || typeof data.usage !== "object" || data.usage === null) return null
+	const usage = data.usage
+	if (!("prompt_tokens_details" in usage) || typeof usage.prompt_tokens_details !== "object" || usage.prompt_tokens_details === null) return null
+	const details = usage.prompt_tokens_details
+	if (!("cached_tokens" in details) || typeof details.cached_tokens !== "number") return null
+	return details.cached_tokens
+}
+
+function collectDeltaKeys(data: unknown, keysSeen: Set<string>): void {
+	if (typeof data !== "object" || data === null) return
+	if (!("choices" in data) || !Array.isArray(data.choices) || data.choices.length === 0) return
+	const firstChoice = data.choices[0]
+	if (typeof firstChoice !== "object" || firstChoice === null) return
+	if (!("delta" in firstChoice) || typeof firstChoice.delta !== "object" || firstChoice.delta === null) return
+	for (const key of Object.keys(firstChoice.delta)) {
+		keysSeen.add(key)
+	}
 }
 
 const IDLE_TIMEOUT_MILLISECONDS = 300_000
 
-export async function callAiApi(dependencies: { aiFetch: AiFetch }, prompt: string, onContent?: (content: string) => void, onReasoning?: (reasoning: string) => void): Promise<string> {
-	const controller = new AbortController()
-	let idleTimer: ReturnType<typeof setTimeout> | undefined = undefined
+interface ToolCallAccumulatorEntry {
+	id: string
+	name: string
+	arguments: string
+}
 
-	function resetIdleTimer(): void {
-		if (idleTimer !== undefined) clearTimeout(idleTimer)
-		idleTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MILLISECONDS)
+type ToolCallAccumulator = Map<number, ToolCallAccumulatorEntry>
+
+function accumulateToolCallDeltas(accumulator: ToolCallAccumulator, deltas: ToolCallDelta[]): void {
+	for (const delta of deltas) {
+		const existing = accumulator.get(delta.index)
+		if (existing) {
+			if (delta.functionArguments !== undefined) existing.arguments += delta.functionArguments
+		} else {
+			accumulator.set(delta.index, {
+				id: delta.id ?? "",
+				name: delta.functionName ?? "",
+				arguments: delta.functionArguments ?? "",
+			})
+		}
 	}
+}
 
-	resetIdleTimer()
+function isContextWindowExceededError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false
+	const message = error.message.toLowerCase()
+	return message.includes("context length") || message.includes("context window") || message.includes("maximum context") || message.includes("token limit")
+}
 
-	const stream = await dependencies.aiFetch(prompt, controller.signal)
-	resetIdleTimer()
-
-	const chunks: string[] = []
-	let buffer = ""
-
-	const iterator = readStreamChunks(stream)[Symbol.asyncIterator]()
+export async function callAiApi(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor }, prompt: string, onContent?: (content: string) => void, onTrace?: (trace: string) => void): Promise<string> {
+	const messages: AiMessage[] = [{ role: "user", content: prompt }]
 
 	while (true) {
-		const result = await iterator.next()
-		if (result.done) break
+		const controller = new AbortController()
+		let idleTimer: ReturnType<typeof setTimeout> | undefined = undefined
+
+		function resetIdleTimer(): void {
+			if (idleTimer !== undefined) clearTimeout(idleTimer)
+			idleTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MILLISECONDS)
+		}
+
+		function cleanupTimers(): void {
+			clearTimeout(idleTimer)
+		}
+
+		let reasoningStarted = false
 
 		resetIdleTimer()
 
-		buffer += result.value
-		const lines = buffer.split("\n")
-		buffer = lines.pop() ?? ""
-
-		for (const line of lines) {
-			const parsed = parseSseLine(line)
-			if (parsed.type === "done") {
-				clearTimeout(idleTimer)
-				return chunks.join("")
+		let stream: ReadableStream<Uint8Array>
+		try {
+			stream = await dependencies.aiFetch(messages, dependencies.toolExecutor.definitions, controller.signal)
+		} catch (error) {
+			cleanupTimers()
+			if (isContextWindowExceededError(error)) {
+				throw new Error(`Context window exceeded. Original error: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
 			}
-			if (parsed.type === "ignore") continue
+			throw error
+		}
 
-			const json: unknown = JSON.parse(parsed.payload)
-			const delta = extractDelta(json)
-			if (delta.reasoning) onReasoning?.(delta.reasoning)
+		resetIdleTimer()
+
+		const contentChunks: string[] = []
+		const toolCallAccumulator: ToolCallAccumulator = new Map()
+		let buffer = ""
+		let observedFinishReason: string | null = null
+		let observedCachedTokens: number | null = null
+		const deltaKeysSeen = new Set<string>()
+
+		function handleDelta(delta: DeltaText): void {
+			if (delta.reasoning) {
+				if (!reasoningStarted) {
+					onTrace?.("[Reasoning]\n")
+					reasoningStarted = true
+				}
+				onTrace?.(delta.reasoning)
+			}
 			if (delta.content) {
-				chunks.push(delta.content)
+				if (reasoningStarted) {
+					onTrace?.("\n\n")
+					reasoningStarted = false
+				}
+				contentChunks.push(delta.content)
 				onContent?.(delta.content)
 			}
+			if (delta.toolCalls) accumulateToolCallDeltas(toolCallAccumulator, delta.toolCalls)
+			if (delta.finishReason) observedFinishReason = delta.finishReason
 		}
-	}
 
-	if (buffer.trim() !== "") {
-		const parsed = parseSseLine(buffer)
-		if (parsed.type === "content") {
-			const json: unknown = JSON.parse(parsed.payload)
-			const delta = extractDelta(json)
-			if (delta.reasoning) onReasoning?.(delta.reasoning)
-			if (delta.content) {
-				chunks.push(delta.content)
-				onContent?.(delta.content)
+		const iterator = readStreamChunks(stream)[Symbol.asyncIterator]()
+
+		while (true) {
+			const result = await iterator.next()
+			if (result.done) break
+
+			resetIdleTimer()
+
+			buffer += result.value
+			const lines = buffer.split("\n")
+			buffer = lines.pop() ?? ""
+
+			for (const line of lines) {
+				const parsed = parseSseLine(line)
+				if (parsed.type === "done") {
+					onTrace?.("[Diagnostic] SSE stream sent [DONE]\n")
+					cleanupTimers()
+					break
+				}
+				if (parsed.type === "ignore") continue
+
+				const json: unknown = JSON.parse(parsed.payload)
+				const delta = extractDelta(json)
+				collectDeltaKeys(json, deltaKeysSeen)
+				const cachedTokens = extractCachedTokens(json)
+				if (cachedTokens !== null) observedCachedTokens = cachedTokens
+				handleDelta(delta)
 			}
 		}
-	}
 
-	clearTimeout(idleTimer)
-	return chunks.join("")
+		if (buffer.trim() !== "") {
+			const parsed = parseSseLine(buffer)
+			if (parsed.type === "data") {
+				const json: unknown = JSON.parse(parsed.payload)
+				const delta = extractDelta(json)
+				collectDeltaKeys(json, deltaKeysSeen)
+				const cachedTokens = extractCachedTokens(json)
+				if (cachedTokens !== null) observedCachedTokens = cachedTokens
+				handleDelta(delta)
+			}
+		}
+
+		cleanupTimers()
+		if (reasoningStarted) {
+			onTrace?.("\n\n")
+			reasoningStarted = false
+		}
+
+		onTrace?.(`[Diagnostic] finishReason: ${observedFinishReason ?? "none"}\n`)
+		onTrace?.(`[Diagnostic] cached_tokens: ${observedCachedTokens ?? "not reported by provider"}\n`)
+		const unrecognizedKeys = [...deltaKeysSeen].filter(k => !RECOGNIZED_DELTA_KEYS.has(k))
+		if (unrecognizedKeys.length > 0) {
+			onTrace?.(`[Diagnostic] Unrecognized delta keys: ${unrecognizedKeys.join(", ")}\n`)
+		}
+
+		if (observedFinishReason === "length") {
+			throw new Error("AI response truncated: model reached maximum output token limit (finishReason: length). Consider increasing max_tokens or reducing prompt size.")
+		}
+
+		const hasToolCalls = toolCallAccumulator.size > 0
+		const assistantContent = contentChunks.join("")
+
+		if (!hasToolCalls) return assistantContent
+
+		const assistantToolCalls: AiToolCall[] = []
+		for (const [, entry] of toolCallAccumulator) {
+			assistantToolCalls.push({
+				id: entry.id,
+				type: "function",
+				function: { name: entry.name, arguments: entry.arguments },
+			})
+		}
+
+		messages.push({
+			role: "assistant",
+			content: assistantContent || null,
+			tool_calls: assistantToolCalls,
+		})
+
+		for (const toolCall of assistantToolCalls) {
+			const request: ToolCallRequest = { id: toolCall.id, name: toolCall.function.name, arguments: toolCall.function.arguments }
+			onTrace?.(`[Tool Call: ${toolCall.function.name}]\n${toolCall.function.arguments}\n\n`)
+
+			const toolResult: ToolCallResult = await dependencies.toolExecutor.execute(request)
+			onTrace?.(`[Tool Result: ${toolCall.function.name}]\n${toolResult.content}\n\n`)
+
+			messages.push({
+				role: "tool",
+				tool_call_id: toolResult.toolCallId,
+				content: toolResult.content,
+			})
+		}
+	}
 }
 
-async function runAgent(dependencies: { aiFetch: AiFetch; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs?: Map<string, string>): Promise<string> {
+async function runAgent(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs?: Map<string, string>): Promise<string> {
 	dependencies.logger.log(`Building prompt for ${agent.name}`)
 	const prompt = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
 	dependencies.debugWriter.writePrompt(agent.name, prompt)
 	dependencies.logger.log(`Running agent ${agent.name}`)
 	const onContent = (content: string) => dependencies.debugWriter.writeContent(agent.name, content)
-	const onReasoning = (reasoning: string) => dependencies.debugWriter.writeReasoning(agent.name, reasoning)
-	const output = await callAiApi({ aiFetch: dependencies.aiFetch }, prompt, onContent, onReasoning)
+	const onTrace = (trace: string) => dependencies.debugWriter.writeTrace(agent.name, trace)
+	const output = await callAiApi({ aiFetch: dependencies.aiFetch, toolExecutor: dependencies.toolExecutor }, prompt, onContent, onTrace)
 	return output
 }
 
-async function runAgents(dependencies: { aiFetch: AiFetch; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[]): Promise<Map<string, string>> {
+async function runAgents(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[]): Promise<Map<string, string>> {
 	const reviewResults = await Promise.all(
 		agents.map(async agent => {
 			try {
@@ -214,13 +410,13 @@ async function runAgents(dependencies: { aiFetch: AiFetch; logger: Logger; debug
 	return new Map(reviewResults)
 }
 
-async function runAggregator(dependencies: { aiFetch: AiFetch; logger: Logger; debugWriter: DebugWriter }, aggregator: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs: Map<string, string>): Promise<string> {
+async function runAggregator(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor; logger: Logger; debugWriter: DebugWriter }, aggregator: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs: Map<string, string>): Promise<string> {
 	const prompt = buildAgentPrompt(aggregator, baseCommitContext, diffText, agentInputs)
 	dependencies.logger.log(`Running agent: ${aggregator.name}`)
 	dependencies.debugWriter.writePrompt(aggregator.name, prompt)
 	const onContent = (content: string) => dependencies.debugWriter.writeContent(aggregator.name, content)
-	const onReasoning = (reasoning: string) => dependencies.debugWriter.writeReasoning(aggregator.name, reasoning)
-	const output = await callAiApi({ aiFetch: dependencies.aiFetch }, prompt, onContent, onReasoning)
+	const onTrace = (trace: string) => dependencies.debugWriter.writeTrace(aggregator.name, trace)
+	const output = await callAiApi({ aiFetch: dependencies.aiFetch, toolExecutor: dependencies.toolExecutor }, prompt, onContent, onTrace)
 	return output
 }
 
@@ -256,7 +452,7 @@ function parseAggregatorOutput(output: string): AiReviewResult {
 	return parsed
 }
 
-export async function analyze(dependencies: { aiFetch: AiFetch; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
+export async function analyze(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
 	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 
 	const agentOutputs = await runAgents(dependencies, baseCommitContext, diffText, agents)

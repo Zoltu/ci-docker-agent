@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { createDebugWriter } from "../source/debug.mts"
-import { existsSync, readFileSync, rmSync, mkdtempSync } from "node:fs"
+import { existsSync, readFileSync, rmSync, mkdtempSync, writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -50,19 +50,37 @@ describe("createDebugWriter", () => {
 		expect(readFileSync(join(tempDir, "Agent2-output.md"), "utf-8")).toBe("out2")
 	})
 
-	it("appends reasoning chunks to a reasoning file", () => {
+	it("appends trace chunks to a trace file", () => {
 		const writer = createDebugWriter(tempDir)
-		writer.writeReasoning("TestAgent", "step1")
-		writer.writeReasoning("TestAgent", "step2")
-		const content = readFileSync(join(tempDir, "TestAgent-reasoning.md"), "utf-8")
+		writer.writeTrace("TestAgent", "step1")
+		writer.writeTrace("TestAgent", "step2")
+		const content = readFileSync(join(tempDir, "TestAgent-trace.md"), "utf-8")
 		expect(content).toBe("step1step2")
 	})
 
-	it("writes reasoning to a separate file from content", () => {
+	it("writes trace to a separate file from content", () => {
 		const writer = createDebugWriter(tempDir)
 		writer.writeContent("TestAgent", "output")
-		writer.writeReasoning("TestAgent", "thinking")
+		writer.writeTrace("TestAgent", "thinking")
 		expect(readFileSync(join(tempDir, "TestAgent-output.md"), "utf-8")).toBe("output")
-		expect(readFileSync(join(tempDir, "TestAgent-reasoning.md"), "utf-8")).toBe("thinking")
+		expect(readFileSync(join(tempDir, "TestAgent-trace.md"), "utf-8")).toBe("thinking")
+	})
+
+	it("throws if the debug directory contains non-markdown files", () => {
+		writeFileSync(join(tempDir, "important-data.json"), "{}")
+		expect(() => createDebugWriter(tempDir)).toThrow(/non-markdown files/)
+	})
+
+	it("throws if the debug directory contains a subdirectory", () => {
+		mkdirSync(join(tempDir, "nested"))
+		expect(() => createDebugWriter(tempDir)).toThrow(/non-markdown files/)
+	})
+
+	it("clears existing markdown files from a previous run", () => {
+		writeFileSync(join(tempDir, "OldAgent-prompt.md"), "old prompt")
+		const writer = createDebugWriter(tempDir)
+		writer.writePrompt("NewAgent", "new prompt")
+		expect(existsSync(join(tempDir, "OldAgent-prompt.md"))).toBe(false)
+		expect(readFileSync(join(tempDir, "NewAgent-prompt.md"), "utf-8")).toBe("new prompt")
 	})
 })

@@ -2,13 +2,14 @@ import { describe, it, expect } from "bun:test"
 import { runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
 import type { Agent, AgentNames, ResolveResult } from "../source/agents.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
+import type { ToolDefinition } from "../source/tool-executor.mts"
 import { makeAgent, makeCommentTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration, createMockLogger, createMockStream, wrapInSse } from "./helpers.mts"
 import type { DebugWriter } from "../source/debug.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
-import type { AiFetch } from "../source/ai.mts"
+import type { AiFetch, AiMessage } from "../source/ai.mts"
 
 const silentLogger = createMockLogger()
-const noopDebugWriter: DebugWriter = { writePrompt: () => {}, writeContent: () => {}, writeReasoning: () => {} }
+const noopDebugWriter: DebugWriter = { writePrompt: () => {}, writeTrace: () => {}, writeContent: () => {} }
 
 function makeLoadAgents(agents: Agent[]): (agentNames: AgentNames) => Promise<ResolveResult> {
 	return async (_agentNames: AgentNames) => ({ agents, unresolvedNames: [] })
@@ -20,7 +21,7 @@ function makeLoadAggregator(overrides: Partial<Agent> = {}): () => Promise<Agent
 
 function makeAiFetch(body: string): AiFetch {
 	const output = JSON.stringify({ body, comments: [] })
-	return async (_prompt: string, _signal: AbortSignal) => createMockStream([wrapInSse(output)])
+	return async (_messages: AiMessage[], _tools: ToolDefinition[], _signal: AbortSignal) => createMockStream([wrapInSse(output)])
 }
 
 function makeSpawnGitOk(): SpawnGit {
@@ -307,7 +308,7 @@ describe("runOnLocalDiff", () => {
 	})
 
 	it("propagates error when aiFetch returns invalid JSON", async () => {
-		const aiFetch: AiFetch = async (_prompt, _signal) => createMockStream([wrapInSse("not json")])
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => createMockStream([wrapInSse("not json")])
 
 		expect(runOnLocalDiff(
 			{

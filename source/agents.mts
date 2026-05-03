@@ -113,24 +113,14 @@ export function createLoadAggregator(directories: AgentDirectories, readAgents: 
 export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs?: Map<string, string>): string {
 	const lines: string[] = []
 
-	// Repository Files (Base Commit)
 	lines.push("=== Repository Files (Base Commit) ===")
 	for (const file of baseCommitContext.fileList) {
 		lines.push(`- ${file}`)
 	}
 
-	// File Contents (Base Commit)
-	lines.push("", "=== File Contents (Base Commit) ===")
-	for (const [filename, content] of baseCommitContext.fileContents.entries()) {
-		lines.push(`=== ${filename} ===`)
-		lines.push(content)
-	}
-
-	// Changeset Diffs
 	lines.push("", "=== Changeset Diffs ===")
 	lines.push(diffText)
 
-	// Agent Feedback (for aggregator)
 	if (agentInputs && agentInputs.size > 0) {
 		lines.push("", "=== Agent Feedback ===")
 		for (const [name, output] of agentInputs.entries()) {
@@ -139,7 +129,6 @@ export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitCont
 		}
 	}
 
-	// Agent Instructions
 	lines.push("", "=== Agent Instructions ===")
 	lines.push(agent.prompt)
 

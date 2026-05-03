@@ -10,6 +10,7 @@ import type { GitHubReviewPayload } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
+import { createToolExecutor } from "./tool-executor.mts"
 import { getAgentsFromComment } from "./trigger.mts"
 
 type RunAnalysisDependencies = {
@@ -26,7 +27,8 @@ async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: Ag
 	const aggregator = await dependencies.loadAggregator()
 	await ensureCommitAvailable({ spawnGit: dependencies.spawnGit }, baseCommit)
 	const baseCommitContext = await getBaseCommitContext({ spawnGit: dependencies.spawnGit }, baseCommit)
-	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator)
+	const toolExecutor = createToolExecutor(dependencies.spawnGit, baseCommit)
+	return analyze({ ...dependencies, toolExecutor }, baseCommitContext, diffText, agents, aggregator)
 }
 
 type SubmitPrReviewDependencies = {

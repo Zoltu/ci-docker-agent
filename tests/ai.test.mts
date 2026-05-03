@@ -1,8 +1,9 @@
 import { describe, it, expect } from "bun:test"
-import { analyze, callAiApi, extractDelta, parseAiConfiguration, parseSseLine, readStreamChunks, type AiFetch } from "../source/ai.mts"
+import { analyze, callAiApi, extractDelta, parseAiConfiguration, parseSseLine, readStreamChunks, type AiFetch, type AiMessage } from "../source/ai.mts"
 import type { Agent } from "../source/agents.mts"
 import type { DebugWriter } from "../source/debug.mts"
-import { createMockLogger, createMockStream, makeBaseCommitContext, wrapInSse } from "./helpers.mts"
+import type { ToolCallRequest, ToolCallResult, ToolDefinition, ToolExecutor } from "../source/tool-executor.mts"
+import { createMockLogger, createMockStream, makeBaseCommitContext, makeNoopToolExecutor, wrapInSse } from "./helpers.mts"
 
 const SAMPLE_DIFF = [
 	"diff --git a/src/file.ts b/src/file.ts",
@@ -13,11 +14,11 @@ const SAMPLE_DIFF = [
 	"+new",
 ].join("\n")
 
-const noopDebugWriter: DebugWriter = { writePrompt: () => {}, writeContent: () => {}, writeReasoning: () => {} }
+const noopDebugWriter: DebugWriter = { writePrompt: () => {}, writeTrace: () => {}, writeContent: () => {} }
 
 function makeAiFetchWithAggregatorOutput(aggregatorOutput: string): AiFetch {
 	let callCount = 0
-	return async (_prompt: string, _signal: AbortSignal) => {
+	return async (_messages: AiMessage[], _tools: ToolDefinition[], _signal: AbortSignal) => {
 		callCount++
 		const content = callCount <= 1
 			? JSON.stringify({ body: "Agent result", comments: [] })
@@ -28,12 +29,12 @@ function makeAiFetchWithAggregatorOutput(aggregatorOutput: string): AiFetch {
 
 function makeAiFetchFromSseLines(lines: string[]): AiFetch {
 	const stream = createMockStream([lines.join("\n") + "\n"])
-	return async (_prompt: string, _signal: AbortSignal) => stream
+	return async (_messages: AiMessage[], _tools: ToolDefinition[], _signal: AbortSignal) => stream
 }
 
 function makeAiFetchFromChunks(chunks: string[]): AiFetch {
 	const stream = createMockStream(chunks)
-	return async (_prompt: string, _signal: AbortSignal) => stream
+	return async (_messages: AiMessage[], _tools: ToolDefinition[], _signal: AbortSignal) => stream
 }
 
 function makeSseLine(data: unknown): string {
@@ -91,7 +92,7 @@ describe("parseAiConfiguration", () => {
 describe("parseSseLine", () => {
 	it("parses data line with content", () => {
 		const result = parseSseLine('data: {"choices":[{"delta":{"content":"hello"}}]}')
-		expect(result).toEqual({ type: "content", payload: '{"choices":[{"delta":{"content":"hello"}}]}' })
+		expect(result).toEqual({ type: "data", payload: '{"choices":[{"delta":{"content":"hello"}}]}' })
 	})
 
 	it("returns done for data: [DONE]", () => {
@@ -178,6 +179,25 @@ describe("extractDelta", () => {
 		expect(extractDelta(data)).toEqual({ reasoning: "from field" })
 	})
 
+	it("prefers delta.reasoning over reasoning_content", () => {
+		const data = { choices: [{ delta: { reasoning: "from reasoning", reasoning_content: "from content" } }] }
+		expect(extractDelta(data)).toEqual({ reasoning: "from reasoning" })
+	})
+
+	it("prefers delta.reasoning_content over reasoning_details", () => {
+		const data = { choices: [{ delta: { reasoning_content: "from content", reasoning_details: [{ text: "from details" }] } }] }
+		expect(extractDelta(data)).toEqual({ reasoning: "from content" })
+	})
+
+	it("extracts reasoning from delta.reasoning_content", () => {
+		const data = { choices: [{ delta: { reasoning_content: "thinking..." } }] }
+		expect(extractDelta(data)).toEqual({ reasoning: "thinking..." })
+	})
+
+	it("returns empty object when reasoning_content is empty string", () => {
+		expect(extractDelta({ choices: [{ delta: { reasoning_content: "" } }] })).toEqual({})
+	})
+
 	it("returns empty object when reasoning is empty string", () => {
 		expect(extractDelta({ choices: [{ delta: { reasoning: "" } }] })).toEqual({})
 	})
@@ -194,6 +214,72 @@ describe("extractDelta", () => {
 
 	it("filters reasoning_details with non-string text", () => {
 		const data = { choices: [{ delta: { reasoning_details: [{ text: 123 }] } }] }
+		expect(extractDelta(data)).toEqual({})
+	})
+
+	it("extracts tool call deltas", () => {
+		const data = {
+			choices: [{
+				delta: {
+					tool_calls: [{
+						index: 0,
+						id: "call_abc",
+						function: { name: "read_file", arguments: '{"path":"' },
+					}],
+				},
+			}],
+		}
+		const result = extractDelta(data)
+		expect(result.toolCalls).toEqual([{
+			index: 0,
+			id: "call_abc",
+			functionName: "read_file",
+			functionArguments: '{"path":"',
+		}])
+	})
+
+	it("extracts tool call delta with partial arguments", () => {
+		const data = {
+			choices: [{
+				delta: {
+					tool_calls: [{
+						index: 0,
+						function: { arguments: 'src/file.ts"}' },
+					}],
+				},
+			}],
+		}
+		const result = extractDelta(data)
+		expect(result.toolCalls).toEqual([{
+			index: 0,
+			functionArguments: 'src/file.ts"}',
+		}])
+	})
+
+	it("extracts multiple tool call deltas", () => {
+		const data = {
+			choices: [{
+				delta: {
+					tool_calls: [
+						{ index: 0, id: "call_1", function: { name: "read_file", arguments: '{"path":"a"}' } },
+						{ index: 1, id: "call_2", function: { name: "read_file", arguments: '{"path":"b"}' } },
+					],
+				},
+			}],
+		}
+		const result = extractDelta(data)
+		expect(result.toolCalls).toHaveLength(2)
+		expect(result.toolCalls![0]!.index).toBe(0)
+		expect(result.toolCalls![1]!.index).toBe(1)
+	})
+
+	it("extracts finishReason", () => {
+		const data = { choices: [{ delta: {}, finish_reason: "stop" }] }
+		expect(extractDelta(data).finishReason).toBe("stop")
+	})
+
+	it("returns empty object when tool_calls has non-object entries", () => {
+		const data = { choices: [{ delta: { tool_calls: [null, "string"] } }] }
 		expect(extractDelta(data)).toEqual({})
 	})
 })
@@ -234,7 +320,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: " world" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch }, "test prompt")
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
 		expect(result).toBe("Hello world")
 	})
 
@@ -245,7 +331,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: " more" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch }, "test prompt")
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
 		expect(result).toBe("text more")
 	})
 
@@ -255,7 +341,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "hello" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch }, "test prompt")
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
 		expect(result).toBe("hello")
 	})
 
@@ -264,7 +350,7 @@ describe("callAiApi", () => {
 			'data: {"choices":[{"delta":{"content":"Hel',
 			'lo"}}]}\n\ndata: {"choices":[{"delta":{"content":" world"}}]}\n\ndata: [DONE]\n\n',
 		])
-		const result = await callAiApi({ aiFetch }, "test prompt")
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
 		expect(result).toBe("Hello world")
 	})
 
@@ -275,7 +361,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "after" } }] }),
 		]
 		const aiFetch = makeAiFetchFromSseLines(lines)
-		const result = await callAiApi({ aiFetch }, "test prompt")
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
 		expect(result).toBe("done")
 	})
 
@@ -283,7 +369,7 @@ describe("callAiApi", () => {
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { content: "end" } }] }),
 		])
-		const result = await callAiApi({ aiFetch }, "test prompt")
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
 		expect(result).toBe("end")
 	})
 
@@ -292,7 +378,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { role: "assistant" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch }, "test prompt")
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
 		expect(result).toBe("")
 	})
 
@@ -300,7 +386,7 @@ describe("callAiApi", () => {
 		const aiFetch: AiFetch = async () => {
 			throw new Error("AI API request failed: 401 Unauthorized")
 		}
-		expect(callAiApi({ aiFetch }, "test prompt")).rejects.toThrow("AI API request failed: 401 Unauthorized")
+		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("AI API request failed: 401 Unauthorized")
 	})
 
 	it("calls onContent for each content chunk", async () => {
@@ -310,22 +396,36 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: " world" } }] }),
 			"data: [DONE]",
 		])
-		await callAiApi({ aiFetch }, "test prompt", (content) => { contentChunks.push(content) })
+		await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", (content) => { contentChunks.push(content) })
 		expect(contentChunks).toEqual(["Hello", " world"])
 	})
 
-	it("calls onReasoning for reasoning chunks", async () => {
-		const contentChunks: string[] = []
-		const reasoningChunks: string[] = []
+	it("calls onTrace for reasoning chunks", async () => {
+		const traceChunks: string[] = []
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { reasoning: "thinking..." } }] }),
 			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch }, "test prompt", (c) => { contentChunks.push(c) }, (r) => { reasoningChunks.push(r) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
-		expect(contentChunks).toEqual(["answer"])
-		expect(reasoningChunks).toEqual(["thinking..."])
+		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n"])
+	})
+
+	it("streams consecutive reasoning chunks immediately", async () => {
+		const traceChunks: string[] = []
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { reasoning: "Let" } }] }),
+			makeSseLine({ choices: [{ delta: { reasoning: " me" } }] }),
+			makeSseLine({ choices: [{ delta: { reasoning: " think." } }] }),
+			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
+			"data: [DONE]",
+		])
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
+		expect(result).toBe("answer")
+		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n"])
 	})
 
 	it("does not include reasoning in final result", async () => {
@@ -335,29 +435,222 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "final" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch }, "test prompt")
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
 		expect(result).toBe("final")
+	})
+
+	it("does not include reasoning_content in final result", async () => {
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { reasoning_content: "step 1" } }] }),
+			makeSseLine({ choices: [{ delta: { reasoning_content: " step 2" } }] }),
+			makeSseLine({ choices: [{ delta: { content: "final" } }] }),
+			"data: [DONE]",
+		])
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
+		expect(result).toBe("final")
+	})
+
+	it("calls onTrace for reasoning_content chunks", async () => {
+		const traceChunks: string[] = []
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { reasoning_content: "thinking..." } }] }),
+			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
+			"data: [DONE]",
+		])
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
+		expect(result).toBe("answer")
+		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n"])
+	})
+
+	it("streams consecutive reasoning_content chunks immediately", async () => {
+		const traceChunks: string[] = []
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { reasoning_content: "Let" } }] }),
+			makeSseLine({ choices: [{ delta: { reasoning_content: " me" } }] }),
+			makeSseLine({ choices: [{ delta: { reasoning_content: " think." } }] }),
+			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
+			"data: [DONE]",
+		])
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
+		expect(result).toBe("answer")
+		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n"])
 	})
 
 	it("handles chunks with both content and reasoning", async () => {
 		const contentChunks: string[] = []
-		const reasoningChunks: string[] = []
+		const traceChunks: string[] = []
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { content: "ans", reasoning: "think" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch }, "test prompt", (c) => { contentChunks.push(c) }, (r) => { reasoningChunks.push(r) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", (c) => { contentChunks.push(c) }, (t) => { traceChunks.push(t) })
 		expect(result).toBe("ans")
 		expect(contentChunks).toEqual(["ans"])
-		expect(reasoningChunks).toEqual(["think"])
+		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "think", "\n\n"])
+	})
+
+	it("closes reasoning block when stream ends without content", async () => {
+		const traceChunks: string[] = []
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { reasoning: "only reasoning" } }] }),
+			"data: [DONE]",
+		])
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
+		expect(result).toBe("")
+		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "only reasoning", "\n\n"])
+	})
+
+	it("executes tool calls and continues the loop", async () => {
+		let callCount = 0
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => {
+			callCount++
+			if (callCount === 1) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"src/foo.ts\\"}"}}]}}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			return createMockStream([
+				'data: {"choices":[{"delta":{"content":"final answer"}}]}\n\n',
+				"data: [DONE]\n\n",
+			])
+		}
+
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
+				if (toolCall.name === "read_file") return { toolCallId: toolCall.id, content: "file contents here" }
+				return { toolCallId: toolCall.id, content: `Unknown tool: ${toolCall.name}` }
+			},
+		}
+
+		const traceChunks: string[] = []
+		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt", undefined, (t) => { traceChunks.push(t) })
+		expect(result).toBe("final answer")
+		expect(callCount).toBe(2)
+		expect(traceChunks.some(t => t.includes("[Tool Call: read_file]"))).toBe(true)
+		expect(traceChunks.some(t => t.includes("[Tool Result: read_file]"))).toBe(true)
+	})
+
+	it("handles multiple tool calls in a single response", async () => {
+		let callCount = 0
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => {
+			callCount++
+			if (callCount === 1) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.ts\\"}"}},{"index":1,"id":"call_2","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"b.ts\\"}"}}]}}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			return createMockStream([
+				'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
+				"data: [DONE]\n\n",
+			])
+		}
+
+		const executedCalls: string[] = []
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
+				executedCalls.push(toolCall.name)
+				return { toolCallId: toolCall.id, content: "contents" }
+			},
+		}
+
+		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt")
+		expect(result).toBe("done")
+		expect(executedCalls).toEqual(["read_file", "read_file"])
+	})
+
+	it("handles tool calls split across multiple deltas", async () => {
+		let callCount = 0
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => {
+			callCount++
+			if (callCount === 1) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"pat"}}]}}]}\n\n',
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"h\\":\\"a.ts\\"}"}}]}}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			return createMockStream([
+				'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
+				"data: [DONE]\n\n",
+			])
+		}
+
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
+				return { toolCallId: toolCall.id, content: `read ${toolCall.arguments}` }
+			},
+		}
+
+		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt")
+		expect(result).toBe("done")
+		expect(callCount).toBe(2)
+	})
+
+	it("detects context window exceeded errors", async () => {
+		const aiFetch: AiFetch = async () => {
+			throw new Error("This model's maximum context length is 128000 tokens")
+		}
+		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("Context window exceeded")
+	})
+
+	it("passes messages and tools to aiFetch", async () => {
+		const captured: { messages: AiMessage[]; tools: ToolDefinition[] } = { messages: [], tools: [] }
+		const aiFetch: AiFetch = async (messages, tools, _signal) => {
+			captured.messages = messages
+			captured.tools = tools
+			return createMockStream([wrapInSse("response")])
+		}
+
+		const toolExecutor = makeNoopToolExecutor()
+		await callAiApi({ aiFetch, toolExecutor }, "test prompt")
+
+		expect(captured.messages.length).toBe(1)
+		expect(captured.messages[0]!.role).toBe("user")
+		expect(captured.messages[0]!.content).toBe("test prompt")
+		expect(captured.tools).toEqual(toolExecutor.definitions)
+	})
+
+	it("accumulates tool call arguments across streaming deltas", async () => {
+		let callCount = 0
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => {
+			callCount++
+			if (callCount === 1) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":""}}]}}]}\n\n',
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"pat"}}]}}]}\n\n',
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"h\\":\\"x.ts\\"}"}}]}}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			return createMockStream([wrapInSse("done")])
+		}
+
+		const capturedArgs: { value: string } = { value: "" }
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
+				capturedArgs.value = toolCall.arguments
+				return { toolCallId: toolCall.id, content: "file contents" }
+			},
+		}
+
+		await callAiApi({ aiFetch, toolExecutor }, "test prompt")
+		expect(capturedArgs.value).toBe('{"path":"x.ts"}')
 	})
 })
 
 describe("analyze", () => {
 	it("calls aiFetch for each agent and aggregator", async () => {
-		const calls: string[] = []
-		const aiFetch: AiFetch = async (prompt, _signal) => {
-			calls.push(prompt)
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => {
 			const content = JSON.stringify({ body: "Review complete", comments: [] })
 			return createMockStream([wrapInSse(content)])
 		}
@@ -368,16 +661,15 @@ describe("analyze", () => {
 		]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		const result = await analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
+		const result = await analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
 
-		expect(calls.length).toBe(3)
 		expect(result.body).toBe("Review complete")
 		expect(result.comments).toEqual([])
 	})
 
 	it("passes agent outputs to aggregator prompt", async () => {
 		let callCount = 0
-		const aiFetch: AiFetch = async (_prompt, _signal) => {
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => {
 			callCount++
 			const content = JSON.stringify({ body: `Result ${callCount}`, comments: [] })
 			return createMockStream([wrapInSse(content)])
@@ -386,7 +678,7 @@ describe("analyze", () => {
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		const result = await analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
+		const result = await analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
 
 		expect(result.body).toBe("Result 2")
 	})
@@ -394,26 +686,25 @@ describe("analyze", () => {
 	it("writes prompts and streaming content via debugWriter", async () => {
 		const prompts: Array<{ agentName: string; prompt: string }> = []
 		const content: Array<{ agentName: string; chunk: string }> = []
-		const reasoning: Array<{ agentName: string; chunk: string }> = []
+		const trace: Array<{ agentName: string; chunk: string }> = []
 		const debugWriter: DebugWriter = {
 			writePrompt: (agentName, prompt) => { prompts.push({ agentName, prompt }) },
 			writeContent: (agentName, chunk) => { content.push({ agentName, chunk }) },
-			writeReasoning: (agentName, chunk) => { reasoning.push({ agentName, chunk }) },
+			writeTrace: (agentName, chunk) => { trace.push({ agentName, chunk }) },
 		}
 		const output = JSON.stringify({ body: "result", comments: [] })
-		const aiFetch: AiFetch = async (_prompt, _signal) => createMockStream([wrapInSse(output)])
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => createMockStream([wrapInSse(output)])
 
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		await analyze({ aiFetch, logger: createMockLogger(), debugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
+		await analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
 
 		expect(prompts.length).toBe(2)
 		expect(prompts[0]!.agentName).toBe("TestAgent")
 		expect(prompts[1]!.agentName).toBe("Aggregator")
 		expect(content.length).toBe(2)
 		expect(content[0]!.agentName).toBe("TestAgent")
-		expect(content[0]!.chunk).toBe(output)
 		expect(content[1]!.agentName).toBe("Aggregator")
 	})
 
@@ -426,7 +717,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
+			const result = await analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
 
 			expect(result.body).toBe("Looks good")
 			expect(result.comments).toHaveLength(1)
@@ -441,7 +732,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
+			const result = await analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)
 
 			expect(result.body).toBe("No issues found")
 			expect(result.comments).toEqual([])
@@ -452,7 +743,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow(/Failed to parse aggregator output as JSON[\s\S]*not json/)
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow(/Failed to parse aggregator output as JSON[\s\S]*not json/)
 		})
 
 		it("throws Error with aggregator output when output is empty string", async () => {
@@ -460,7 +751,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow(/Failed to parse aggregator output as JSON/)
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow(/Failed to parse aggregator output as JSON/)
 		})
 
 		it("throws when aggregator output does not match expected shape", async () => {
@@ -468,7 +759,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator body is not a string", async () => {
@@ -476,7 +767,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator comments is not an array", async () => {
@@ -484,7 +775,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator comments is missing", async () => {
@@ -492,7 +783,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator body is empty string", async () => {
@@ -500,7 +791,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator body is missing", async () => {
@@ -508,7 +799,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects line number zero in aggregator comments", async () => {
@@ -519,7 +810,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects negative line number in aggregator comments", async () => {
@@ -530,7 +821,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects non-integer line number in aggregator comments", async () => {
@@ -541,7 +832,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects empty comment body in aggregator comments", async () => {
@@ -552,7 +843,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ aiFetch, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 	})
 })

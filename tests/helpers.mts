@@ -3,6 +3,7 @@ import type { BaseCommitContext } from "../source/base-commit.mts"
 import type { CommentTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "../source/configuration.mts"
 import type { GitHubConfiguration } from "../source/github-types.mts"
 import type { Logger } from "../source/logger.mts"
+import type { ToolCallResult, ToolExecutor } from "../source/tool-executor.mts"
 
 export function makeAgent(overrides: Partial<Agent> = {}): Agent {
 	return { name: "TestAgent", prompt: "Test prompt.", ...overrides }
@@ -11,7 +12,6 @@ export function makeAgent(overrides: Partial<Agent> = {}): Agent {
 export function makeBaseCommitContext(overrides: Partial<BaseCommitContext> = {}): BaseCommitContext {
 	return {
 		fileList: [],
-		fileContents: new Map(),
 		...overrides,
 	}
 }
@@ -79,5 +79,14 @@ export function wrapInSse(content: string): string {
 export function createMockLogger(): Logger {
 	return {
 		log: () => {},
+	}
+}
+
+export function makeNoopToolExecutor(): ToolExecutor {
+	return {
+		definitions: [],
+		async execute(): Promise<ToolCallResult> {
+			throw new Error("Unexpected tool call in test")
+		},
 	}
 }

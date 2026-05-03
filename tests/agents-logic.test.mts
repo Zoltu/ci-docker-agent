@@ -27,20 +27,6 @@ describe("buildAgentPrompt", () => {
 		expect(result).toContain("- src/index.ts")
 	})
 
-	it("includes file contents from base commit", () => {
-		const agent = makeAgent()
-		const result = buildAgentPrompt(agent, makeBaseCommitContext({
-			fileList: ["README.md", "src/index.ts"],
-			fileContents: new Map([["README.md", "# Project"], ["src/index.ts", "console.log('hello')"]]),
-		}), "")
-
-		expect(result).toContain("=== File Contents (Base Commit) ===")
-		expect(result).toContain("=== README.md ===")
-		expect(result).toContain("# Project")
-		expect(result).toContain("=== src/index.ts ===")
-		expect(result).toContain("console.log('hello')")
-	})
-
 	it("includes changeset diffs", () => {
 		const agent = makeAgent()
 		const result = buildAgentPrompt(agent, makeBaseCommitContext(), SAMPLE_DIFF)
@@ -98,6 +84,22 @@ describe("buildAgentPrompt", () => {
 
 		expect(result).toContain("=== Agent Instructions ===")
 		expect(result).toContain("You are a reviewer.")
+	})
+
+	it("does not include file contents section", () => {
+		const agent = makeAgent()
+		const result = buildAgentPrompt(agent, makeBaseCommitContext({
+			fileList: ["README.md", "src/index.ts"],
+		}), "")
+
+		expect(result).not.toContain("=== File Contents (Base Commit) ===")
+	})
+
+	it("does not include available tools section", () => {
+		const agent = makeAgent()
+		const result = buildAgentPrompt(agent, makeBaseCommitContext(), "")
+
+		expect(result).not.toContain("=== Available Tools ===")
 	})
 })
 
