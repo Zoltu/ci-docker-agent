@@ -25,8 +25,8 @@ type RunAnalysisDependencies = {
 async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, diffText: string, baseCommit: string): Promise<AiReviewResult> {
 	const { agents } = await dependencies.loadAgents(agentNames)
 	const aggregator = await dependencies.loadAggregator()
-	await ensureCommitAvailable({ spawnGit: dependencies.spawnGit }, baseCommit)
-	const baseCommitContext = await getBaseCommitContext({ spawnGit: dependencies.spawnGit }, baseCommit)
+	await ensureCommitAvailable(dependencies, baseCommit)
+	const baseCommitContext = await getBaseCommitContext(dependencies, baseCommit)
 	const toolExecutor = createToolExecutor(dependencies.spawnGit, baseCommit)
 	return analyze({ ...dependencies, toolExecutor }, baseCommitContext, diffText, agents, aggregator)
 }

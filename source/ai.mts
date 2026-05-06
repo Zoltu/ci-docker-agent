@@ -227,142 +227,159 @@ function isContextWindowExceededError(error: unknown): boolean {
 	return message.includes("context length") || message.includes("context window") || message.includes("maximum context") || message.includes("token limit")
 }
 
+interface StreamState {
+	buffer: string
+	contentChunks: string[]
+	toolCallAccumulator: ToolCallAccumulator
+	finishReason: string | null
+	cachedTokens: number | null
+	deltaKeysSeen: Set<string>
+	reasoningStarted: boolean
+}
+
+function applySseDelta(state: StreamState, delta: DeltaText, onContent?: (content: string) => void, onTrace?: (trace: string) => void): void {
+	if (delta.reasoning) {
+		if (!state.reasoningStarted) {
+			onTrace?.("[Reasoning]\n")
+			state.reasoningStarted = true
+		}
+		onTrace?.(delta.reasoning)
+	}
+	if (delta.content) {
+		if (state.reasoningStarted) {
+			onTrace?.("\n\n")
+			state.reasoningStarted = false
+		}
+		state.contentChunks.push(delta.content)
+		onContent?.(delta.content)
+	}
+	if (delta.toolCalls) accumulateToolCallDeltas(state.toolCallAccumulator, delta.toolCalls)
+	if (delta.finishReason) state.finishReason = delta.finishReason
+}
+
+function stepSseLine(state: StreamState, line: string, onContent?: (content: string) => void, onTrace?: (trace: string) => void): boolean {
+	const parsed = parseSseLine(line)
+	if (parsed.type === "done") {
+		onTrace?.("[Diagnostic] SSE stream sent [DONE]\n")
+		return false
+	}
+	if (parsed.type === "ignore") return true
+	const json: unknown = JSON.parse(parsed.payload)
+	const delta = extractDelta(json)
+	collectDeltaKeys(json, state.deltaKeysSeen)
+	const cachedTokens = extractCachedTokens(json)
+	if (cachedTokens !== null) state.cachedTokens = cachedTokens
+	applySseDelta(state, delta, onContent, onTrace)
+	return true
+}
+
+interface StreamResult {
+	content: string
+	toolCallAccumulator: ToolCallAccumulator
+	finishReason: string | null
+	cachedTokens: number | null
+	deltaKeysSeen: Set<string>
+}
+
+async function consumeAiStream(stream: ReadableStream<Uint8Array>, onContent?: (content: string) => void, onTrace?: (trace: string) => void, onActivity?: () => void): Promise<StreamResult> {
+	const state: StreamState = {
+		buffer: "",
+		contentChunks: [],
+		toolCallAccumulator: new Map(),
+		finishReason: null,
+		cachedTokens: null,
+		deltaKeysSeen: new Set(),
+		reasoningStarted: false,
+	}
+
+	for await (const chunk of readStreamChunks(stream)) {
+		onActivity?.()
+		state.buffer += chunk
+		const lines = state.buffer.split("\n")
+		state.buffer = lines.pop() ?? ""
+		for (const line of lines) {
+			if (!stepSseLine(state, line, onContent, onTrace)) break
+		}
+	}
+
+	stepSseLine(state, state.buffer, onContent, onTrace)
+
+	if (state.reasoningStarted) {
+		onTrace?.("\n\n")
+	}
+
+	return { content: state.contentChunks.join(""), toolCallAccumulator: state.toolCallAccumulator, finishReason: state.finishReason, cachedTokens: state.cachedTokens, deltaKeysSeen: state.deltaKeysSeen }
+}
+
+interface IdleTimer {
+	reset: () => void
+	cleanup: () => void
+}
+
+function createIdleTimer(controller: AbortController): IdleTimer {
+	let timer: ReturnType<typeof setTimeout> | undefined = undefined
+	return {
+		reset(): void {
+			if (timer !== undefined) clearTimeout(timer)
+			timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MILLISECONDS)
+		},
+		cleanup(): void {
+			clearTimeout(timer)
+		},
+	}
+}
+
+function buildAiToolCalls(accumulator: ToolCallAccumulator): AiToolCall[] {
+	const calls: AiToolCall[] = []
+	for (const [, entry] of accumulator) {
+		calls.push({ id: entry.id, type: "function", function: { name: entry.name, arguments: entry.arguments } })
+	}
+	return calls
+}
+
+async function fetchAiStreamResponse(aiFetch: AiFetch, messages: AiMessage[], tools: ToolDefinition[], signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+	try {
+		return await aiFetch(messages, tools, signal)
+	} catch (error) {
+		if (isContextWindowExceededError(error)) {
+			throw new Error(`Context window exceeded. Original error: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+		}
+		throw error
+	}
+}
+
 export async function callAiApi(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor }, prompt: string, onContent?: (content: string) => void, onTrace?: (trace: string) => void): Promise<string> {
 	const messages: AiMessage[] = [{ role: "user", content: prompt }]
 
 	while (true) {
 		const controller = new AbortController()
-		let idleTimer: ReturnType<typeof setTimeout> | undefined = undefined
+		const idleTimer = createIdleTimer(controller)
+		idleTimer.reset()
 
-		function resetIdleTimer(): void {
-			if (idleTimer !== undefined) clearTimeout(idleTimer)
-			idleTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MILLISECONDS)
-		}
+		const stream = await fetchAiStreamResponse(dependencies.aiFetch, messages, dependencies.toolExecutor.definitions, controller.signal)
+		idleTimer.reset()
 
-		function cleanupTimers(): void {
-			clearTimeout(idleTimer)
-		}
+		const result = await consumeAiStream(stream, onContent, onTrace, idleTimer.reset)
+		idleTimer.cleanup()
 
-		let reasoningStarted = false
-
-		resetIdleTimer()
-
-		let stream: ReadableStream<Uint8Array>
-		try {
-			stream = await dependencies.aiFetch(messages, dependencies.toolExecutor.definitions, controller.signal)
-		} catch (error) {
-			cleanupTimers()
-			if (isContextWindowExceededError(error)) {
-				throw new Error(`Context window exceeded. Original error: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
-			}
-			throw error
-		}
-
-		resetIdleTimer()
-
-		const contentChunks: string[] = []
-		const toolCallAccumulator: ToolCallAccumulator = new Map()
-		let buffer = ""
-		let observedFinishReason: string | null = null
-		let observedCachedTokens: number | null = null
-		const deltaKeysSeen = new Set<string>()
-
-		function handleDelta(delta: DeltaText): void {
-			if (delta.reasoning) {
-				if (!reasoningStarted) {
-					onTrace?.("[Reasoning]\n")
-					reasoningStarted = true
-				}
-				onTrace?.(delta.reasoning)
-			}
-			if (delta.content) {
-				if (reasoningStarted) {
-					onTrace?.("\n\n")
-					reasoningStarted = false
-				}
-				contentChunks.push(delta.content)
-				onContent?.(delta.content)
-			}
-			if (delta.toolCalls) accumulateToolCallDeltas(toolCallAccumulator, delta.toolCalls)
-			if (delta.finishReason) observedFinishReason = delta.finishReason
-		}
-
-		const iterator = readStreamChunks(stream)[Symbol.asyncIterator]()
-
-		while (true) {
-			const result = await iterator.next()
-			if (result.done) break
-
-			resetIdleTimer()
-
-			buffer += result.value
-			const lines = buffer.split("\n")
-			buffer = lines.pop() ?? ""
-
-			for (const line of lines) {
-				const parsed = parseSseLine(line)
-				if (parsed.type === "done") {
-					onTrace?.("[Diagnostic] SSE stream sent [DONE]\n")
-					cleanupTimers()
-					break
-				}
-				if (parsed.type === "ignore") continue
-
-				const json: unknown = JSON.parse(parsed.payload)
-				const delta = extractDelta(json)
-				collectDeltaKeys(json, deltaKeysSeen)
-				const cachedTokens = extractCachedTokens(json)
-				if (cachedTokens !== null) observedCachedTokens = cachedTokens
-				handleDelta(delta)
-			}
-		}
-
-		if (buffer.trim() !== "") {
-			const parsed = parseSseLine(buffer)
-			if (parsed.type === "data") {
-				const json: unknown = JSON.parse(parsed.payload)
-				const delta = extractDelta(json)
-				collectDeltaKeys(json, deltaKeysSeen)
-				const cachedTokens = extractCachedTokens(json)
-				if (cachedTokens !== null) observedCachedTokens = cachedTokens
-				handleDelta(delta)
-			}
-		}
-
-		cleanupTimers()
-		if (reasoningStarted) {
-			onTrace?.("\n\n")
-			reasoningStarted = false
-		}
-
-		onTrace?.(`[Diagnostic] finishReason: ${observedFinishReason ?? "none"}\n`)
-		onTrace?.(`[Diagnostic] cached_tokens: ${observedCachedTokens ?? "not reported by provider"}\n`)
-		const unrecognizedKeys = [...deltaKeysSeen].filter(k => !RECOGNIZED_DELTA_KEYS.has(k))
+		onTrace?.(`[Diagnostic] finishReason: ${result.finishReason ?? "none"}\n`)
+		onTrace?.(`[Diagnostic] cached_tokens: ${result.cachedTokens ?? "not reported by provider"}\n`)
+		const unrecognizedKeys = [...result.deltaKeysSeen].filter(k => !RECOGNIZED_DELTA_KEYS.has(k))
 		if (unrecognizedKeys.length > 0) {
 			onTrace?.(`[Diagnostic] Unrecognized delta keys: ${unrecognizedKeys.join(", ")}\n`)
 		}
 
-		if (observedFinishReason === "length") {
+		if (result.finishReason === "length") {
 			throw new Error("AI response truncated: model reached maximum output token limit (finishReason: length). Consider increasing max_tokens or reducing prompt size.")
 		}
 
-		const hasToolCalls = toolCallAccumulator.size > 0
-		const assistantContent = contentChunks.join("")
+		if (result.toolCallAccumulator.size === 0) return result.content
 
-		if (!hasToolCalls) return assistantContent
-
-		const assistantToolCalls: AiToolCall[] = []
-		for (const [, entry] of toolCallAccumulator) {
-			assistantToolCalls.push({
-				id: entry.id,
-				type: "function",
-				function: { name: entry.name, arguments: entry.arguments },
-			})
-		}
+		const assistantToolCalls = buildAiToolCalls(result.toolCallAccumulator)
 
 		messages.push({
 			role: "assistant",
-			content: assistantContent || null,
+			content: result.content || null,
 			tool_calls: assistantToolCalls,
 		})
 
