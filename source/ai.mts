@@ -73,7 +73,7 @@ export function createAiFetch(configuration: AiConfiguration): AiFetch {
 	}
 }
 
-export async function* readStreamChunks(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
+async function* readStreamChunks(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
 	const reader = stream.getReader()
 	const decoder = new TextDecoder()
 	try {
@@ -87,7 +87,7 @@ export async function* readStreamChunks(stream: ReadableStream<Uint8Array>): Asy
 	}
 }
 
-export function parseSseLine(line: string): { type: "data"; payload: string } | { type: "done" } | { type: "ignore" } {
+function parseSseLine(line: string): { type: "data"; payload: string } | { type: "done" } | { type: "ignore" } {
 	const trimmed = line.trim()
 	if (trimmed === "") return { type: "ignore" }
 	if (!trimmed.startsWith("data: ")) return { type: "ignore" }
@@ -136,7 +136,7 @@ function extractToolCallDeltas(delta: unknown): ToolCallDelta[] {
 	return results
 }
 
-export function extractDelta(data: unknown): DeltaText {
+function extractDelta(data: unknown): DeltaText {
 	if (typeof data !== "object" || data === null) return {}
 	if (!("choices" in data) || !Array.isArray(data.choices)) return {}
 	if (data.choices.length === 0) return {}

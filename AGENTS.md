@@ -272,3 +272,17 @@ One-line `return` or `continue` guards are especially encouraged when they let t
 4. **Check preconditions before operations, don't catch expected errors**
 5. **Use type guards, not typecasts, for narrowing**
 6. **Fail fast on invalid input, unexpected results, or any other failure — do not suppress, compensate for, or guess around problems. Throw with useful debugging information instead.**
+
+---
+
+## Knowledge Freshness
+
+**Do not rely on internal memory for version numbers, release dates, package versions, or any other time-sensitive facts that may have changed since training.** Always use available tools to look up the latest information online before making claims about:
+
+- Software or library versions
+- Release dates or version lifecycles
+- Current best practices, standards, or specifications
+- API behavior, endpoints, or schemas of external services
+- Security advisories, CVE status, or vulnerability reports
+
+If you are unsure whether a fact is static or time-sensitive, treat it as time-sensitive and verify it with a tool.

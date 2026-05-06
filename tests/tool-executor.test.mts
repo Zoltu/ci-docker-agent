@@ -21,16 +21,16 @@ function makeSpawnGit(responses: Map<string, GitDiffResult>): SpawnGit {
 
 describe("createToolExecutor", () => {
 	describe("definitions", () => {
-		it("includes read_file tool definition", () => {
-			const executor = createToolExecutor(makeSpawnGit(new Map()), "abc123")
-			expect(executor.definitions.length).toBe(1)
-			expect(executor.definitions[0]!.function.name).toBe("read_file")
-		})
+	it("includes read_file tool definition", () => {
+		const executor = createToolExecutor(makeSpawnGit(new Map()), "abc123")
+		expect(executor.definitions.length).toBe(1)
+		expect(executor.definitions[0]!.function.name).toBe("read_file")
+	})
 
-		it("describes read_file as reading from base commit", () => {
-			const executor = createToolExecutor(makeSpawnGit(new Map()), "abc123")
-			expect(executor.definitions[0]!.function.description).toContain("base commit")
-		})
+	it("describes read_file as reading from base commit", () => {
+		const executor = createToolExecutor(makeSpawnGit(new Map()), "abc123")
+		expect(executor.definitions[0]!.function.description).toContain("base commit")
+	})
 	})
 
 	describe("execute read_file", () => {

@@ -83,7 +83,7 @@ describe("runOnCommentTrigger", () => {
 	})
 
 	it("submits review when triggered and files exist", async () => {
-		let submittedReview: GitHubReviewPayload | null = null
+		let submittedReview: GitHubReviewPayload
 
 		await runOnCommentTrigger(
 			{
@@ -100,7 +100,7 @@ describe("runOnCommentTrigger", () => {
 			makeCommentTriggerConfiguration()
 		)
 
-		expect(submittedReview).not.toBeNull()
+		expect(submittedReview!).toBeDefined()
 		expect(submittedReview!.event).toBe("COMMENT")
 		expect(submittedReview!.body).toContain("Good work")
 	})
@@ -181,7 +181,7 @@ describe("runOnPullRequest", () => {
 	})
 
 	it("submits review after analysis", async () => {
-		let submittedReview: GitHubReviewPayload | null = null
+		let submittedReview: GitHubReviewPayload
 
 		await runOnPullRequest(
 			{
@@ -198,7 +198,7 @@ describe("runOnPullRequest", () => {
 			makePullRequestConfiguration()
 		)
 
-		expect(submittedReview).not.toBeNull()
+		expect(submittedReview!).toBeDefined()
 		expect(submittedReview!.body).toContain("Great work")
 	})
 	it("propagates error when loadAgents throws", async () => {
