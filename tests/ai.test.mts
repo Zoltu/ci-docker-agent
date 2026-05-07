@@ -14,7 +14,7 @@ const SAMPLE_DIFF = [
 	"+new",
 ].join("\n")
 
-const noopDebugWriter: DebugWriter = { writePrompt: () => {}, writeTrace: () => {}, writeContent: () => {} }
+const noopDebugWriter: DebugWriter = { writePrompt: async () => {}, writeTrace: async () => {}, writeContent: async () => {} }
 
 function makeAiFetchWithAggregatorOutput(aggregatorOutput: string): AiFetch {
 	let callCount = 0
@@ -172,7 +172,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: " world" } }] }),
 			"data: [DONE]",
 		])
-		await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", (content) => { contentChunks.push(content) })
+		await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (content) => { contentChunks.push(content) })
 		expect(contentChunks).toEqual(["Hello", " world"])
 	})
 
@@ -183,7 +183,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
 		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n"])
@@ -198,7 +198,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
 		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n"])
@@ -233,7 +233,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
 		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n"])
@@ -248,7 +248,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
 		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n"])
@@ -261,7 +261,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "ans", reasoning: "think" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", (c) => { contentChunks.push(c) }, (t) => { traceChunks.push(t) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (c) => { contentChunks.push(c) }, async (t) => { traceChunks.push(t) })
 		expect(result).toBe("ans")
 		expect(contentChunks).toEqual(["ans"])
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
@@ -274,7 +274,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { reasoning: "only reasoning" } }] }),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", () => {}, (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
 		expect(functionalTraces).toEqual(["[Reasoning]\n", "only reasoning", "\n\n"])
@@ -305,7 +305,7 @@ describe("callAiApi", () => {
 		}
 
 		const traceChunks: string[] = []
-		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt", undefined, (t) => { traceChunks.push(t) })
+		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt", undefined, async (t) => { traceChunks.push(t) })
 		expect(result).toBe("final answer")
 		expect(callCount).toBe(2)
 		expect(traceChunks.some(t => t.includes("[Tool Call: read_file]"))).toBe(true)
@@ -464,9 +464,9 @@ describe("analyze", () => {
 		const content: Array<{ agentName: string; chunk: string }> = []
 		const trace: Array<{ agentName: string; chunk: string }> = []
 		const debugWriter: DebugWriter = {
-			writePrompt: (agentName, prompt) => { prompts.push({ agentName, prompt }) },
-			writeContent: (agentName, chunk) => { content.push({ agentName, chunk }) },
-			writeTrace: (agentName, chunk) => { trace.push({ agentName, chunk }) },
+			writePrompt: async (agentName, prompt) => { prompts.push({ agentName, prompt }) },
+			writeContent: async (agentName, chunk) => { content.push({ agentName, chunk }) },
+			writeTrace: async (agentName, chunk) => { trace.push({ agentName, chunk }) },
 		}
 		const output = JSON.stringify({ body: "result", comments: [] })
 		const aiFetch: AiFetch = async (_messages, _tools, _signal) => createMockStream([wrapInSse(output)])

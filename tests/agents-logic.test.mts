@@ -103,6 +103,7 @@ describe("buildAgentPrompt", () => {
 	})
 })
 
+// Exception to AGENTS.md rule against testing leaf functions: these tests verify that the required builtin agents exist on disk, since the entire system breaks if the agents/ folder or Default.md/Aggregator.md are missing.
 describe("required builtin agents", () => {
 	it("has a Default.md agent in the agents directory", () => {
 		expect(existsSync(join(PROJECT_ROOT, "agents", "Default.md"))).toBe(true)

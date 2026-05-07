@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, appendFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
+import { appendFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 export interface DebugWriter {
-	writePrompt: (agentName: string, prompt: string) => void
-	writeTrace: (agentName: string, text: string) => void
-	writeContent: (agentName: string, content: string) => void
+	writePrompt: (agentName: string, prompt: string) => Promise<void>
+	writeTrace: (agentName: string, text: string) => Promise<void>
+	writeContent: (agentName: string, content: string) => Promise<void>
 }
 
 export function createDebugWriter(debugDirectory: string): DebugWriter {
@@ -24,14 +25,8 @@ export function createDebugWriter(debugDirectory: string): DebugWriter {
 	mkdirSync(debugDirectory, { recursive: true })
 
 	return {
-		writePrompt(agentName: string, prompt: string): void {
-			writeFileSync(join(debugDirectory, `${agentName}-prompt.md`), prompt)
-		},
-		writeTrace(agentName: string, text: string): void {
-			appendFileSync(join(debugDirectory, `${agentName}-trace.md`), text)
-		},
-		writeContent(agentName: string, content: string): void {
-			appendFileSync(join(debugDirectory, `${agentName}-output.md`), content)
-		},
+		writePrompt: async (agentName: string, prompt: string) => await writeFile(join(debugDirectory, `${agentName}-prompt.md`), prompt),
+		writeTrace: async (agentName: string, text: string) => await appendFile(join(debugDirectory, `${agentName}-trace.md`), text),
+		writeContent: async(agentName: string, content: string) => await appendFile(join(debugDirectory, `${agentName}-output.md`), content),
 	}
 }

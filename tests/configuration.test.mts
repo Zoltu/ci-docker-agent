@@ -1,18 +1,18 @@
 import { describe, it, expect } from "bun:test"
-import { createGetConfiguration, type CommentTriggerConfiguration, type PullRequestConfiguration, type LocalDiffConfiguration, type Configuration } from "../source/configuration.mts"
+import { getConfiguration, type CommentTriggerConfiguration, type PullRequestConfiguration, type LocalDiffConfiguration, type Configuration } from "../source/configuration.mts"
 
-function getConfiguration(environment: Record<string, string | undefined>): Configuration {
-	return createGetConfiguration(environment)()
+function resolveConfiguration(environment: Record<string, string | undefined>): Configuration {
+	return getConfiguration(environment)
 }
 
 function getLocalDiffConfiguration(environment: Record<string, string | undefined> = {}): LocalDiffConfiguration {
-	const configuration = getConfiguration({ BASE_COMMIT: "abc123", HEAD_COMMIT: "def456", ...environment })
+	const configuration = resolveConfiguration({ BASE_COMMIT: "abc123", HEAD_COMMIT: "def456", ...environment })
 	if (configuration.type !== "local-diff") throw new Error(`Expected local-diff, got ${configuration.type}`)
 	return configuration
 }
 
 function getCommentTriggerConfiguration(environment: Record<string, string | undefined> = {}): CommentTriggerConfiguration {
-	const configuration = getConfiguration({
+	const configuration = resolveConfiguration({
 		EVENT_TYPE: "issue_comment",
 		GITHUB_TOKEN: "my-token",
 		PR_NUMBER: "42",
@@ -25,7 +25,7 @@ function getCommentTriggerConfiguration(environment: Record<string, string | und
 }
 
 function getPullRequestConfiguration(environment: Record<string, string | undefined> = {}): PullRequestConfiguration {
-	const configuration = getConfiguration({
+	const configuration = resolveConfiguration({
 		GITHUB_TOKEN: "my-token",
 		PR_NUMBER: "42",
 		REPO: "owner/repo",
@@ -35,7 +35,7 @@ function getPullRequestConfiguration(environment: Record<string, string | undefi
 	return configuration
 }
 
-describe("getConfiguration", () => {
+describe("resolveConfiguration", () => {
 	describe("local-diff configuration", () => {
 		it("returns local-diff when BASE_COMMIT and HEAD_COMMIT are provided", () => {
 			const configuration = getLocalDiffConfiguration()
@@ -65,7 +65,7 @@ describe("getConfiguration", () => {
 		})
 
 		it("takes priority over github when both sets of environment vars are provided", () => {
-			const configuration = getConfiguration({
+			const configuration = resolveConfiguration({
 				BASE_COMMIT: "abc123",
 				HEAD_COMMIT: "def456",
 				GITHUB_TOKEN: "my-token",
@@ -149,7 +149,7 @@ describe("getConfiguration", () => {
 
 	describe("EVENT_TYPE validation", () => {
 		it("accepts local-diff when EVENT_TYPE is unset", () => {
-			const configuration = getConfiguration({
+			const configuration = resolveConfiguration({
 				BASE_COMMIT: "abc123",
 				HEAD_COMMIT: "def456",
 			})
@@ -157,7 +157,7 @@ describe("getConfiguration", () => {
 		})
 
 		it("accepts local-diff when EVENT_TYPE is 'local'", () => {
-			const configuration = getConfiguration({
+			const configuration = resolveConfiguration({
 				BASE_COMMIT: "abc123",
 				HEAD_COMMIT: "def456",
 				EVENT_TYPE: "local",
@@ -166,7 +166,7 @@ describe("getConfiguration", () => {
 		})
 
 		it("throws when EVENT_TYPE is invalid for local diff", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				BASE_COMMIT: "abc123",
 				HEAD_COMMIT: "def456",
 				EVENT_TYPE: "bogus",
@@ -176,48 +176,48 @@ describe("getConfiguration", () => {
 
 	describe("validation errors", () => {
 		it("throws when no required environment vars are provided", () => {
-			expect(() => getConfiguration({})).toThrow("No valid configuration found")
+			expect(() => resolveConfiguration({})).toThrow("No valid configuration found")
 		})
 
 		it("throws when only GITHUB_TOKEN is provided", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				GITHUB_TOKEN: "my-token",
 			})).toThrow("GitHub mode requires PR_NUMBER and REPO")
 		})
 
 		it("throws when only BASE_COMMIT is provided without HEAD_COMMIT", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				BASE_COMMIT: "abc123",
 			})).toThrow("HEAD_COMMIT is required when BASE_COMMIT is provided")
 		})
 
 		it("throws when only HEAD_COMMIT is provided without BASE_COMMIT", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				HEAD_COMMIT: "def456",
 			})).toThrow("BASE_COMMIT is required when HEAD_COMMIT is provided")
 		})
 
 		it("throws when PR_NUMBER is provided without GITHUB_TOKEN and REPO", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				PR_NUMBER: "42",
 			})).toThrow("GitHub mode requires GITHUB_TOKEN and REPO")
 		})
 
 		it("throws when REPO is provided without GITHUB_TOKEN and PR_NUMBER", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				REPO: "owner/repo",
 			})).toThrow("GitHub mode requires GITHUB_TOKEN and PR_NUMBER")
 		})
 
 		it("throws when GITHUB_TOKEN and PR_NUMBER are provided without REPO", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				GITHUB_TOKEN: "my-token",
 				PR_NUMBER: "42",
 			})).toThrow("GitHub mode requires REPO")
 		})
 
 		it("throws when PR_NUMBER is not a valid number", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				GITHUB_TOKEN: "my-token",
 				PR_NUMBER: "not-a-number",
 				REPO: "owner/repo",
@@ -225,7 +225,7 @@ describe("getConfiguration", () => {
 		})
 
 		it("throws when REPO is not in owner/repo format", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				GITHUB_TOKEN: "my-token",
 				PR_NUMBER: "42",
 				REPO: "invalid",
@@ -233,7 +233,7 @@ describe("getConfiguration", () => {
 		})
 
 		it("throws when REPO is empty string after slash", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				GITHUB_TOKEN: "my-token",
 				PR_NUMBER: "42",
 				REPO: "owner/",
@@ -241,7 +241,7 @@ describe("getConfiguration", () => {
 		})
 
 		it("throws when REPO has extra slashes", () => {
-			expect(() => getConfiguration({
+			expect(() => resolveConfiguration({
 				GITHUB_TOKEN: "my-token",
 				PR_NUMBER: "42",
 				REPO: "owner/repo/extra",

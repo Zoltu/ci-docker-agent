@@ -27,11 +27,11 @@ async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: Ag
 	const aggregator = await dependencies.loadAggregator()
 	await ensureCommitAvailable(dependencies, baseCommit)
 	const baseCommitContext = await getBaseCommitContext(dependencies, baseCommit)
-	const toolExecutor = createToolExecutor(dependencies.spawnGit, baseCommit)
+	const toolExecutor = createToolExecutor({ spawnGit: dependencies.spawnGit }, baseCommit)
 	return analyze({ ...dependencies, toolExecutor }, baseCommitContext, diffText, agents, aggregator)
 }
 
-type SubmitPrReviewDependencies = {
+type PrReviewDependencies = {
 	spawnGit: SpawnGit
 	fetchPullRequestDiff: () => Promise<string>
 	fetchPullRequestBaseCommit: () => Promise<string>
@@ -43,7 +43,7 @@ type SubmitPrReviewDependencies = {
 	debugWriter: DebugWriter
 }
 
-async function submitPrReview(dependencies: SubmitPrReviewDependencies, agentNames: AgentNames): Promise<void> {
+async function submitPrReview(dependencies: PrReviewDependencies, agentNames: AgentNames): Promise<void> {
 	const [diffText, baseCommit] = await Promise.all([
 		dependencies.fetchPullRequestDiff(),
 		dependencies.fetchPullRequestBaseCommit(),
@@ -60,19 +60,7 @@ async function submitPrReview(dependencies: SubmitPrReviewDependencies, agentNam
 	dependencies.logger.log("PR review submitted successfully")
 }
 
-type RunOnCommentTriggerDependencies = {
-	spawnGit: SpawnGit
-	fetchPullRequestDiff: () => Promise<string>
-	fetchPullRequestBaseCommit: () => Promise<string>
-	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
-	loadAggregator: () => Promise<Agent>
-	aiFetch: AiFetch
-	logger: Logger
-	submitReview: (review: GitHubReviewPayload) => Promise<void>
-	debugWriter: DebugWriter
-}
-
-export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDependencies, configuration: CommentTriggerConfiguration): Promise<void> {
+export async function runOnCommentTrigger(dependencies: PrReviewDependencies, configuration: CommentTriggerConfiguration): Promise<void> {
 	const triggerResult = getAgentsFromComment(configuration.commentBody)
 
 	if (triggerResult === "no review triggered") {
@@ -83,19 +71,7 @@ export async function runOnCommentTrigger(dependencies: RunOnCommentTriggerDepen
 	await submitPrReview(dependencies, triggerResult)
 }
 
-type RunOnPullRequestDependencies = {
-	spawnGit: SpawnGit
-	fetchPullRequestDiff: () => Promise<string>
-	fetchPullRequestBaseCommit: () => Promise<string>
-	loadAgents: (agentNames: AgentNames) => Promise<ResolveResult>
-	loadAggregator: () => Promise<Agent>
-	aiFetch: AiFetch
-	logger: Logger
-	submitReview: (review: GitHubReviewPayload) => Promise<void>
-	debugWriter: DebugWriter
-}
-
-export async function runOnPullRequest(dependencies: RunOnPullRequestDependencies, configuration: PullRequestConfiguration): Promise<void> {
+export async function runOnPullRequest(dependencies: PrReviewDependencies, configuration: PullRequestConfiguration): Promise<void> {
 	await submitPrReview(dependencies, configuration.agents)
 }
 

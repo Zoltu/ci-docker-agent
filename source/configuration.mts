@@ -101,8 +101,7 @@ function tryGetPullRequestConfiguration(environment: Record<string, string | und
 	return { ok: true, value: { type: "pull-request", agents, github: githubResult.value } }
 }
 
-export function createGetConfiguration(environment: Record<string, string | undefined>): () => Configuration {
-	return function getConfiguration(): Configuration {
+export function getConfiguration(environment: Record<string, string | undefined>): Configuration {
 	const agents = parseAgents(environment.AGENTS)
 
 	const localResult = tryGetLocalDiffConfiguration(environment, agents)
@@ -118,5 +117,4 @@ export function createGetConfiguration(environment: Record<string, string | unde
 		.filter((r): r is { ok: false; reason: string } => !r.ok)
 		.map(r => r.reason)
 	throw new Error(`No valid configuration found:\n${reasons.map(r => `- ${r}`).join("\n")}`)
-	}
 }

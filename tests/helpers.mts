@@ -1,6 +1,7 @@
 import type { Agent } from "../source/agents.mts"
 import type { BaseCommitContext } from "../source/base-commit.mts"
 import type { CommentTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "../source/configuration.mts"
+import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { GitHubConfiguration } from "../source/github-types.mts"
 import type { Logger } from "../source/logger.mts"
 import type { ToolCallResult, ToolExecutor } from "../source/tool-executor.mts"
@@ -89,4 +90,25 @@ export function makeNoopToolExecutor(): ToolExecutor {
 			throw new Error("Unexpected tool call in test")
 		},
 	}
+}
+
+export function makeSpawnGit(responses: Map<string, GitDiffResult>): SpawnGit {
+	return async (parameters: string[]) => {
+		const key = parameters.join(" ")
+		const result = responses.get(key)
+		if (result) return result
+		throw new Error(`Unexpected spawnGit call: ${key}`)
+	}
+}
+
+export function ok(stdout: string): GitDiffResult {
+	return { stdout, stderr: "", exitCode: 0, signalCode: null }
+}
+
+export function error(stderr: string): GitDiffResult {
+	return { stdout: "", stderr, exitCode: 1, signalCode: null }
+}
+
+export function timeout(): GitDiffResult {
+	return { stdout: "", stderr: "", exitCode: null, signalCode: "SIGTERM" }
 }

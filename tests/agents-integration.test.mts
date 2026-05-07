@@ -1,10 +1,6 @@
 import { describe, it, expect } from "bun:test"
-import { createLoadAgents, createLoadAggregator, createReadAgentsFromDisk } from "../source/agents.mts"
+import { createLoadAgents, createLoadAggregator } from "../source/agents.mts"
 import type { AgentDirectories, AgentReader, Agent } from "../source/agents.mts"
-import { join } from "node:path"
-import { existsSync } from "node:fs"
-
-const PROJECT_ROOT = join(import.meta.dir, "..")
 
 function mockReader(agentsByDirectory: Map<string, Agent[]>): AgentReader {
 	return (directory) => Promise.resolve(agentsByDirectory.get(directory) ?? [])
@@ -181,20 +177,6 @@ describe("createLoadAgents", () => {
 		)
 	})
 
-	it("reads agents from disk using createLoadAgents", async () => {
-		const builtinDirectory = join(PROJECT_ROOT, "agents")
-		expect(existsSync(builtinDirectory)).toBe(true)
-
-		const loadAgents = createLoadAgents({ userAgentsDirectory: "/nonexistent", builtinAgentsDirectory: builtinDirectory }, createReadAgentsFromDisk())
-		const result = await loadAgents("run all agents")
-
-		const names = result.agents.map(a => a.name)
-		expect(names).toContain("Default")
-		expect(names).not.toContain("Aggregator")
-		for (const agent of result.agents) {
-			expect(agent.prompt.length).toBeGreaterThan(0)
-		}
-	})
 })
 
 describe("createLoadAggregator", () => {

@@ -1,6 +1,6 @@
 import { createAiFetch, parseAiConfiguration } from "./ai.mts"
 import { createLoadAgents, createLoadAggregator, createReadAgentsFromDisk } from "./agents.mts"
-import { createGetConfiguration } from "./configuration.mts"
+import { getConfiguration } from "./configuration.mts"
 import { createGenerateLocalDiff, createSpawnGit, createValidateGitRepository } from "./diff.mts"
 import { createDebugWriter } from "./debug.mts"
 import { createFetchPullRequestBaseCommit, createFetchPullRequestDiff, createGithubFetch, createSubmitReview } from "./github.mts"
@@ -10,8 +10,7 @@ import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, USER_AGENTS_DIRECTORY } from
 import { assertNever } from "./typescript-helpers.mts"
 
 async function main(): Promise<void> {
-	const getConfiguration = createGetConfiguration(Bun.env)
-	const configuration = getConfiguration()
+	const configuration = getConfiguration(Bun.env)
 	const agentDirectories = { userAgentsDirectory: USER_AGENTS_DIRECTORY, builtinAgentsDirectory: BUILTIN_AGENTS_DIRECTORY }
 
 	const logger = createLogger()

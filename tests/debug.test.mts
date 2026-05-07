@@ -22,27 +22,27 @@ describe("createDebugWriter", () => {
 		expect(existsSync(newDir)).toBe(true)
 	})
 
-	it("writes a prompt file for an agent", () => {
+	it("writes a prompt file for an agent", async () => {
 		const writer = createDebugWriter(tempDir)
-		writer.writePrompt("TestAgent", "Hello prompt")
+		await writer.writePrompt("TestAgent", "Hello prompt")
 		const content = readFileSync(join(tempDir, "TestAgent-prompt.md"), "utf-8")
 		expect(content).toBe("Hello prompt")
 	})
 
-	it("appends content chunks to an output file", () => {
+	it("appends content chunks to an output file", async () => {
 		const writer = createDebugWriter(tempDir)
-		writer.writeContent("TestAgent", "chunk1")
-		writer.writeContent("TestAgent", "chunk2")
+		await writer.writeContent("TestAgent", "chunk1")
+		await writer.writeContent("TestAgent", "chunk2")
 		const content = readFileSync(join(tempDir, "TestAgent-output.md"), "utf-8")
 		expect(content).toBe("chunk1chunk2")
 	})
 
-	it("writes separate files for different agents", () => {
+	it("writes separate files for different agents", async () => {
 		const writer = createDebugWriter(tempDir)
-		writer.writePrompt("Agent1", "prompt1")
-		writer.writePrompt("Agent2", "prompt2")
-		writer.writeContent("Agent1", "out1")
-		writer.writeContent("Agent2", "out2")
+		await writer.writePrompt("Agent1", "prompt1")
+		await writer.writePrompt("Agent2", "prompt2")
+		await writer.writeContent("Agent1", "out1")
+		await writer.writeContent("Agent2", "out2")
 
 		expect(readFileSync(join(tempDir, "Agent1-prompt.md"), "utf-8")).toBe("prompt1")
 		expect(readFileSync(join(tempDir, "Agent2-prompt.md"), "utf-8")).toBe("prompt2")
@@ -50,18 +50,18 @@ describe("createDebugWriter", () => {
 		expect(readFileSync(join(tempDir, "Agent2-output.md"), "utf-8")).toBe("out2")
 	})
 
-	it("appends trace chunks to a trace file", () => {
+	it("appends trace chunks to a trace file", async () => {
 		const writer = createDebugWriter(tempDir)
-		writer.writeTrace("TestAgent", "step1")
-		writer.writeTrace("TestAgent", "step2")
+		await writer.writeTrace("TestAgent", "step1")
+		await writer.writeTrace("TestAgent", "step2")
 		const content = readFileSync(join(tempDir, "TestAgent-trace.md"), "utf-8")
 		expect(content).toBe("step1step2")
 	})
 
-	it("writes trace to a separate file from content", () => {
+	it("writes trace to a separate file from content", async () => {
 		const writer = createDebugWriter(tempDir)
-		writer.writeContent("TestAgent", "output")
-		writer.writeTrace("TestAgent", "thinking")
+		await writer.writeContent("TestAgent", "output")
+		await writer.writeTrace("TestAgent", "thinking")
 		expect(readFileSync(join(tempDir, "TestAgent-output.md"), "utf-8")).toBe("output")
 		expect(readFileSync(join(tempDir, "TestAgent-trace.md"), "utf-8")).toBe("thinking")
 	})
@@ -76,10 +76,10 @@ describe("createDebugWriter", () => {
 		expect(() => createDebugWriter(tempDir)).toThrow(/non-markdown files/)
 	})
 
-	it("clears existing markdown files from a previous run", () => {
+	it("clears existing markdown files from a previous run", async () => {
 		writeFileSync(join(tempDir, "OldAgent-prompt.md"), "old prompt")
 		const writer = createDebugWriter(tempDir)
-		writer.writePrompt("NewAgent", "new prompt")
+		await writer.writePrompt("NewAgent", "new prompt")
 		expect(existsSync(join(tempDir, "OldAgent-prompt.md"))).toBe(false)
 		expect(readFileSync(join(tempDir, "NewAgent-prompt.md"), "utf-8")).toBe("new prompt")
 	})

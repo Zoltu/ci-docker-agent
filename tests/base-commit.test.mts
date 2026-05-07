@@ -1,27 +1,11 @@
 import { describe, it, expect } from "bun:test"
 import { getBaseCommitContext } from "../source/base-commit.mts"
-import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
+import type { SpawnGit } from "../source/diff.mts"
 import { join } from "node:path"
 import { existsSync } from "node:fs"
+import { makeSpawnGit, ok, error } from "./helpers.mts"
 
 const PROJECT_ROOT = join(import.meta.dir, "..")
-
-function makeSpawnGit(responses: Map<string, GitDiffResult>): SpawnGit {
-	return async (parameters: string[]) => {
-		const key = parameters.join(" ")
-		const result = responses.get(key)
-		if (result) return result
-		throw new Error(`Unexpected spawnGit call: ${key}`)
-	}
-}
-
-function ok(stdout: string): GitDiffResult {
-	return { stdout, stderr: "", exitCode: 0, signalCode: null }
-}
-
-function err(stderr: string): GitDiffResult {
-	return { stdout: "", stderr, exitCode: 1, signalCode: null }
-}
 
 describe("getBaseCommitContext", () => {
 	it("returns file list from a real commit", async () => {
@@ -71,7 +55,7 @@ describe("getBaseCommitContext", () => {
 
 	it("throws when ls-tree fails", async () => {
 		const spawnGit = makeSpawnGit(new Map([
-			["ls-tree -r --name-only abc123", err("fatal: Not a valid object name")],
+			["ls-tree -r --name-only abc123", error("fatal: Not a valid object name")],
 		]))
 
 		expect(getBaseCommitContext({ spawnGit }, "abc123")).rejects.toThrow("Failed to list files in base commit")

@@ -50,7 +50,8 @@ function isValidReadFileArguments(args: unknown): args is { path: string } {
 	return true
 }
 
-export function createToolExecutor(spawnGit: SpawnGit, baseCommit: string): ToolExecutor {
+export function createToolExecutor(dependencies: { spawnGit: SpawnGit }, baseCommit: string): ToolExecutor {
+	const { spawnGit } = dependencies
 	return {
 		definitions: [READ_FILE_TOOL],
 		async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
