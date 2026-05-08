@@ -186,7 +186,7 @@ describe("callAiApi", () => {
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n"])
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n", "[Content]\n", "answer", "\n\n"])
 	})
 
 	it("streams consecutive reasoning chunks immediately", async () => {
@@ -201,7 +201,7 @@ describe("callAiApi", () => {
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n"])
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n", "[Content]\n", "answer", "\n\n"])
 	})
 
 	it("does not include reasoning in final result", async () => {
@@ -236,7 +236,7 @@ describe("callAiApi", () => {
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n"])
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n", "[Content]\n", "answer", "\n\n"])
 	})
 
 	it("streams consecutive reasoning_content chunks immediately", async () => {
@@ -251,7 +251,7 @@ describe("callAiApi", () => {
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n"])
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n", "[Content]\n", "answer", "\n\n"])
 	})
 
 	it("handles chunks with both content and reasoning", async () => {
@@ -265,7 +265,7 @@ describe("callAiApi", () => {
 		expect(result).toBe("ans")
 		expect(contentChunks).toEqual(["ans"])
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "think", "\n\n"])
+		expect(functionalTraces).toEqual(["[Reasoning]\n", "think", "\n\n", "[Content]\n", "ans", "\n\n"])
 	})
 
 	it("closes reasoning block when stream ends without content", async () => {
@@ -278,6 +278,33 @@ describe("callAiApi", () => {
 		expect(result).toBe("")
 		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
 		expect(functionalTraces).toEqual(["[Reasoning]\n", "only reasoning", "\n\n"])
+	})
+
+	it("calls onTrace for content chunks when onTrace is provided", async () => {
+		const traceChunks: string[] = []
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { content: "Hello" } }] }),
+			makeSseLine({ choices: [{ delta: { content: " world" } }] }),
+			"data: [DONE]",
+		])
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
+		expect(result).toBe("Hello world")
+		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
+		expect(functionalTraces).toEqual(["[Content]\n", "Hello", " world", "\n\n"])
+	})
+
+	it("alternates between content and reasoning blocks in trace", async () => {
+		const traceChunks: string[] = []
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { content: "start" } }] }),
+			makeSseLine({ choices: [{ delta: { reasoning: "think" } }] }),
+			makeSseLine({ choices: [{ delta: { content: "end" } }] }),
+			"data: [DONE]",
+		])
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
+		expect(result).toBe("startend")
+		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
+		expect(functionalTraces).toEqual(["[Content]\n", "start", "\n\n", "[Reasoning]\n", "think", "\n\n", "[Content]\n", "end", "\n\n"])
 	})
 
 	it("executes tool calls and continues the loop", async () => {

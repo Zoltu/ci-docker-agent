@@ -160,10 +160,15 @@ interface StreamState {
 	cachedTokens: number | null
 	deltaKeysSeen: Set<string>
 	reasoningStarted: boolean
+	contentStarted: boolean
 }
 
 async function applySseDelta(state: StreamState, delta: DeltaText, onContent?: (content: string) => Promise<void>, onTrace?: (trace: string) => Promise<void>): Promise<void> {
 	if (delta.reasoning) {
+		if (state.contentStarted) {
+			await onTrace?.("\n\n")
+			state.contentStarted = false
+		}
 		if (!state.reasoningStarted) {
 			await onTrace?.("[Reasoning]\n")
 			state.reasoningStarted = true
@@ -175,8 +180,13 @@ async function applySseDelta(state: StreamState, delta: DeltaText, onContent?: (
 			await onTrace?.("\n\n")
 			state.reasoningStarted = false
 		}
+		if (onTrace && !state.contentStarted) {
+			await onTrace("[Content]\n")
+			state.contentStarted = true
+		}
 		state.contentChunks.push(delta.content)
 		await onContent?.(delta.content)
+		await onTrace?.(delta.content)
 	}
 	if (delta.toolCalls) accumulateToolCallDeltas(state.toolCallAccumulator, delta.toolCalls)
 	if (delta.finishReason) state.finishReason = delta.finishReason
@@ -220,6 +230,7 @@ export async function consumeAiStream(stream: ReadableStream<Uint8Array>, onCont
 		cachedTokens: null,
 		deltaKeysSeen: new Set(),
 		reasoningStarted: false,
+		contentStarted: false,
 	}
 
 	for await (const chunk of readStreamChunks(stream)) {
@@ -235,6 +246,9 @@ export async function consumeAiStream(stream: ReadableStream<Uint8Array>, onCont
 	await stepSseLine(state, state.buffer, onContent, onTrace)
 
 	if (state.reasoningStarted) {
+		await onTrace?.("\n\n")
+	}
+	if (state.contentStarted) {
 		await onTrace?.("\n\n")
 	}
 
