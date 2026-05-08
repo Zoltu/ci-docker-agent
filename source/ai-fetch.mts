@@ -46,6 +46,7 @@ export function createAiFetch(configuration: AiConfiguration): AiFetch {
 			messages,
 			tools: tools.length > 0 ? tools : undefined,
 			stream: true,
+			stream_options: { include_usage: true },
 			// TODO: This should be a percentage of the context_length of the selected model
 			max_tokens: 100_000,
 			reasoning: { enabled: true, effort: "high" },
