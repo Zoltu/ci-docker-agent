@@ -41,6 +41,10 @@ function makeSseLine(data: unknown): string {
 	return `data: ${JSON.stringify(data)}`
 }
 
+function makeFinishSseLine(reason: string = "stop"): string {
+	return makeSseLine({ choices: [{ delta: {}, finish_reason: reason }] })
+}
+
 describe("parseAiConfiguration", () => {
 	it("returns configuration with API key", () => {
 		const result = parseAiConfiguration({
@@ -94,6 +98,7 @@ describe("callAiApi", () => {
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { content: "Hello" } }] }),
 			makeSseLine({ choices: [{ delta: { content: " world" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
@@ -105,6 +110,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "text" } }] }),
 			"",
 			makeSseLine({ choices: [{ delta: { content: " more" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
@@ -115,6 +121,7 @@ describe("callAiApi", () => {
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { role: "assistant" } }] }),
 			makeSseLine({ choices: [{ delta: { content: "hello" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
@@ -124,7 +131,7 @@ describe("callAiApi", () => {
 	it("handles content split across chunk boundaries", async () => {
 		const aiFetch = makeAiFetchFromChunks([
 			'data: {"choices":[{"delta":{"content":"Hel',
-			'lo"}}]}\n\ndata: {"choices":[{"delta":{"content":" world"}}]}\n\ndata: [DONE]\n\n',
+			'lo"}}]}\n\ndata: {"choices":[{"delta":{"content":" world"}}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
 		expect(result).toBe("Hello world")
@@ -133,6 +140,7 @@ describe("callAiApi", () => {
 	it("terminates on [DONE] without consuming remaining stream", async () => {
 		const lines = [
 			makeSseLine({ choices: [{ delta: { content: "done" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 			makeSseLine({ choices: [{ delta: { content: "after" } }] }),
 		]
@@ -141,17 +149,17 @@ describe("callAiApi", () => {
 		expect(result).toBe("done")
 	})
 
-	it("handles stream with no [DONE] marker", async () => {
+	it("throws when stream has no [DONE] marker and no finish_reason", async () => {
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { content: "end" } }] }),
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
-		expect(result).toBe("end")
+		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("AI stream ended without a finish reason")
 	})
 
-	it("returns empty string for stream with no content", async () => {
+	it("returns empty string for stream with no content but valid finish", async () => {
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { role: "assistant" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
@@ -170,6 +178,7 @@ describe("callAiApi", () => {
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { content: "Hello" } }] }),
 			makeSseLine({ choices: [{ delta: { content: " world" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (content) => { contentChunks.push(content) })
@@ -181,12 +190,13 @@ describe("callAiApi", () => {
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { reasoning: "thinking..." } }] }),
 			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
-		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n", "[Content]\n", "answer", "\n\n"])
+		const functionalTraces = traceChunks
+		expect(functionalTraces).toEqual(["# Reasoning\n\n", "thinking...", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("streams consecutive reasoning chunks immediately", async () => {
@@ -196,12 +206,13 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { reasoning: " me" } }] }),
 			makeSseLine({ choices: [{ delta: { reasoning: " think." } }] }),
 			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
-		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n", "[Content]\n", "answer", "\n\n"])
+		const functionalTraces = traceChunks
+		expect(functionalTraces).toEqual(["# Reasoning\n\n", "Let", " me", " think.", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("does not include reasoning in final result", async () => {
@@ -209,6 +220,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { reasoning: "step 1" } }] }),
 			makeSseLine({ choices: [{ delta: { reasoning: " step 2" } }] }),
 			makeSseLine({ choices: [{ delta: { content: "final" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
@@ -220,6 +232,7 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { reasoning_content: "step 1" } }] }),
 			makeSseLine({ choices: [{ delta: { reasoning_content: " step 2" } }] }),
 			makeSseLine({ choices: [{ delta: { content: "final" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
@@ -231,12 +244,13 @@ describe("callAiApi", () => {
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { reasoning_content: "thinking..." } }] }),
 			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
-		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "thinking...", "\n\n", "[Content]\n", "answer", "\n\n"])
+		const functionalTraces = traceChunks
+		expect(functionalTraces).toEqual(["# Reasoning\n\n", "thinking...", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("streams consecutive reasoning_content chunks immediately", async () => {
@@ -246,12 +260,13 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { reasoning_content: " me" } }] }),
 			makeSseLine({ choices: [{ delta: { reasoning_content: " think." } }] }),
 			makeSseLine({ choices: [{ delta: { content: "answer" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
-		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "Let", " me", " think.", "\n\n", "[Content]\n", "answer", "\n\n"])
+		const functionalTraces = traceChunks
+		expect(functionalTraces).toEqual(["# Reasoning\n\n", "Let", " me", " think.", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("handles chunks with both content and reasoning", async () => {
@@ -259,25 +274,27 @@ describe("callAiApi", () => {
 		const traceChunks: string[] = []
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { content: "ans", reasoning: "think" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (c) => { contentChunks.push(c) }, async (t) => { traceChunks.push(t) })
 		expect(result).toBe("ans")
 		expect(contentChunks).toEqual(["ans"])
-		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "think", "\n\n", "[Content]\n", "ans", "\n\n"])
+		const functionalTraces = traceChunks
+		expect(functionalTraces).toEqual(["# Reasoning\n\n", "think", "\n\n", "# Content\n\n", "ans", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("closes reasoning block when stream ends without content", async () => {
 		const traceChunks: string[] = []
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { reasoning: "only reasoning" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("")
-		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Reasoning]\n", "only reasoning", "\n\n"])
+		const functionalTraces = traceChunks
+		expect(functionalTraces).toEqual(["# Reasoning\n\n", "only reasoning", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("calls onTrace for content chunks when onTrace is provided", async () => {
@@ -285,12 +302,13 @@ describe("callAiApi", () => {
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { content: "Hello" } }] }),
 			makeSseLine({ choices: [{ delta: { content: " world" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("Hello world")
-		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Content]\n", "Hello", " world", "\n\n"])
+		const functionalTraces = traceChunks
+		expect(functionalTraces).toEqual(["# Content\n\n", "Hello", " world", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("alternates between content and reasoning blocks in trace", async () => {
@@ -299,12 +317,13 @@ describe("callAiApi", () => {
 			makeSseLine({ choices: [{ delta: { content: "start" } }] }),
 			makeSseLine({ choices: [{ delta: { reasoning: "think" } }] }),
 			makeSseLine({ choices: [{ delta: { content: "end" } }] }),
+			makeFinishSseLine(),
 			"data: [DONE]",
 		])
 		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("startend")
-		const functionalTraces = traceChunks.filter(t => !t.startsWith("[Diagnostic]"))
-		expect(functionalTraces).toEqual(["[Content]\n", "start", "\n\n", "[Reasoning]\n", "think", "\n\n", "[Content]\n", "end", "\n\n"])
+		const functionalTraces = traceChunks
+		expect(functionalTraces).toEqual(["# Content\n\n", "start", "\n\n", "# Reasoning\n\n", "think", "\n\n", "# Content\n\n", "end", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("executes tool calls and continues the loop", async () => {
@@ -313,12 +332,13 @@ describe("callAiApi", () => {
 			callCount++
 			if (callCount === 1) {
 				return createMockStream([
-					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"src/foo.ts\\"}"}}]}}]}\n\n',
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"src/foo.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
 					"data: [DONE]\n\n",
 				])
 			}
 			return createMockStream([
 				'data: {"choices":[{"delta":{"content":"final answer"}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
 				"data: [DONE]\n\n",
 			])
 		}
@@ -335,8 +355,8 @@ describe("callAiApi", () => {
 		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt", undefined, async (t) => { traceChunks.push(t) })
 		expect(result).toBe("final answer")
 		expect(callCount).toBe(2)
-		expect(traceChunks.some(t => t.includes("[Tool Call: read_file]"))).toBe(true)
-		expect(traceChunks.some(t => t.includes("[Tool Result: read_file]"))).toBe(true)
+		expect(traceChunks.some(t => t.includes("# Tool Call: read_file"))).toBe(true)
+		expect(traceChunks.some(t => t.includes("# Tool Result: read_file"))).toBe(true)
 	})
 
 	it("handles multiple tool calls in a single response", async () => {
@@ -345,12 +365,13 @@ describe("callAiApi", () => {
 			callCount++
 			if (callCount === 1) {
 				return createMockStream([
-					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.ts\\"}"}},{"index":1,"id":"call_2","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"b.ts\\"}"}}]}}]}\n\n',
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.ts\\"}"}},{"index":1,"id":"call_2","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"b.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
 					"data: [DONE]\n\n",
 				])
 			}
 			return createMockStream([
 				'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
 				"data: [DONE]\n\n",
 			])
 		}
@@ -376,12 +397,13 @@ describe("callAiApi", () => {
 			if (callCount === 1) {
 				return createMockStream([
 					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"pat"}}]}}]}\n\n',
-					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"h\\":\\"a.ts\\"}"}}]}}]}\n\n',
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"h\\":\\"a.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
 					"data: [DONE]\n\n",
 				])
 			}
 			return createMockStream([
 				'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
 				"data: [DONE]\n\n",
 			])
 		}
@@ -403,6 +425,14 @@ describe("callAiApi", () => {
 			throw new Error("This model's maximum context length is 128000 tokens")
 		}
 		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("Context window exceeded")
+	})
+
+	it("throws when stream ends without a finish reason", async () => {
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { content: "partial" } }] }),
+			"data: [DONE]",
+		])
+		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("AI stream ended without a finish reason")
 	})
 
 	it("passes messages and tools to aiFetch", async () => {
@@ -430,7 +460,7 @@ describe("callAiApi", () => {
 				return createMockStream([
 					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":""}}]}}]}\n\n',
 					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"pat"}}]}}]}\n\n',
-					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"h\\":\\"x.ts\\"}"}}]}}]}\n\n',
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"h\\":\\"x.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
 					"data: [DONE]\n\n",
 				])
 			}

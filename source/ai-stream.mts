@@ -170,7 +170,7 @@ async function applySseDelta(state: StreamState, delta: DeltaText, onContent?: (
 			state.contentStarted = false
 		}
 		if (!state.reasoningStarted) {
-			await onTrace?.("[Reasoning]\n")
+			await onTrace?.("# Reasoning\n\n")
 			state.reasoningStarted = true
 		}
 		await onTrace?.(delta.reasoning)
@@ -181,7 +181,7 @@ async function applySseDelta(state: StreamState, delta: DeltaText, onContent?: (
 			state.reasoningStarted = false
 		}
 		if (onTrace && !state.contentStarted) {
-			await onTrace("[Content]\n")
+			await onTrace("# Content\n\n")
 			state.contentStarted = true
 		}
 		state.contentChunks.push(delta.content)
@@ -194,10 +194,7 @@ async function applySseDelta(state: StreamState, delta: DeltaText, onContent?: (
 
 async function stepSseLine(state: StreamState, line: string, onContent?: (content: string) => Promise<void>, onTrace?: (trace: string) => Promise<void>): Promise<boolean> {
 	const parsed = parseSseLine(line)
-	if (parsed.type === "done") {
-		await onTrace?.("[Diagnostic] SSE stream sent [DONE]\n")
-		return false
-	}
+	if (parsed.type === "done") return false
 	if (parsed.type === "ignore") return true
 	let json: unknown
 	try {

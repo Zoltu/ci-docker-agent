@@ -1,7 +1,7 @@
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 import { createAiFetch, parseAiConfiguration, type AiFetch, type AiMessage, type AiToolCall, type AiConfiguration } from "./ai-fetch.mts"
 export { createAiFetch, parseAiConfiguration, type AiFetch, type AiMessage, type AiToolCall, type AiConfiguration }
-import { RECOGNIZED_DELTA_KEYS, consumeAiStream, isContextWindowExceededError, buildAiToolCalls } from "./ai-stream.mts"
+import { consumeAiStream, isContextWindowExceededError, buildAiToolCalls } from "./ai-stream.mts"
 import type { DebugWriter } from "./debug.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
 import type { LineComment } from "./github-types.mts"
@@ -56,11 +56,10 @@ export async function callAiApi(dependencies: { aiFetch: AiFetch; toolExecutor: 
 		const result = await consumeAiStream(stream, onContent, onTrace, idleTimer.reset)
 		idleTimer.cleanup()
 
-		onTrace?.(`[Diagnostic] finishReason: ${result.finishReason ?? "none"}\n`)
-		onTrace?.(`[Diagnostic] cached_tokens: ${result.cachedTokens ?? "not reported by provider"}\n`)
-		const unrecognizedKeys = [...result.deltaKeysSeen].filter(k => !RECOGNIZED_DELTA_KEYS.has(k))
-		if (unrecognizedKeys.length > 0) {
-			onTrace?.(`[Diagnostic] Unrecognized delta keys: ${unrecognizedKeys.join(", ")}\n`)
+		if (result.finishReason !== null) onTrace?.(`<!-- finish_reason: ${result.finishReason} -->\n`)
+
+		if (result.finishReason === null) {
+			throw new Error("AI stream ended without a finish reason. The response may have been interrupted before completion.")
 		}
 
 		if (result.finishReason === "length") {
@@ -79,10 +78,10 @@ export async function callAiApi(dependencies: { aiFetch: AiFetch; toolExecutor: 
 
 		for (const toolCall of assistantToolCalls) {
 			const request: ToolCallRequest = { id: toolCall.id, name: toolCall.function.name, arguments: toolCall.function.arguments }
-			onTrace?.(`[Tool Call: ${toolCall.function.name}]\n${toolCall.function.arguments}\n\n`)
+			onTrace?.(`# Tool Call: ${toolCall.function.name}\n\n${toolCall.function.arguments}\n\n`)
 
 			const toolResult: ToolCallResult = await dependencies.toolExecutor.execute(request)
-			onTrace?.(`[Tool Result: ${toolCall.function.name}]\n${toolResult.content}\n\n`)
+			onTrace?.(`# Tool Result: ${toolCall.function.name}\n\n${toolResult.content}\n\n`)
 
 			messages.push({
 				role: "tool",

@@ -74,7 +74,7 @@ export function createMockStream(chunks: string[]): ReadableStream<Uint8Array> {
 }
 
 export function wrapInSse(content: string): string {
-	return `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`
+	return `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`
 }
 
 export function createMockLogger(): Logger {
