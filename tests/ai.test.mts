@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { analyze, callAiApi, parseAiConfiguration, type AiFetch, type AiMessage } from "../source/ai.mts"
+import { consumeAiStream, buildAiToolCalls, type ToolCallAccumulator } from "../source/ai-stream.mts"
 import type { Agent } from "../source/agents.mts"
 import type { DebugWriter } from "../source/debug.mts"
 import type { ToolCallRequest, ToolCallResult, ToolDefinition, ToolExecutor } from "../source/tool-executor.mts"
@@ -469,6 +470,78 @@ describe("callAiApi", () => {
 		await callAiApi({ aiFetch, toolExecutor }, "test prompt")
 		expect(capturedArgs.value).toBe('{"path":"x.ts"}')
 	})
+
+	it("sends fullContent in assistant message when continuing after tool calls", async () => {
+		const capturedMessages: AiMessage[][] = []
+		let callCount = 0
+		const aiFetch: AiFetch = async (messages, _tools, _signal) => {
+			capturedMessages.push(messages.map(m => ({ ...m })))
+			callCount++
+			if (callCount === 1) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"content":"progress"}}]}\n\n',
+					'data: {"choices":[{"delta":{"reasoning":"thinking..."}}]}\n\n',
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			return createMockStream([
+				'data: {"choices":[{"delta":{"content":"final answer"}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			])
+		}
+
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
+				return { toolCallId: toolCall.id, content: "file contents" }
+			},
+		}
+
+		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt")
+		expect(result).toBe("final answer")
+
+		const secondCallMessages = capturedMessages[1]!
+		const assistantMessage = secondCallMessages[1]!
+		expect(assistantMessage.role).toBe("assistant")
+		expect(assistantMessage.content).toBe("progress")
+		expect(assistantMessage.tool_calls).toBeDefined()
+		expect(assistantMessage.tool_calls!.length).toBe(1)
+	})
+
+	it("serializes assistant message content as null (not omitted) when model produces only tool calls", async () => {
+		const capturedMessages: AiMessage[][] = []
+		let callCount = 0
+		const aiFetch: AiFetch = async (messages, _tools, _signal) => {
+			capturedMessages.push(messages.map(m => ({ ...m })))
+			callCount++
+			if (callCount === 1) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			return createMockStream([wrapInSse("done")])
+		}
+
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
+				return { toolCallId: toolCall.id, content: "file contents" }
+			},
+		}
+
+		await callAiApi({ aiFetch, toolExecutor }, "test prompt")
+
+		const secondCallMessages = capturedMessages[1]!
+		const assistantMessage = secondCallMessages[1]!
+		expect(assistantMessage.role).toBe("assistant")
+		expect(assistantMessage.content).toBe(null)
+		const serialized = JSON.stringify(assistantMessage)
+		expect(serialized).toContain('"content":null')
+		expect(serialized).not.toContain('"content":undefined')
+	})
 })
 
 describe("analyze", () => {
@@ -664,5 +737,50 @@ describe("analyze", () => {
 
 			expect(analyze({ aiFetch, toolExecutor: makeNoopToolExecutor(), logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
+	})
+})
+
+describe("consumeAiStream", () => {
+	it("returns fullContent with all content blocks and content with last block only", async () => {
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { content: "progress update" } }] }),
+			makeSseLine({ choices: [{ delta: { reasoning: "thinking..." } }] }),
+			makeSseLine({ choices: [{ delta: { content: "final answer" } }] }),
+			makeFinishSseLine(),
+			"data: [DONE]",
+		])
+		const stream = await aiFetch([], [], new AbortController().signal)
+		const result = await consumeAiStream(stream)
+		expect(result.content).toBe("final answer")
+		expect(result.fullContent).toBe("progress updatefinal answer")
+	})
+
+	it("returns identical content and fullContent when there is no reasoning", async () => {
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { content: "Hello" } }] }),
+			makeSseLine({ choices: [{ delta: { content: " world" } }] }),
+			makeFinishSseLine(),
+			"data: [DONE]",
+		])
+		const stream = await aiFetch([], [], new AbortController().signal)
+		const result = await consumeAiStream(stream)
+		expect(result.content).toBe("Hello world")
+		expect(result.fullContent).toBe("Hello world")
+	})
+})
+
+describe("buildAiToolCalls", () => {
+	it("returns tool calls in index order regardless of insertion order", () => {
+		const accumulator: ToolCallAccumulator = new Map()
+		accumulator.set(2, { id: "call_2", name: "search_files", arguments: '{"pattern":"todo"}' })
+		accumulator.set(0, { id: "call_0", name: "read_file", arguments: '{"path":"a.ts"}' })
+		accumulator.set(1, { id: "call_1", name: "read_file", arguments: '{"path":"b.ts"}' })
+
+		const calls = buildAiToolCalls(accumulator)
+
+		expect(calls.map(c => c.id)).toEqual(["call_0", "call_1", "call_2"])
+		expect(calls[0]!.function.name).toBe("read_file")
+		expect(calls[0]!.function.arguments).toBe('{"path":"a.ts"}')
+		expect(calls[2]!.function.name).toBe("search_files")
 	})
 })

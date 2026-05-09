@@ -155,6 +155,7 @@ export function isContextWindowExceededError(error: unknown): boolean {
 interface StreamState {
 	buffer: string
 	contentChunks: string[]
+	allContentChunks: string[]
 	toolCallAccumulator: ToolCallAccumulator
 	finishReason: string | null
 	cachedTokens: number | null
@@ -186,6 +187,7 @@ async function applySseDelta(state: StreamState, delta: DeltaText, onTrace?: (tr
 			state.contentStarted = true
 		}
 		state.contentChunks.push(delta.content)
+		state.allContentChunks.push(delta.content)
 		await onTrace?.(delta.content)
 	}
 	if (delta.toolCalls) accumulateToolCallDeltas(state.toolCallAccumulator, delta.toolCalls)
@@ -212,6 +214,7 @@ async function stepSseLine(state: StreamState, line: string, onTrace?: (trace: s
 
 export interface StreamResult {
 	content: string
+	fullContent: string
 	toolCallAccumulator: ToolCallAccumulator
 	finishReason: string | null
 	cachedTokens: number | null
@@ -222,6 +225,7 @@ export async function consumeAiStream(stream: ReadableStream<Uint8Array>, onTrac
 	const state: StreamState = {
 		buffer: "",
 		contentChunks: [],
+		allContentChunks: [],
 		toolCallAccumulator: new Map(),
 		finishReason: null,
 		cachedTokens: null,
@@ -249,12 +253,13 @@ export async function consumeAiStream(stream: ReadableStream<Uint8Array>, onTrac
 		await onTrace?.("\n\n")
 	}
 
-	return { content: state.contentChunks.join(""), toolCallAccumulator: state.toolCallAccumulator, finishReason: state.finishReason, cachedTokens: state.cachedTokens, deltaKeysSeen: state.deltaKeysSeen }
+	return { content: state.contentChunks.join(""), fullContent: state.allContentChunks.join(""), toolCallAccumulator: state.toolCallAccumulator, finishReason: state.finishReason, cachedTokens: state.cachedTokens, deltaKeysSeen: state.deltaKeysSeen }
 }
 
 export function buildAiToolCalls(accumulator: ToolCallAccumulator): AiToolCall[] {
 	const calls: AiToolCall[] = []
-	for (const [, entry] of accumulator) {
+	const sortedEntries = [...accumulator.entries()].sort(([a], [b]) => a - b)
+	for (const [, entry] of sortedEntries) {
 		calls.push({ id: entry.id, type: "function", function: { name: entry.name, arguments: entry.arguments } })
 	}
 	return calls

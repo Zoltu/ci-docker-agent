@@ -29,7 +29,7 @@ export interface AiToolCall {
 
 export interface AiMessage {
 	role: "user" | "assistant" | "tool"
-	content?: string | null
+	content: string | null
 	tool_calls?: AiToolCall[]
 	tool_call_id?: string
 }

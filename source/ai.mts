@@ -72,7 +72,7 @@ export async function callAiApi(dependencies: { aiFetch: AiFetch; toolExecutor: 
 
 		messages.push({
 			role: "assistant",
-			content: result.content || null,
+			content: result.fullContent || null,
 			tool_calls: assistantToolCalls,
 		})
 
