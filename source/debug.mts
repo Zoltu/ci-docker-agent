@@ -5,7 +5,6 @@ import { join } from "node:path"
 export interface DebugWriter {
 	writePrompt: (agentName: string, prompt: string) => Promise<void>
 	writeTrace: (agentName: string, text: string) => Promise<void>
-	writeContent: (agentName: string, content: string) => Promise<void>
 }
 
 export function createDebugWriter(debugDirectory: string): DebugWriter {
@@ -27,6 +26,5 @@ export function createDebugWriter(debugDirectory: string): DebugWriter {
 	return {
 		writePrompt: async (agentName: string, prompt: string) => await writeFile(join(debugDirectory, `${agentName}-prompt.md`), prompt),
 		writeTrace: async (agentName: string, text: string) => await appendFile(join(debugDirectory, `${agentName}-trace.md`), text),
-		writeContent: async(agentName: string, content: string) => await appendFile(join(debugDirectory, `${agentName}-output.md`), content),
 	}
 }

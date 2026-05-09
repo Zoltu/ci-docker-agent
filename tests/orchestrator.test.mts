@@ -9,7 +9,7 @@ import type { GitHubReviewPayload } from "../source/github-types.mts"
 import type { AiFetch, AiMessage } from "../source/ai.mts"
 
 const silentLogger = createMockLogger()
-const noopDebugWriter: DebugWriter = { writePrompt: async () => {}, writeTrace: async () => {}, writeContent: async () => {} }
+const noopDebugWriter: DebugWriter = { writePrompt: async () => {}, writeTrace: async () => {} }
 
 function makeLoadAgents(agents: Agent[]): (agentNames: AgentNames) => Promise<ResolveResult> {
 	return async (_agentNames: AgentNames) => ({ agents, unresolvedNames: [] })

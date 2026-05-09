@@ -14,7 +14,7 @@ const SAMPLE_DIFF = [
 	"+new",
 ].join("\n")
 
-const noopDebugWriter: DebugWriter = { writePrompt: async () => {}, writeTrace: async () => {}, writeContent: async () => {} }
+const noopDebugWriter: DebugWriter = { writePrompt: async () => {}, writeTrace: async () => {} }
 
 function makeAiFetchWithAggregatorOutput(aggregatorOutput: string): AiFetch {
 	let callCount = 0
@@ -173,18 +173,6 @@ describe("callAiApi", () => {
 		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("AI API request failed: 401 Unauthorized")
 	})
 
-	it("calls onContent for each content chunk", async () => {
-		const contentChunks: string[] = []
-		const aiFetch = makeAiFetchFromSseLines([
-			makeSseLine({ choices: [{ delta: { content: "Hello" } }] }),
-			makeSseLine({ choices: [{ delta: { content: " world" } }] }),
-			makeFinishSseLine(),
-			"data: [DONE]",
-		])
-		await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (content) => { contentChunks.push(content) })
-		expect(contentChunks).toEqual(["Hello", " world"])
-	})
-
 	it("calls onTrace for reasoning chunks", async () => {
 		const traceChunks: string[] = []
 		const aiFetch = makeAiFetchFromSseLines([
@@ -193,10 +181,9 @@ describe("callAiApi", () => {
 			makeFinishSseLine(),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
-		const functionalTraces = traceChunks
-		expect(functionalTraces).toEqual(["# Reasoning\n\n", "thinking...", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
+		expect(traceChunks).toEqual(["# Reasoning\n\n", "thinking...", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("streams consecutive reasoning chunks immediately", async () => {
@@ -209,10 +196,9 @@ describe("callAiApi", () => {
 			makeFinishSseLine(),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
-		const functionalTraces = traceChunks
-		expect(functionalTraces).toEqual(["# Reasoning\n\n", "Let", " me", " think.", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
+		expect(traceChunks).toEqual(["# Reasoning\n\n", "Let", " me", " think.", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("does not include reasoning in final result", async () => {
@@ -247,10 +233,9 @@ describe("callAiApi", () => {
 			makeFinishSseLine(),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
-		const functionalTraces = traceChunks
-		expect(functionalTraces).toEqual(["# Reasoning\n\n", "thinking...", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
+		expect(traceChunks).toEqual(["# Reasoning\n\n", "thinking...", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("streams consecutive reasoning_content chunks immediately", async () => {
@@ -263,25 +248,21 @@ describe("callAiApi", () => {
 			makeFinishSseLine(),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("answer")
-		const functionalTraces = traceChunks
-		expect(functionalTraces).toEqual(["# Reasoning\n\n", "Let", " me", " think.", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
+		expect(traceChunks).toEqual(["# Reasoning\n\n", "Let", " me", " think.", "\n\n", "# Content\n\n", "answer", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("handles chunks with both content and reasoning", async () => {
-		const contentChunks: string[] = []
 		const traceChunks: string[] = []
 		const aiFetch = makeAiFetchFromSseLines([
 			makeSseLine({ choices: [{ delta: { content: "ans", reasoning: "think" } }] }),
 			makeFinishSseLine(),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (c) => { contentChunks.push(c) }, async (t) => { traceChunks.push(t) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (t) => { traceChunks.push(t) })
 		expect(result).toBe("ans")
-		expect(contentChunks).toEqual(["ans"])
-		const functionalTraces = traceChunks
-		expect(functionalTraces).toEqual(["# Reasoning\n\n", "think", "\n\n", "# Content\n\n", "ans", "\n\n", "<!-- finish_reason: stop -->\n"])
+		expect(traceChunks).toEqual(["# Reasoning\n\n", "think", "\n\n", "# Content\n\n", "ans", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("closes reasoning block when stream ends without content", async () => {
@@ -291,10 +272,9 @@ describe("callAiApi", () => {
 			makeFinishSseLine(),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("")
-		const functionalTraces = traceChunks
-		expect(functionalTraces).toEqual(["# Reasoning\n\n", "only reasoning", "\n\n", "<!-- finish_reason: stop -->\n"])
+		expect(traceChunks).toEqual(["# Reasoning\n\n", "only reasoning", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("calls onTrace for content chunks when onTrace is provided", async () => {
@@ -305,10 +285,9 @@ describe("callAiApi", () => {
 			makeFinishSseLine(),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (trace) => { traceChunks.push(trace) })
 		expect(result).toBe("Hello world")
-		const functionalTraces = traceChunks
-		expect(functionalTraces).toEqual(["# Content\n\n", "Hello", " world", "\n\n", "<!-- finish_reason: stop -->\n"])
+		expect(traceChunks).toEqual(["# Content\n\n", "Hello", " world", "\n\n", "<!-- finish_reason: stop -->\n"])
 	})
 
 	it("alternates between content and reasoning blocks in trace", async () => {
@@ -320,10 +299,21 @@ describe("callAiApi", () => {
 			makeFinishSseLine(),
 			"data: [DONE]",
 		])
-		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async () => {}, async (trace) => { traceChunks.push(trace) })
-		expect(result).toBe("startend")
-		const functionalTraces = traceChunks
-		expect(functionalTraces).toEqual(["# Content\n\n", "start", "\n\n", "# Reasoning\n\n", "think", "\n\n", "# Content\n\n", "end", "\n\n", "<!-- finish_reason: stop -->\n"])
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt", async (trace) => { traceChunks.push(trace) })
+		expect(result).toBe("end")
+		expect(traceChunks).toEqual(["# Content\n\n", "start", "\n\n", "# Reasoning\n\n", "think", "\n\n", "# Content\n\n", "end", "\n\n", "<!-- finish_reason: stop -->\n"])
+	})
+
+	it("returns only the last content block after reasoning interrupts content", async () => {
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { content: "progress update" } }] }),
+			makeSseLine({ choices: [{ delta: { reasoning: "thinking..." } }] }),
+			makeSseLine({ choices: [{ delta: { content: "final answer" } }] }),
+			makeFinishSseLine(),
+			"data: [DONE]",
+		])
+		const result = await callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")
+		expect(result).toBe("final answer")
 	})
 
 	it("executes tool calls and continues the loop", async () => {
@@ -352,7 +342,7 @@ describe("callAiApi", () => {
 		}
 
 		const traceChunks: string[] = []
-		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt", undefined, async (t) => { traceChunks.push(t) })
+		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt", async (t) => { traceChunks.push(t) })
 		expect(result).toBe("final answer")
 		expect(callCount).toBe(2)
 		expect(traceChunks.some(t => t.includes("# Tool Call: read_file"))).toBe(true)
@@ -516,13 +506,11 @@ describe("analyze", () => {
 		expect(result.body).toBe("Result 2")
 	})
 
-	it("writes prompts and streaming content via debugWriter", async () => {
+	it("writes prompts and streaming trace via debugWriter", async () => {
 		const prompts: Array<{ agentName: string; prompt: string }> = []
-		const content: Array<{ agentName: string; chunk: string }> = []
 		const trace: Array<{ agentName: string; chunk: string }> = []
 		const debugWriter: DebugWriter = {
 			writePrompt: async (agentName, prompt) => { prompts.push({ agentName, prompt }) },
-			writeContent: async (agentName, chunk) => { content.push({ agentName, chunk }) },
 			writeTrace: async (agentName, chunk) => { trace.push({ agentName, chunk }) },
 		}
 		const output = JSON.stringify({ body: "result", comments: [] })
@@ -536,9 +524,7 @@ describe("analyze", () => {
 		expect(prompts.length).toBe(2)
 		expect(prompts[0]!.agentName).toBe("TestAgent")
 		expect(prompts[1]!.agentName).toBe("Aggregator")
-		expect(content.length).toBe(2)
-		expect(content[0]!.agentName).toBe("TestAgent")
-		expect(content[1]!.agentName).toBe("Aggregator")
+		expect(trace.length).toBeGreaterThan(0)
 	})
 
 	describe("aggregator output validation", () => {

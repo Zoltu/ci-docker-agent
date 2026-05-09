@@ -42,7 +42,7 @@ async function fetchAiStreamResponse(aiFetch: AiFetch, messages: AiMessage[], to
 	}
 }
 
-export async function callAiApi(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor }, prompt: string, onContent?: (content: string) => Promise<void>, onTrace?: (trace: string) => Promise<void>): Promise<string> {
+export async function callAiApi(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor }, prompt: string, onTrace?: (trace: string) => Promise<void>): Promise<string> {
 	const messages: AiMessage[] = [{ role: "user", content: prompt }]
 
 	while (true) {
@@ -53,7 +53,7 @@ export async function callAiApi(dependencies: { aiFetch: AiFetch; toolExecutor: 
 		const stream = await fetchAiStreamResponse(dependencies.aiFetch, messages, dependencies.toolExecutor.definitions, controller.signal)
 		idleTimer.reset()
 
-		const result = await consumeAiStream(stream, onContent, onTrace, idleTimer.reset)
+		const result = await consumeAiStream(stream, onTrace, idleTimer.reset)
 		idleTimer.cleanup()
 
 		if (result.finishReason !== null) onTrace?.(`<!-- finish_reason: ${result.finishReason} -->\n`)
@@ -97,9 +97,8 @@ async function runAgent(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExec
 	const prompt = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
 	await dependencies.debugWriter.writePrompt(agent.name, prompt)
 	dependencies.logger.log(`Running agent ${agent.name}`)
-	const onContent = (content: string) => dependencies.debugWriter.writeContent(agent.name, content)
 	const onTrace = (trace: string) => dependencies.debugWriter.writeTrace(agent.name, trace)
-	return await callAiApi({ aiFetch: dependencies.aiFetch, toolExecutor: dependencies.toolExecutor }, prompt, onContent, onTrace)
+	return await callAiApi({ aiFetch: dependencies.aiFetch, toolExecutor: dependencies.toolExecutor }, prompt, onTrace)
 }
 
 async function runAgents(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[]): Promise<Map<string, string>> {

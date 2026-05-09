@@ -31,9 +31,9 @@ describe("createDebugWriter", () => {
 
 	it("appends content chunks to an output file", async () => {
 		const writer = createDebugWriter(tempDir)
-		await writer.writeContent("TestAgent", "chunk1")
-		await writer.writeContent("TestAgent", "chunk2")
-		const content = readFileSync(join(tempDir, "TestAgent-output.md"), "utf-8")
+		await writer.writeTrace("TestAgent", "chunk1")
+		await writer.writeTrace("TestAgent", "chunk2")
+		const content = readFileSync(join(tempDir, "TestAgent-trace.md"), "utf-8")
 		expect(content).toBe("chunk1chunk2")
 	})
 
@@ -41,13 +41,13 @@ describe("createDebugWriter", () => {
 		const writer = createDebugWriter(tempDir)
 		await writer.writePrompt("Agent1", "prompt1")
 		await writer.writePrompt("Agent2", "prompt2")
-		await writer.writeContent("Agent1", "out1")
-		await writer.writeContent("Agent2", "out2")
+		await writer.writeTrace("Agent1", "out1")
+		await writer.writeTrace("Agent2", "out2")
 
 		expect(readFileSync(join(tempDir, "Agent1-prompt.md"), "utf-8")).toBe("prompt1")
 		expect(readFileSync(join(tempDir, "Agent2-prompt.md"), "utf-8")).toBe("prompt2")
-		expect(readFileSync(join(tempDir, "Agent1-output.md"), "utf-8")).toBe("out1")
-		expect(readFileSync(join(tempDir, "Agent2-output.md"), "utf-8")).toBe("out2")
+		expect(readFileSync(join(tempDir, "Agent1-trace.md"), "utf-8")).toBe("out1")
+		expect(readFileSync(join(tempDir, "Agent2-trace.md"), "utf-8")).toBe("out2")
 	})
 
 	it("appends trace chunks to a trace file", async () => {
@@ -58,12 +58,12 @@ describe("createDebugWriter", () => {
 		expect(content).toBe("step1step2")
 	})
 
-	it("writes trace to a separate file from content", async () => {
+	it("writes trace to a separate file from prompt", async () => {
 		const writer = createDebugWriter(tempDir)
-		await writer.writeContent("TestAgent", "output")
-		await writer.writeTrace("TestAgent", "thinking")
-		expect(readFileSync(join(tempDir, "TestAgent-output.md"), "utf-8")).toBe("output")
-		expect(readFileSync(join(tempDir, "TestAgent-trace.md"), "utf-8")).toBe("thinking")
+		await writer.writeTrace("TestAgent", "output")
+		await writer.writePrompt("TestAgent", "prompt text")
+		expect(readFileSync(join(tempDir, "TestAgent-trace.md"), "utf-8")).toBe("output")
+		expect(readFileSync(join(tempDir, "TestAgent-prompt.md"), "utf-8")).toBe("prompt text")
 	})
 
 	it("throws if the debug directory contains non-markdown files", () => {

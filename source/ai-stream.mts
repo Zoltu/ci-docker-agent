@@ -163,7 +163,7 @@ interface StreamState {
 	contentStarted: boolean
 }
 
-async function applySseDelta(state: StreamState, delta: DeltaText, onContent?: (content: string) => Promise<void>, onTrace?: (trace: string) => Promise<void>): Promise<void> {
+async function applySseDelta(state: StreamState, delta: DeltaText, onTrace?: (trace: string) => Promise<void>): Promise<void> {
 	if (delta.reasoning) {
 		if (state.contentStarted) {
 			await onTrace?.("\n\n")
@@ -179,20 +179,20 @@ async function applySseDelta(state: StreamState, delta: DeltaText, onContent?: (
 		if (state.reasoningStarted) {
 			await onTrace?.("\n\n")
 			state.reasoningStarted = false
+			state.contentChunks = []
 		}
 		if (onTrace && !state.contentStarted) {
 			await onTrace("# Content\n\n")
 			state.contentStarted = true
 		}
 		state.contentChunks.push(delta.content)
-		await onContent?.(delta.content)
 		await onTrace?.(delta.content)
 	}
 	if (delta.toolCalls) accumulateToolCallDeltas(state.toolCallAccumulator, delta.toolCalls)
 	if (delta.finishReason) state.finishReason = delta.finishReason
 }
 
-async function stepSseLine(state: StreamState, line: string, onContent?: (content: string) => Promise<void>, onTrace?: (trace: string) => Promise<void>): Promise<boolean> {
+async function stepSseLine(state: StreamState, line: string, onTrace?: (trace: string) => Promise<void>): Promise<boolean> {
 	const parsed = parseSseLine(line)
 	if (parsed.type === "done") return false
 	if (parsed.type === "ignore") return true
@@ -206,7 +206,7 @@ async function stepSseLine(state: StreamState, line: string, onContent?: (conten
 	collectDeltaKeys(json, state.deltaKeysSeen)
 	const cachedTokens = extractCachedTokens(json)
 	if (cachedTokens !== null) state.cachedTokens = cachedTokens
-	await applySseDelta(state, delta, onContent, onTrace)
+	await applySseDelta(state, delta, onTrace)
 	return true
 }
 
@@ -218,7 +218,7 @@ export interface StreamResult {
 	deltaKeysSeen: Set<string>
 }
 
-export async function consumeAiStream(stream: ReadableStream<Uint8Array>, onContent?: (content: string) => Promise<void>, onTrace?: (trace: string) => Promise<void>, onActivity?: () => void): Promise<StreamResult> {
+export async function consumeAiStream(stream: ReadableStream<Uint8Array>, onTrace?: (trace: string) => Promise<void>, onActivity?: () => void): Promise<StreamResult> {
 	const state: StreamState = {
 		buffer: "",
 		contentChunks: [],
@@ -236,11 +236,11 @@ export async function consumeAiStream(stream: ReadableStream<Uint8Array>, onCont
 		const lines = state.buffer.split("\n")
 		state.buffer = lines.pop() ?? ""
 		for (const line of lines) {
-			if (!(await stepSseLine(state, line, onContent, onTrace))) break
+			if (!(await stepSseLine(state, line, onTrace))) break
 		}
 	}
 
-	await stepSseLine(state, state.buffer, onContent, onTrace)
+	await stepSseLine(state, state.buffer, onTrace)
 
 	if (state.reasoningStarted) {
 		await onTrace?.("\n\n")
