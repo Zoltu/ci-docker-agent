@@ -98,7 +98,7 @@ export type CompletionUsage = NonNullable<InferGuard<typeof isSseCompletionEvent
 
 const FRAGMENT_FIELDS = new Set(['content', 'reasoning', 'reasoning_content', 'name', 'arguments'])
 
-function mergeObject(target: Record<string, unknown>, source: Record<string, unknown>): void {
+function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>): void {
 	for (const [key, value] of Object.entries(source)) {
 		if (value === undefined) continue
 		if (key === 'tool_calls' && isArray(value)) {
@@ -106,6 +106,7 @@ function mergeObject(target: Record<string, unknown>, source: Record<string, unk
 			continue
 		}
 		const existing = target[key]
+		if (FRAGMENT_FIELDS.has(key) && value === '') continue
 		if (FRAGMENT_FIELDS.has(key) && isString(existing) && isString(value)) {
 			target[key] = existing + value
 			continue
@@ -114,6 +115,7 @@ function mergeObject(target: Record<string, unknown>, source: Record<string, unk
 			target[key] = value
 			continue
 		}
+		// A null delta for a fragment field means "no change", not "reset to null", so it is silently dropped
 		if (FRAGMENT_FIELDS.has(key) && value === null) continue
 		if (isRecord(value)) {
 			if (!isRecord(existing)) {
@@ -121,7 +123,7 @@ function mergeObject(target: Record<string, unknown>, source: Record<string, unk
 			}
 			const nested = target[key]
 			if (isRecord(nested)) {
-				mergeObject(nested, value)
+				mergeInto(nested, value)
 			}
 			continue
 		}
@@ -151,7 +153,7 @@ function mergeToolCalls(target: Record<string, unknown>, toolCalls: unknown[]): 
 		}
 		const slot = existing[index]
 		if (isRecord(slot)) {
-			mergeObject(slot, toolCall)
+			mergeInto(slot, toolCall)
 			delete slot.index
 		}
 	}
@@ -160,12 +162,6 @@ function mergeToolCalls(target: Record<string, unknown>, toolCalls: unknown[]): 
 function completeAccumulation(accumulator: Record<string, unknown>): CompletionsMessage {
 	if ('tool_calls' in accumulator && isArray(accumulator.tool_calls) && accumulator.tool_calls.length > 0 && accumulator.content === '') {
 		accumulator.content = null
-	}
-	if (accumulator.reasoning_content === '') {
-		delete accumulator.reasoning_content
-	}
-	if (accumulator.reasoning === '') {
-		delete accumulator.reasoning
 	}
 	if (!isAssistantMessage(accumulator)) {
 		throw new Error(`Invalid accumulated message: ${JSON.stringify(accumulator)}`)
@@ -230,7 +226,7 @@ export async function* completions(dependencies: { fetch: Fetch }, url: string, 
 
 		if (finish_reason) finishReason = finish_reason
 
-		mergeObject(accumulator, delta)
+		mergeInto(accumulator, delta)
 
 		if (delta.content || delta.reasoning || delta.reasoning_content || delta.tool_calls) {
 			yield delta

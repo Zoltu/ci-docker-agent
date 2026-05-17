@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { assertNever, guard, includes, isArray, isArrayOf, isBoolean, isLiteral, isNull, isNumber, isObject, isObjectOf, isReadonlyArray, isRecord, isString, isUndefined, optional, parseCommaSeparatedList, type Guard } from "../source/typescript-helpers.mts"
+import { assertNever, guard, includes, isArray, isArrayOf, isBoolean, isLiteral, isNull, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, isUndefined, optional, parseCommaSeparatedList, type Guard } from "../source/typescript-helpers.mts"
 
 describe("includes", () => {
 	it("returns true when needle is in haystack", () => {
@@ -92,51 +92,6 @@ describe("isRecord", () => {
 	})
 })
 
-describe("isObject", () => {
-	it("returns true when object has all specified keys", () => {
-		expect(isObject({ name: "alice", age: 30 }, ["name", "age"])).toBe(true)
-	})
-
-	it("returns true when object has extra keys beyond those specified", () => {
-		expect(isObject({ name: "alice", age: 30, city: "NYC" }, ["name", "age"])).toBe(true)
-	})
-
-	it("returns false when object is missing a key", () => {
-		expect(isObject({ name: "alice" }, ["name", "age"])).toBe(false)
-	})
-
-	it("returns false when object has none of the specified keys", () => {
-		expect(isObject({ city: "NYC" }, ["name", "age"])).toBe(false)
-	})
-
-	it("returns true for empty keys array on a plain object", () => {
-		expect(isObject({}, [])).toBe(true)
-	})
-
-	it("returns false for null", () => {
-		expect(isObject(null, ["key"])).toBe(false)
-	})
-
-	it("returns false for arrays even if they have matching numeric indices", () => {
-		expect(isObject([10, 20], ["0"])).toBe(false)
-	})
-
-	it("returns false for primitives", () => {
-		expect(isObject("string", ["length"])).toBe(false)
-		expect(isObject(42, ["toString"])).toBe(false)
-		expect(isObject(true, ["valueOf"])).toBe(false)
-		expect(isObject(undefined, ["key"])).toBe(false)
-	})
-
-	it("returns true for single key match", () => {
-		expect(isObject({ foo: 1 }, ["foo"])).toBe(true)
-	})
-
-	it("returns false for single key mismatch", () => {
-		expect(isObject({ foo: 1 }, ["bar"])).toBe(false)
-	})
-})
-
 describe("isString", () => {
 	it("returns true for strings", () => {
 		expect(isString("hello")).toBe(true)
@@ -154,7 +109,11 @@ describe("isNumber", () => {
 	it("returns true for numbers", () => {
 		expect(isNumber(42)).toBe(true)
 		expect(isNumber(0)).toBe(true)
-		expect(isNumber(NaN)).toBe(true)
+	})
+	it("returns false for NaN and Infinity", () => {
+		expect(isNumber(NaN)).toBe(false)
+		expect(isNumber(Infinity)).toBe(false)
+		expect(isNumber(-Infinity)).toBe(false)
 	})
 	it("returns false for non-numbers", () => {
 		expect(isNumber("42")).toBe(false)

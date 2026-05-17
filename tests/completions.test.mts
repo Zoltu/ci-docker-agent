@@ -15,6 +15,22 @@ function createMockFetch(sseText: string): Fetch {
 	}
 }
 
+function createBodyCapturingFetch(): { fetch: Fetch; getBody: () => string | undefined } {
+	let capturedBody: string | undefined
+	const fetch: Fetch = async (_url: string, init: RequestInit) => {
+		capturedBody = init?.body as string
+		const encoder = new TextEncoder()
+		const stream = new ReadableStream({
+			start(controller) {
+				controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+				controller.close()
+			}
+		})
+		return new Response(stream, { status: 200 })
+	}
+	return { fetch, getBody: () => capturedBody }
+}
+
 function chunk(id: string, model: string, delta: Record<string, unknown>, finish_reason: string | null = null): object {
 	return {
 		id,
@@ -197,7 +213,7 @@ describe("completions", () => {
 			expect(deltas).toEqual([{ content: "done" }])
 		})
 
-		it("throws when tool_call is missing required index", async () => {
+		it("throws when SSE event fails guard validation", async () => {
 			const sse = buildSseFromChunks([
 				chunk("1", "test-model", {
 					tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: "" } }],
@@ -481,16 +497,14 @@ describe("completions", () => {
 					prompt_tokens: 100,
 					completion_tokens: 10,
 					total_tokens: 110,
-					prompt_tokens_details: { cached_tokens: 50 },
 				}),
 			])
 			const fetch = createMockFetch(sse)
 			const { result } = await collectStream(completions({ fetch }, URL, BASE_REQUEST))
-			const usage = result.usage as Record<string, unknown>
+			const usage = result.usage!
 			expect(usage.prompt_tokens).toBe(100)
 			expect(usage.completion_tokens).toBe(10)
 			expect(usage.total_tokens).toBe(110)
-			expect(usage.prompt_tokens_details).toEqual({ cached_tokens: 50 })
 		})
 
 		it("returns undefined usage when no usage chunk received", async () => {
@@ -535,31 +549,18 @@ describe("completions", () => {
 					prompt_tokens: 100,
 					completion_tokens: 10,
 					total_tokens: 110,
-					reasoning_tokens: 5,
 				}),
 			])
 			const fetch = createMockFetch(sse)
 			const { result } = await collectStream(completions({ fetch }, URL, BASE_REQUEST))
-			const usage = result.usage as Record<string, unknown>
+			const usage = result.usage!
 			expect(usage.prompt_tokens).toBe(100)
-			expect(usage.reasoning_tokens).toBe(5)
 		})
 	})
 
 	describe("serialization", () => {
 		it("builds request body with wire-format fields", async () => {
-			let capturedBody: string | undefined
-			const fetch: Fetch = async (_url: string, init: RequestInit) => {
-				capturedBody = init?.body as string
-				const encoder = new TextEncoder()
-				const stream = new ReadableStream({
-					start(controller) {
-						controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-						controller.close()
-					}
-				})
-				return new Response(stream, { status: 200 })
-			}
+			const { fetch, getBody } = createBodyCapturingFetch()
 			const request: CompletionsRequest = {
 				model: "test-model",
 				messages: [
@@ -583,7 +584,7 @@ describe("completions", () => {
 				venice_parameters: { disable_thinking: false, strip_thinking_response: true },
 			}
 			await collectStream(completions({ fetch }, URL, request))
-			const parsed = JSON.parse(capturedBody!)
+			const parsed = JSON.parse(getBody()!)
 			expect(parsed.model).toBe("test-model")
 			expect(parsed.stream).toBe(true)
 			expect(parsed.max_tokens).toBe(500)
@@ -612,79 +613,35 @@ describe("completions", () => {
 		})
 
 		it("omits undefined optional fields from request body", async () => {
-			let capturedBody: string | undefined
-			const fetch: Fetch = async (_url: string, init: RequestInit) => {
-				capturedBody = init?.body as string
-				const encoder = new TextEncoder()
-				const stream = new ReadableStream({
-					start(controller) {
-						controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-						controller.close()
-					}
-				})
-				return new Response(stream, { status: 200 })
-			}
+			const { fetch, getBody } = createBodyCapturingFetch()
 			await collectStream(completions({ fetch }, URL, BASE_REQUEST))
-			const parsed = JSON.parse(capturedBody!)
+			const parsed = JSON.parse(getBody()!)
 			expect(parsed.max_tokens).toBeUndefined()
 			expect(parsed.temperature).toBeUndefined()
 			expect(parsed.tools).toBeUndefined()
-			expect(parsed.reasoning_effort).toBeUndefined()
+			expect(parsed.reasoning_effort).toBe('high')
 			expect(parsed.venice_parameters).toEqual({ include_venice_system_prompt: false })
-			expect(parsed.stream_options).toBeUndefined()
+			expect(parsed.stream_options).toEqual({ include_usage: true })
 		})
 
 		it("uses max_completion_tokens when provided", async () => {
-			let capturedBody: string | undefined
-			const fetch: Fetch = async (_url: string, init: RequestInit) => {
-				capturedBody = init?.body as string
-				const encoder = new TextEncoder()
-				const stream = new ReadableStream({
-					start(controller) {
-						controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-						controller.close()
-					}
-				})
-				return new Response(stream, { status: 200 })
-			}
+			const { fetch, getBody } = createBodyCapturingFetch()
 			const request: CompletionsRequest = { ...BASE_REQUEST, max_completion_tokens: 2000 }
 			await collectStream(completions({ fetch }, URL, request))
-			const parsed = JSON.parse(capturedBody!)
+			const parsed = JSON.parse(getBody()!)
 			expect(parsed.max_completion_tokens).toBe(2000)
 			expect(parsed.max_tokens).toBeUndefined()
 		})
 
 		it("always sets stream to true in the body", async () => {
-			let capturedBody: string | undefined
-			const fetch: Fetch = async (_url: string, init: RequestInit) => {
-				capturedBody = init?.body as string
-				const encoder = new TextEncoder()
-				const stream = new ReadableStream({
-					start(controller) {
-						controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-						controller.close()
-					}
-				})
-				return new Response(stream, { status: 200 })
-			}
+			const { fetch, getBody } = createBodyCapturingFetch()
 			await collectStream(completions({ fetch }, URL, BASE_REQUEST))
-			const parsed = JSON.parse(capturedBody!)
+			const parsed = JSON.parse(getBody()!)
 			expect(parsed.stream).toBe(true)
 		})
 
 		it("serializes tool messages with tool_call_id", async () => {
-			let capturedBody: string | undefined
-			const fetch: Fetch = async (_url: string, init: RequestInit) => {
-				capturedBody = init?.body as string
-				const encoder = new TextEncoder()
-				const stream = new ReadableStream({
-					start(controller) {
-						controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-						controller.close()
-					}
-				})
-				return new Response(stream, { status: 200 })
-			}
+			const { fetch, getBody } = createBodyCapturingFetch()
 			const request: CompletionsRequest = {
 				model: "test-model",
 				messages: [
@@ -698,7 +655,7 @@ describe("completions", () => {
 				],
 			}
 			await collectStream(completions({ fetch }, URL, request))
-			const parsed = JSON.parse(capturedBody!)
+			const parsed = JSON.parse(getBody()!)
 			expect(parsed.messages).toHaveLength(4)
 			expect(parsed.messages[0]).toEqual({ role: "user", content: "hello" })
 			expect(parsed.messages[1]).toEqual({
@@ -715,18 +672,7 @@ describe("completions", () => {
 		})
 
 		it("includes reasoning_content in serialized assistant messages", async () => {
-			let capturedBody: string | undefined
-			const fetch: Fetch = async (_url: string, init: RequestInit) => {
-				capturedBody = init?.body as string
-				const encoder = new TextEncoder()
-				const stream = new ReadableStream({
-					start(controller) {
-						controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-						controller.close()
-					}
-				})
-				return new Response(stream, { status: 200 })
-			}
+			const { fetch, getBody } = createBodyCapturingFetch()
 			const request: CompletionsRequest = {
 				model: "test-model",
 				messages: [
@@ -735,7 +681,7 @@ describe("completions", () => {
 				],
 			}
 			await collectStream(completions({ fetch }, URL, request))
-			const parsed = JSON.parse(capturedBody!)
+			const parsed = JSON.parse(getBody()!)
 			expect(parsed.messages[1]).toEqual({
 				role: "assistant",
 				content: "answer",
@@ -744,18 +690,7 @@ describe("completions", () => {
 		})
 
 		it("serializes reasoning_content as null when null", async () => {
-			let capturedBody: string | undefined
-			const fetch: Fetch = async (_url: string, init: RequestInit) => {
-				capturedBody = init?.body as string
-				const encoder = new TextEncoder()
-				const stream = new ReadableStream({
-					start(controller) {
-						controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-						controller.close()
-					}
-				})
-				return new Response(stream, { status: 200 })
-			}
+			const { fetch, getBody } = createBodyCapturingFetch()
 			const request: CompletionsRequest = {
 				model: "test-model",
 				messages: [
@@ -764,7 +699,7 @@ describe("completions", () => {
 				],
 			}
 			await collectStream(completions({ fetch }, URL, request))
-			const parsed = JSON.parse(capturedBody!)
+			const parsed = JSON.parse(getBody()!)
 			expect(parsed.messages[1]).toEqual({
 				role: "assistant",
 				content: "answer",

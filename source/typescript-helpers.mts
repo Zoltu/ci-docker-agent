@@ -26,13 +26,6 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 	if (typeof value !== 'object') return false
 	if (value === null) return false
 	if (isArray(value)) return false
-	if (Object.keys(value).some(key => typeof key !== 'string')) return false
-	return true
-}
-
-export function isObject<T extends string>(value: unknown, keys: readonly T[]): value is { [K in T]: unknown } {
-	if (!isRecord(value)) return false
-	if (!keys.every(key => key in value)) return false
 	return true
 }
 
@@ -58,7 +51,7 @@ export function isString(value: unknown): value is string {
 	return typeof value === 'string'
 }
 export function isNumber(value: unknown): value is number {
-	return typeof value === 'number'
+	return typeof value === 'number' && Number.isFinite(value)
 }
 export function isBoolean(value: unknown): value is boolean {
 	return typeof value === 'boolean'

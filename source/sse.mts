@@ -1,3 +1,5 @@
+import { assertNever } from "./typescript-helpers.mts"
+
 export interface SseEvent {
 	event: string
 	data: string
@@ -12,6 +14,15 @@ export interface SseRequestOptions {
 export type Fetch = (url: string, options: RequestInit) => Promise<Response>
 
 // Intentionally does not implement retries as that adds a lot of complexity and isn't necessary for our needs at the moment
+function normalizeLineEndings(buffer: string, isFinalChunk: boolean): string {
+	buffer = buffer.replace(/\r\n/g, '\n')
+	if (isFinalChunk) return buffer.replace(/\r/g, '\n')
+	if (buffer.endsWith('\r')) {
+		return buffer.slice(0, -1).replace(/\r/g, '\n') + '\r'
+	}
+	return buffer.replace(/\r/g, '\n')
+}
+
 export async function* readSseStream(dependencies: { fetch: Fetch }, url: string, options?: SseRequestOptions): AsyncGenerator<SseEvent> {
 	const method = options?.body ? 'POST' : 'GET'
 	const response = await dependencies.fetch(url, { method, ...options })
@@ -35,7 +46,7 @@ export async function* readSseStream(dependencies: { fetch: Fetch }, url: string
 			const { done, value } = await reader.read()
 			if (done) {
 				if (buffer.length > 0) {
-					buffer = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+					buffer = normalizeLineEndings(buffer, true)
 					const lines = buffer.split('\n')
 					lines.pop()
 					for (const line of lines) {
@@ -52,12 +63,7 @@ export async function* readSseStream(dependencies: { fetch: Fetch }, url: string
 				}
 				hasStrippedBom = true
 			}
-			buffer = buffer.replace(/\r\n/g, '\n')
-			if (buffer.endsWith('\r')) {
-				buffer = buffer.slice(0, -1).replace(/\r/g, '\n') + '\r'
-			} else {
-				buffer = buffer.replace(/\r/g, '\n')
-			}
+			buffer = normalizeLineEndings(buffer, false)
 			const lines = buffer.split('\n')
 			buffer = lines.pop() ?? ''
 			for (const line of lines) {
@@ -81,8 +87,14 @@ export async function* readSseStream(dependencies: { fetch: Fetch }, url: string
 			case 'event':
 				eventName = parsed.value
 				return null
-			default:
+			// we intentionally drop these, listed here for completeness
+			case 'id':
+			case 'retry':
+			case 'comment':
+			case 'ignore':
 				return null
+			default:
+				assertNever(parsed)
 		}
 	}
 
