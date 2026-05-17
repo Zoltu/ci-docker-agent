@@ -3,7 +3,7 @@ import { readdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
-export type AgentNames = string[] | "run all agents"
+export type AgentNames = readonly string[] | "run all agents"
 
 export interface Agent {
 	name: string

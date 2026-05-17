@@ -1,15 +1,15 @@
 import { buildAgentPrompt, type Agent } from "./agents.mts"
-import { createAiFetch, parseAiConfiguration, type AiFetch, type AiMessage, type AiToolCall, type AiConfiguration } from "./ai-fetch.mts"
-export { createAiFetch, parseAiConfiguration, type AiFetch, type AiMessage, type AiToolCall, type AiConfiguration }
-import { consumeAiStream, isContextWindowExceededError, buildAiToolCalls } from "./ai-stream.mts"
-import type { DebugWriter } from "./debug.mts"
+import { createAiFetch, parseAiConfiguration, type AiConfiguration, type AiFetch, type AiMessage, type AiToolCall } from "./ai-fetch.mts"
+import { buildAiToolCalls, consumeAiStream, isContextWindowExceededError } from "./ai-stream.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
+import type { DebugWriter } from "./debug.mts"
 import type { LineComment } from "./github-types.mts"
 import { SIDES } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
 import type { AiReviewResult } from "./review.mts"
 import type { ToolCallRequest, ToolCallResult, ToolDefinition, ToolExecutor } from "./tool-executor.mts"
-import { includes } from "./typescript-helpers.mts"
+import { includes, isReadonlyArray } from "./typescript-helpers.mts"
+export { createAiFetch, parseAiConfiguration, type AiConfiguration, type AiFetch, type AiMessage, type AiToolCall }
 
 const IDLE_TIMEOUT_MILLISECONDS = 300_000
 
@@ -121,7 +121,7 @@ function isValidAiReviewResult(data: unknown): data is AiReviewResult {
 	if (typeof data !== "object") return false
 	if (data === null) return false
 	if (!("body" in data) || typeof data.body !== "string" || data.body === "") return false
-	if (!("comments" in data) || !Array.isArray(data.comments)) return false
+	if (!("comments" in data) || !isReadonlyArray(data.comments)) return false
 	if (!data.comments.every(isValidLineComment)) return false
 	return true
 }

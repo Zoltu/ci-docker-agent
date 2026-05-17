@@ -1,4 +1,5 @@
 import type { AiToolCall } from "./ai-fetch.mts"
+import { isReadonlyArray } from "./typescript-helpers.mts"
 
 export interface DeltaText {
 	content?: string
@@ -47,12 +48,12 @@ function isReasoningDetail(value: unknown): value is { text: string } {
 
 function extractToolCallDeltas(delta: unknown): ToolCallDelta[] {
 	if (typeof delta !== "object" || delta === null) return []
-	if (!("tool_calls" in delta) || !Array.isArray(delta.tool_calls)) return []
+	if (!("tool_calls" in delta) || !isReadonlyArray(delta.tool_calls)) return []
 
 	const results: ToolCallDelta[] = []
 	for (const tc of delta.tool_calls) {
 		if (typeof tc !== "object" || tc === null) continue
-		const entry: ToolCallDelta = { index: typeof tc.index === "number" ? tc.index : 0 }
+		const entry: ToolCallDelta = { index: 'index' in tc && typeof tc.index === "number" ? tc.index : 0 }
 		if ("id" in tc && typeof tc.id === "string") entry.id = tc.id
 		if ("function" in tc && typeof tc.function === "object" && tc.function !== null) {
 			if ("name" in tc.function && typeof tc.function.name === "string") entry.functionName = tc.function.name
@@ -65,7 +66,7 @@ function extractToolCallDeltas(delta: unknown): ToolCallDelta[] {
 
 function extractDelta(data: unknown): DeltaText {
 	if (typeof data !== "object" || data === null) return {}
-	if (!("choices" in data) || !Array.isArray(data.choices)) return {}
+	if (!("choices" in data) || !isReadonlyArray(data.choices)) return {}
 	if (data.choices.length === 0) return {}
 	const firstChoice = data.choices[0]
 	if (typeof firstChoice !== "object" || firstChoice === null) return {}
@@ -81,8 +82,8 @@ function extractDelta(data: unknown): DeltaText {
 		result.reasoning = firstChoice.delta.reasoning
 	} else if ("reasoning_content" in firstChoice.delta && typeof firstChoice.delta.reasoning_content === "string" && firstChoice.delta.reasoning_content !== "") {
 		result.reasoning = firstChoice.delta.reasoning_content
-	} else if ("reasoning_details" in firstChoice.delta && Array.isArray(firstChoice.delta.reasoning_details)) {
-		const details: unknown[] = firstChoice.delta.reasoning_details
+	} else if ("reasoning_details" in firstChoice.delta && isReadonlyArray(firstChoice.delta.reasoning_details)) {
+		const details = firstChoice.delta.reasoning_details
 		const reasoningText = details
 			.filter(isReasoningDetail)
 			.map((d: { text: string }) => d.text)
@@ -114,7 +115,7 @@ function extractCachedTokens(data: unknown): number | null {
 
 function collectDeltaKeys(data: unknown, keysSeen: Set<string>): void {
 	if (typeof data !== "object" || data === null) return
-	if (!("choices" in data) || !Array.isArray(data.choices) || data.choices.length === 0) return
+	if (!("choices" in data) || !isReadonlyArray(data.choices) || data.choices.length === 0) return
 	const firstChoice = data.choices[0]
 	if (typeof firstChoice !== "object" || firstChoice === null) return
 	if (!("delta" in firstChoice) || typeof firstChoice.delta !== "object" || firstChoice.delta === null) return

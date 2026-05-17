@@ -1,6 +1,6 @@
 import { parseCommaSeparatedList } from "./typescript-helpers.mts"
 
-export type CommentTriggerResult = string[] | "run all agents" | "no review triggered"
+export type CommentTriggerResult = readonly string[] | "run all agents" | "no review triggered"
 
 export function getAgentsFromComment(commentBody: string | null): CommentTriggerResult {
 	if (!commentBody) return "no review triggered"
