@@ -5,6 +5,7 @@ import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { GitHubConfiguration } from "../source/github-types.mts"
 import type { Logger } from "../source/logger.mts"
 import type { ToolCallResult, ToolExecutor } from "../source/tool-executor.mts"
+import type { Fetch } from "../source/sse.mts"
 
 export function makeAgent(overrides: Partial<Agent> = {}): Agent {
 	return { name: "TestAgent", prompt: "Test prompt.", ...overrides }
@@ -111,4 +112,17 @@ export function error(stderr: string): GitDiffResult {
 
 export function timeout(): GitDiffResult {
 	return { stdout: "", stderr: "", exitCode: null, signalCode: "SIGTERM" }
+}
+
+export function createMockFetch(sseText: string): Fetch {
+	return async () => {
+		const encoder = new TextEncoder()
+		const stream = new ReadableStream({
+			start(controller) {
+				controller.enqueue(encoder.encode(sseText))
+				controller.close()
+			}
+		})
+		return new Response(stream, { status: 200 })
+	}
 }

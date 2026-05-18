@@ -1,18 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { readSseStream, type SseEvent, type Fetch } from "../source/sse.mts"
-
-function createMockFetch(sseText: string): Fetch {
-	return async () => {
-		const encoder = new TextEncoder()
-		const stream = new ReadableStream({
-			start(controller) {
-				controller.enqueue(encoder.encode(sseText))
-				controller.close()
-			}
-		})
-		return new Response(stream, { status: 200 })
-	}
-}
+import { createMockFetch } from "./helpers.mts"
 
 function createChunkedMockFetch(chunks: string[]): Fetch {
 	return async () => {

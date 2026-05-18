@@ -1,19 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { completions, type CompletionsRequest, type CompletionDelta, type CompletionResult } from "../source/completions.mts"
 import type { Fetch } from "../source/sse.mts"
-
-function createMockFetch(sseText: string): Fetch {
-	return async () => {
-		const encoder = new TextEncoder()
-		const stream = new ReadableStream({
-			start(controller) {
-				controller.enqueue(encoder.encode(sseText))
-				controller.close()
-			}
-		})
-		return new Response(stream, { status: 200 })
-	}
-}
+import { createMockFetch } from "./helpers.mts"
 
 function createBodyCapturingFetch(): { fetch: Fetch; getBody: () => string | undefined } {
 	let capturedBody: string | undefined
@@ -385,20 +373,16 @@ describe("completions", () => {
 			if ("reasoning" in result.message) throw new Error("reasoning should not be present")
 		})
 
-		it("preserves both reasoning and reasoning_content independently", async () => {
+		it("throws when both reasoning and reasoning_content are present", async () => {
 			const sse = buildSseFromChunks([
 				chunk("1", "test-model", { reasoning: "deep thought", reasoning_content: "surface thought" }),
 				chunk("1", "test-model", { content: "answer" }),
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, URL, BASE_REQUEST))
-			expect(result.message).toEqual({
-				role: "assistant",
-				content: "answer",
-				reasoning: "deep thought",
-				reasoning_content: "surface thought",
-			})
+			await expect(collectStream(completions({ fetch }, URL, BASE_REQUEST))).rejects.toThrow(
+				"Assistant message has both reasoning and reasoning_content; these are mutually exclusive"
+			)
 		})
 
 		it("merges fragmented tool call across multiple deltas", async () => {

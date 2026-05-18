@@ -28,17 +28,26 @@ const isSseCompletionEvent = guard({
 	})),
 })
 
-const isAssistantMessage: Guard<CompletionsMessage & { role: 'assistant' }> = guard({
-	role: isLiteral('assistant'),
-	content: isStringOrNull,
-	reasoning_content: optional(isStringOrNull),
-	reasoning: optional(isStringOrNull),
-	tool_calls: optional(isArrayOf(guard({
-		id: isString,
-		type: isLiteral('function'),
-		function: guard({ name: isString, arguments: isString }),
-	}))),
+const isAssistantMessageToolCall = guard({
+	id: isString,
+	type: isLiteral('function'),
+	function: guard({ name: isString, arguments: isString }),
 })
+
+const isAssistantMessage: Guard<CompletionsMessage & { role: 'assistant' }> = (value): value is CompletionsMessage & { role: 'assistant' } => {
+	const isValid = guard({
+		role: isLiteral('assistant'),
+		content: isStringOrNull,
+		reasoning: optional(isStringOrNull),
+		reasoning_content: optional(isStringOrNull),
+		tool_calls: optional(isArrayOf(isAssistantMessageToolCall)),
+	})
+	if (!isValid(value)) return false
+	if (value.reasoning !== undefined && value.reasoning_content !== undefined) {
+		throw new Error('Assistant message has both reasoning and reasoning_content; these are mutually exclusive')
+	}
+	return true
+}
 
 export type CompletionsMessage =
 	| { readonly role: 'system' | 'developer', readonly content: string }
