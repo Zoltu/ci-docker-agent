@@ -171,8 +171,7 @@ export interface CompletionResult {
 	usage?: CompletionUsage
 }
 
-export async function* completions(dependencies: { fetch: Fetch }, url: string, request: CompletionsRequest, options?: { headers?: Record<string, string>; signal?: AbortSignal }): AsyncGenerator<CompletionDelta, CompletionResult> {
-	const headers = { 'Content-Type': 'application/json', ...options?.headers }
+export async function* completions(dependencies: { fetch: Fetch }, request: CompletionsRequest): AsyncGenerator<CompletionDelta, CompletionResult> {
 	const body = JSON.stringify({
 		reasoning_effort: 'high',
 		venice_parameters: {
@@ -191,13 +190,12 @@ export async function* completions(dependencies: { fetch: Fetch }, url: string, 
 		...request,
 		stream: true,
 	} satisfies CompletionsRequest)
-	const signal = options?.signal
 
 	const accumulator: Record<string, unknown> = { role: 'assistant', content: null, tool_calls: [] }
 	let finishReason: string | undefined
 	let usage: CompletionUsage | undefined
 
-	for await (const sseEvent of readSseStream(dependencies, url, { headers, body, signal })) {
+	for await (const sseEvent of readSseStream(dependencies, body, { 'Content-Type': 'application/json' })) {
 		if (sseEvent.data === '[DONE]') {
 			return { message: completeAccumulation(accumulator), finishReason: finishReason, usage }
 		}

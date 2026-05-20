@@ -115,7 +115,7 @@ export function timeout(): GitDiffResult {
 }
 
 export function createMockFetch(sseText: string): Fetch {
-	return async () => {
+	return async (_body: string, _headers?: Record<string, string>) => {
 		const encoder = new TextEncoder()
 		const stream = new ReadableStream({
 			start(controller) {

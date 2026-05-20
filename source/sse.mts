@@ -5,13 +5,7 @@ export interface SseEvent {
 	data: string
 }
 
-export interface SseRequestOptions {
-	headers?: Record<string, string>
-	body?: string
-	signal?: AbortSignal
-}
-
-export type Fetch = (url: string, options: RequestInit) => Promise<Response>
+export type Fetch = (body: string, headers?: Record<string, string>) => Promise<Response>
 
 // Intentionally does not implement retries as that adds a lot of complexity and isn't necessary for our needs at the moment
 function normalizeLineEndings(buffer: string, isFinalChunk: boolean): string {
@@ -23,9 +17,8 @@ function normalizeLineEndings(buffer: string, isFinalChunk: boolean): string {
 	return buffer.replace(/\r/g, '\n')
 }
 
-export async function* readSseStream(dependencies: { fetch: Fetch }, url: string, options?: SseRequestOptions): AsyncGenerator<SseEvent> {
-	const method = options?.body ? 'POST' : 'GET'
-	const response = await dependencies.fetch(url, { method, ...options })
+export async function* readSseStream(dependencies: { fetch: Fetch }, body: string, headers?: Record<string, string>): AsyncGenerator<SseEvent> {
+	const response = await dependencies.fetch(body, headers)
 
 	if (!response.ok) {
 		const responseBody = await response.text().catch(() => '')
