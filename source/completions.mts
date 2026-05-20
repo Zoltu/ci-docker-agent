@@ -106,44 +106,57 @@ export interface CompletionsRequest {
 export type CompletionDelta = GuardedType<typeof isSseCompletionEvent>['choices'][number]['delta']
 export type CompletionUsage = NonNullable<GuardedType<typeof isSseCompletionEvent>['usage']>
 
+// Fields that may arrive in fragments across multiple deltas and need string concatenation
+const FRAGMENT_FIELDS = new Set(['content', 'reasoning', 'reasoning_content', 'name', 'arguments', 'text'])
+
 function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>): void {
 	for (const [key, value] of Object.entries(source)) {
 		if (value === undefined) continue
-		if (key === 'tool_calls' && isArray(value)) {
-			mergeToolCalls(target, value)
-			continue
-		}
-		// Atomic fields that must be overwritten, not concatenated, when they reappear in a later delta
-		if (key === 'role' || key === 'type' || key === 'id' || key === 'index') {
-			target[key] = value
-			continue
-		}
+
 		const existing = target[key]
-		if (typeof existing === 'string' && typeof value === 'string' && value !== '') {
-			target[key] = existing + value
-		} else if (value !== null && value !== '') {
-			if (isRecord(value) && isRecord(existing)) {
-				mergeInto(existing, value)
-			} else {
-				target[key] = value
+
+		// Known fragmentable fields: concatenate strings, skip null
+		if (FRAGMENT_FIELDS.has(key)) {
+			if (value === null) continue
+			if (typeof existing === 'string' && typeof value === 'string') {
+				target[key] = existing + value
+				continue
 			}
 		}
-	}
-}
 
-// Merge streaming tool call deltas into their respective slots by index
-function mergeToolCalls(target: Record<string, unknown>, toolCalls: unknown[]): void {
-	const existing = target.tool_calls as unknown[]
-	for (const toolCall of toolCalls) {
-		if (!isRecord(toolCall)) continue
-		const index = isInteger(toolCall.index) ? toolCall.index : existing.length
-		if (!isRecord(existing[index])) {
-			existing[index] = { type: 'function', function: { name: '', arguments: '' } }
+		// Arrays: validate items and merge by index
+		if (isArray(value)) {
+			let arr = isArray(existing) ? existing : [] as unknown[]
+			target[key] = arr
+			for (const item of value) {
+				if (!isRecord(item)) throw new Error(`Array item is not an object: ${JSON.stringify(item)}`)
+				if (!isInteger(item.index)) throw new Error(`Array item missing integer index: ${JSON.stringify(item)}`)
+				const index = item.index
+				if (!isRecord(arr[index])) {
+					arr[index] = {}
+				}
+				const slot = arr[index]
+				if (isRecord(slot)) {
+					mergeInto(slot, item)
+				}
+			}
+			continue
 		}
-		const slot = existing[index]
-		if (isRecord(slot)) {
-			mergeInto(slot, toolCall)
+
+		// Records: merge into existing record or initialize an empty one to avoid mutating the source reference
+		if (isRecord(value)) {
+			if (!isRecord(existing)) {
+				target[key] = {}
+			}
+			const nested = target[key]
+			if (isRecord(nested)) {
+				mergeInto(nested, value)
+			}
+			continue
 		}
+
+		// Default: overwrite with latest value
+		target[key] = value
 	}
 }
 
