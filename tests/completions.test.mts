@@ -6,7 +6,7 @@ import { createMockFetch } from "./helpers.mts"
 function createBodyCapturingFetch(): { fetch: Fetch; getBody: () => string | undefined } {
 	let capturedBody: string | undefined
 	const fetch: Fetch = async (_url: string, init: RequestInit) => {
-		capturedBody = init?.body as string
+		capturedBody = typeof init?.body === 'string' ? init.body : undefined
 		const encoder = new TextEncoder()
 		const stream = new ReadableStream({
 			start(controller) {

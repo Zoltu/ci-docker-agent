@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { assertNever, guard, includes, isArray, isArrayOf, isBoolean, isLiteral, isNull, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, isUndefined, optional, parseCommaSeparatedList, type Guard } from "../source/typescript-helpers.mts"
+import { assertNever, guard, includes, isArray, isArrayOf, isBoolean, isInteger, isLiteral, isNull, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, isUndefined, optional, parseCommaSeparatedList, type Guard } from "../source/typescript-helpers.mts"
 
 describe("includes", () => {
 	it("returns true when needle is in haystack", () => {
@@ -22,7 +22,8 @@ describe("includes", () => {
 
 describe("assertNever", () => {
 	it("throws an error", () => {
-		expect(() => assertNever("something" as never)).toThrow("Unhandled discriminant: something")
+		// @ts-expect-error - intentionally passing a non-never value to test runtime behavior
+		expect(() => assertNever("something")).toThrow("Unhandled discriminant: something")
 	})
 })
 
@@ -120,6 +121,26 @@ describe("isNumber", () => {
 		expect(isNumber(true)).toBe(false)
 		expect(isNumber(null)).toBe(false)
 		expect(isNumber(undefined)).toBe(false)
+	})
+})
+
+describe("isInteger", () => {
+	it("returns true for integers", () => {
+		expect(isInteger(42)).toBe(true)
+		expect(isInteger(0)).toBe(true)
+		expect(isInteger(-1)).toBe(true)
+	})
+	it("returns false for non-integers", () => {
+		expect(isInteger(3.14)).toBe(false)
+		expect(isInteger(NaN)).toBe(false)
+		expect(isInteger(Infinity)).toBe(false)
+		expect(isInteger(-Infinity)).toBe(false)
+	})
+	it("returns false for non-numbers", () => {
+		expect(isInteger("42")).toBe(false)
+		expect(isInteger(true)).toBe(false)
+		expect(isInteger(null)).toBe(false)
+		expect(isInteger(undefined)).toBe(false)
 	})
 })
 

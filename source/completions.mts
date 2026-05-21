@@ -1,5 +1,5 @@
 import { type Fetch, readSseStream } from './sse.mts'
-import { type Guard, guard, type InferGuard, isArray, isArrayOf, isLiteral, isNumber, isReadonlyArray, isRecord, isString, optional } from './typescript-helpers.mts'
+import { type Guard, guard, type GuardedType, isArray, isArrayOf, isInteger, isLiteral, isRecord, isString, optional } from './typescript-helpers.mts'
 
 const isStringOrNull: Guard<string | null> = (v): v is string | null => isString(v) || v === null
 
@@ -10,21 +10,21 @@ const isSseCompletionEvent = guard({
 			reasoning: optional(isStringOrNull),
 			reasoning_content: optional(isStringOrNull),
 			tool_calls: optional(isArrayOf(guard({
-				index: isNumber,
+				index: isInteger,
 				id: optional(isString),
-				type: optional(isString),
-				function: optional(guard({
+				type: optional(isLiteral('function')),
+				function: guard({
 					name: optional(isString),
 					arguments: optional(isString),
-				})),
+				}),
 			}))),
 		}),
 		finish_reason: optional(isStringOrNull),
 	})),
 	usage: optional(guard({
-		prompt_tokens: isNumber,
-		completion_tokens: isNumber,
-		total_tokens: isNumber,
+		prompt_tokens: isInteger,
+		completion_tokens: isInteger,
+		total_tokens: isInteger,
 	})),
 })
 
@@ -34,7 +34,7 @@ const isAssistantMessageToolCall = guard({
 	function: guard({ name: isString, arguments: isString }),
 })
 
-const isAssistantMessage: Guard<CompletionsMessage & { role: 'assistant' }> = (value): value is CompletionsMessage & { role: 'assistant' } => {
+const isAssistantMessage = (value: unknown): value is CompletionsMessage & { role: 'assistant' } => {
 	const isValid = guard({
 		role: isLiteral('assistant'),
 		content: isStringOrNull,
@@ -44,6 +44,7 @@ const isAssistantMessage: Guard<CompletionsMessage & { role: 'assistant' }> = (v
 	})
 	if (!isValid(value)) return false
 	if (value.reasoning !== undefined && value.reasoning_content !== undefined) {
+		// Exception to the Guard contract: a provider sending both fields is a bug that must fail fast rather than be silently ignored.
 		throw new Error('Assistant message has both reasoning and reasoning_content; these are mutually exclusive')
 	}
 	return true
@@ -102,10 +103,8 @@ export interface CompletionsRequest {
 	}
 }
 
-export type CompletionDelta = InferGuard<typeof isSseCompletionEvent>['choices'][number]['delta']
-export type CompletionUsage = NonNullable<InferGuard<typeof isSseCompletionEvent>['usage']>
-
-const FRAGMENT_FIELDS = new Set(['content', 'reasoning', 'reasoning_content', 'name', 'arguments'])
+export type CompletionDelta = GuardedType<typeof isSseCompletionEvent>['choices'][number]['delta']
+export type CompletionUsage = NonNullable<GuardedType<typeof isSseCompletionEvent>['usage']>
 
 function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>): void {
 	for (const [key, value] of Object.entries(source)) {
@@ -114,63 +113,51 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 			mergeToolCalls(target, value)
 			continue
 		}
-		const existing = target[key]
-		if (FRAGMENT_FIELDS.has(key) && value === '') continue
-		if (FRAGMENT_FIELDS.has(key) && isString(existing) && isString(value)) {
-			target[key] = existing + value
-			continue
-		}
-		if (FRAGMENT_FIELDS.has(key) && existing === null && isString(value)) {
+		// Atomic fields that must be overwritten, not concatenated, when they reappear in a later delta
+		if (key === 'role' || key === 'type' || key === 'id' || key === 'index') {
 			target[key] = value
 			continue
 		}
-		// A null delta for a fragment field means "no change", not "reset to null", so it is silently dropped
-		if (FRAGMENT_FIELDS.has(key) && value === null) continue
-		if (isRecord(value)) {
-			if (!isRecord(existing)) {
-				target[key] = {}
-			}
-			const nested = target[key]
-			if (isRecord(nested)) {
-				mergeInto(nested, value)
-			}
-			continue
-		}
-		if (isReadonlyArray(value)) {
-			if (isReadonlyArray(existing)) {
-				target[key] = [...existing, ...value]
+		const existing = target[key]
+		if (typeof existing === 'string' && typeof value === 'string' && value !== '') {
+			target[key] = existing + value
+		} else if (value !== null && value !== '') {
+			if (isRecord(value) && isRecord(existing)) {
+				mergeInto(existing, value)
 			} else {
-				target[key] = [...value]
+				target[key] = value
 			}
-			continue
 		}
-		target[key] = value
 	}
 }
 
+// Merge streaming tool call deltas into their respective slots by index
 function mergeToolCalls(target: Record<string, unknown>, toolCalls: unknown[]): void {
-	if (!isReadonlyArray(target.tool_calls)) {
-		target.tool_calls = []
-	}
-	const existing = target.tool_calls
-	if (!isArray(existing)) return
+	const existing = target.tool_calls as unknown[]
 	for (const toolCall of toolCalls) {
 		if (!isRecord(toolCall)) continue
-		const index = isNumber(toolCall.index) ? toolCall.index : existing.length
+		const index = isInteger(toolCall.index) ? toolCall.index : existing.length
 		if (!isRecord(existing[index])) {
 			existing[index] = { type: 'function', function: { name: '', arguments: '' } }
 		}
 		const slot = existing[index]
 		if (isRecord(slot)) {
 			mergeInto(slot, toolCall)
-			delete slot.index
 		}
 	}
 }
 
+// Final validation that the accumulated object matches the assistant message contract
 function completeAccumulation(accumulator: Record<string, unknown>): CompletionsMessage {
-	if ('tool_calls' in accumulator && isArray(accumulator.tool_calls) && accumulator.tool_calls.length > 0 && accumulator.content === '') {
-		accumulator.content = null
+	// Empty tool_calls array should be absent from the final message, not present as []
+	if (isArray(accumulator.tool_calls) && accumulator.tool_calls.length === 0) {
+		delete accumulator.tool_calls
+	}
+	// Strip routing index from final tool calls; it is part of the wire format, not the message schema
+	if (isArray(accumulator.tool_calls)) {
+		for (const toolCall of accumulator.tool_calls) {
+			if (isRecord(toolCall)) delete toolCall.index
+		}
 	}
 	if (!isAssistantMessage(accumulator)) {
 		throw new Error(`Invalid accumulated message: ${JSON.stringify(accumulator)}`)
@@ -206,7 +193,7 @@ export async function* completions(dependencies: { fetch: Fetch }, url: string, 
 	} satisfies CompletionsRequest)
 	const signal = options?.signal
 
-	const accumulator: Record<string, unknown> = { role: 'assistant', content: null }
+	const accumulator: Record<string, unknown> = { role: 'assistant', content: null, tool_calls: [] }
 	let finishReason: string | undefined
 	let usage: CompletionUsage | undefined
 

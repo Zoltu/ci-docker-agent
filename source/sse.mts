@@ -57,7 +57,7 @@ export async function* readSseStream(dependencies: { fetch: Fetch }, url: string
 				return
 			}
 			buffer += decoder.decode(value, { stream: true })
-			if (!hasStrippedBom) {
+			if (!hasStrippedBom && buffer.length > 0) {
 				if (buffer.startsWith('\uFEFF')) {
 					buffer = buffer.slice(1)
 				}
