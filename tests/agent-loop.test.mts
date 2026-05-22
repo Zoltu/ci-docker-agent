@@ -151,6 +151,7 @@ describe("agentLoop", () => {
 			expect(result.messages).toEqual([
 				{ role: "system", content: "You are helpful" },
 				{ role: "user", content: "hi" },
+				{ role: "assistant", content: "ok" },
 			])
 		})
 	})
@@ -317,6 +318,7 @@ describe("agentLoop", () => {
 				{ role: "user", content: "hi" },
 				{ role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' } }] },
 				{ role: "tool", content: "Contents of a.ts", tool_call_id: "call_1" },
+				{ role: "assistant", content: "Done" },
 			])
 		})
 	})
@@ -717,6 +719,42 @@ describe("agentLoop", () => {
 			if (toolResultEvent && toolResultEvent.type === "tool_result") {
 				expect(toolResultEvent.result).toContain("something went wrong")
 			}
+		})
+	})
+
+	describe("tool parameter validation", () => {
+		it("throws when tool parameters is missing type field", async () => {
+			const tool: Tool = {
+				name: "bad_tool",
+				description: "Bad tool",
+				parameters: { properties: { path: { type: "string" } } },
+				execute: async () => "",
+			}
+			const { fetch } = createFetchWithSignal(() =>
+				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
+			)
+			expect(collectLoop(agentLoop({ fetch }, {
+				model: "test-model",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [tool],
+			}))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
+		})
+
+		it("throws when tool parameters has wrong type value", async () => {
+			const tool: Tool = {
+				name: "bad_tool",
+				description: "Bad tool",
+				parameters: { type: "string", properties: { path: { type: "string" } } },
+				execute: async () => "",
+			}
+			const { fetch } = createFetchWithSignal(() =>
+				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
+			)
+			expect(collectLoop(agentLoop({ fetch }, {
+				model: "test-model",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [tool],
+			}))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
 		})
 	})
 
