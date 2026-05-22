@@ -91,6 +91,7 @@ export interface CompletionsRequest {
 	readonly reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high'
 	readonly reasoning?: {
 		readonly enabled: boolean
+		readonly effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high'
 	}
 	readonly chat_template_kwargs?: {
 		readonly preserve_thinking?: true
@@ -196,6 +197,7 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 		},
 		reasoning: {
 			enabled: true,
+			effort: 'high',
 		},
 		stream_options: {
 			include_usage: true,
