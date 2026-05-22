@@ -538,9 +538,158 @@ describe("callAiApi", () => {
 		const assistantMessage = secondCallMessages[1]!
 		expect(assistantMessage.role).toBe("assistant")
 		expect(assistantMessage.content).toBe(null)
-		const serialized = JSON.stringify(assistantMessage)
-		expect(serialized).toContain('"content":null')
-		expect(serialized).not.toContain('"content":undefined')
+	})
+
+	it("throws when finishReason is 'length'", async () => {
+		const aiFetch = makeAiFetchFromSseLines([
+			makeSseLine({ choices: [{ delta: { content: "partial" } }] }),
+			makeSseLine({ choices: [{ delta: {}, finish_reason: "length" }] }),
+			"data: [DONE]",
+		])
+		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("AI response truncated")
+	})
+
+	it("propagates error when toolExecutor.execute throws", async () => {
+		const aiFetch: AiFetch = async () => {
+			return createMockStream([
+				'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+				"data: [DONE]\n\n",
+			])
+		}
+
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(): Promise<ToolCallResult> {
+				throw new Error("Tool execution failed")
+			},
+		}
+
+		expect(callAiApi({ aiFetch, toolExecutor }, "test prompt")).rejects.toThrow("Tool execution failed")
+	})
+
+	it("handles multiple rounds of tool calls", async () => {
+		let callCount = 0
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => {
+			callCount++
+			if (callCount === 1) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			if (callCount === 2) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_2","type":"function","function":{"name":"search_files","arguments":"{\\"pattern\\":\\"TODO\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			return createMockStream([
+				'data: {"choices":[{"delta":{"content":"final answer"}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			])
+		}
+
+		const executedCalls: string[] = []
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
+				executedCalls.push(toolCall.name)
+				return { toolCallId: toolCall.id, content: "result" }
+			},
+		}
+
+		const result = await callAiApi({ aiFetch, toolExecutor }, "test prompt")
+		expect(result).toBe("final answer")
+		expect(callCount).toBe(3)
+		expect(executedCalls).toEqual(["read_file", "search_files"])
+	})
+
+	it("executes tool calls in index order", async () => {
+		let callCount = 0
+		const aiFetch: AiFetch = async (_messages, _tools, _signal) => {
+			callCount++
+			if (callCount === 1) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_2","type":"function","function":{"name":"search_files","arguments":"{\\"pattern\\":\\"TODO\\"}"}},{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			return createMockStream([
+				'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
+				'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+				"data: [DONE]\n\n",
+			])
+		}
+
+		const executedCalls: string[] = []
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
+				executedCalls.push(toolCall.name)
+				return { toolCallId: toolCall.id, content: "result" }
+			},
+		}
+
+		await callAiApi({ aiFetch, toolExecutor }, "test prompt")
+		expect(executedCalls).toEqual(["read_file", "search_files"])
+	})
+
+	it("sends tool result messages with matching tool_call_id", async () => {
+		let callCount = 0
+		const capturedMessages: AiMessage[][] = []
+		const aiFetch: AiFetch = async (messages, _tools, _signal) => {
+			capturedMessages.push(messages.map(m => ({ ...m })))
+			callCount++
+			if (callCount === 1) {
+				return createMockStream([
+					'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.ts\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+					"data: [DONE]\n\n",
+				])
+			}
+			return createMockStream([wrapInSse("done")])
+		}
+
+		const toolExecutor: ToolExecutor = {
+			definitions: [],
+			async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
+				return { toolCallId: toolCall.id, content: "file contents" }
+			},
+		}
+
+		await callAiApi({ aiFetch, toolExecutor }, "test prompt")
+
+		const secondCallMessages = capturedMessages[1]!
+		const toolMessage = secondCallMessages.find(m => m.role === "tool")!
+		expect(toolMessage.tool_call_id).toBe("call_1")
+		expect(toolMessage.content).toBe("file contents")
+	})
+
+	it("detects context window exceeded errors with 'context window' message", async () => {
+		const aiFetch: AiFetch = async () => {
+			throw new Error("The context window was exceeded")
+		}
+		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("Context window exceeded")
+	})
+
+	it("detects context window exceeded errors with 'token limit' message", async () => {
+		const aiFetch: AiFetch = async () => {
+			throw new Error("Token limit reached")
+		}
+		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("Context window exceeded")
+	})
+
+	it("throws when SSE data payload is not valid JSON", async () => {
+		const aiFetch = makeAiFetchFromSseLines([
+			"data: not-json{}",
+			"data: [DONE]",
+		])
+		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("Failed to parse SSE data payload as JSON")
+	})
+
+	it("throws when stream is empty", async () => {
+		const aiFetch: AiFetch = async () => createMockStream([])
+		expect(callAiApi({ aiFetch, toolExecutor: makeNoopToolExecutor() }, "test prompt")).rejects.toThrow("AI stream ended without a finish reason")
 	})
 })
 
