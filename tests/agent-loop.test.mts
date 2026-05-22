@@ -51,11 +51,11 @@ function createHangingFetchWithSignal(): FetchWithSignal {
 	return (signal: AbortSignal, _body: string, _headers?: Record<string, string>) => {
 		return new Promise<Response>((_resolve, reject) => {
 			if (signal.aborted) {
-				reject(new DOMException("The operation was aborted.", "AbortError"))
+				reject(signal.reason)
 				return
 			}
 			signal.addEventListener("abort", () => {
-				reject(new DOMException("The operation was aborted.", "AbortError"))
+				reject(signal.reason)
 			}, { once: true })
 		})
 	}

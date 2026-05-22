@@ -98,9 +98,10 @@ export async function* agentLoop(dependencies: { fetch: FetchWithSignal }, param
 	const idleTimeoutMs = params.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
 	const wireTools = toWireTools(params.tools)
 
+	if (params.messages.length === 0) throw new Error('At least one message is required')
+
 	const controller = new AbortController()
-	const abort = () => controller.abort()
-	let idleExpired = false
+	const abort = (reason?: unknown) => controller.abort(reason)
 
 	if (params.signal) {
 		if (params.signal.aborted) {
@@ -113,8 +114,7 @@ export async function* agentLoop(dependencies: { fetch: FetchWithSignal }, param
 	try {
 		while (true) {
 			const idleTimer = createIdleTimer(() => {
-				idleExpired = true
-				abort()
+				abort(new Error(`Agent loop timed out due to inactivity (no delta received for ${idleTimeoutMs}ms)`))
 			}, idleTimeoutMs)
 
 			const request: CompletionsRequest = {
@@ -131,15 +131,7 @@ export async function* agentLoop(dependencies: { fetch: FetchWithSignal }, param
 			try {
 				idleTimer.reset()
 				while (true) {
-					let iteratorResult: IteratorResult<CompletionDelta, CompletionResult>
-					try {
-						iteratorResult = await completionsGenerator.next()
-					} catch (error) {
-						if (idleExpired) {
-							throw new Error(`Agent loop timed out due to inactivity (no delta received for ${idleTimeoutMs}ms)`)
-						}
-						throw error
-					}
+					const iteratorResult = await completionsGenerator.next()
 					if (iteratorResult.done) {
 						completionResult = iteratorResult.value
 						break
