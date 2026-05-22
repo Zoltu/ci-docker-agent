@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { agentLoop, type AgentLoopEvent, type AgentLoopResult, type FetchWithSignal, type Tool } from "../source/agent-loop.mts"
+import { agentLoop, type AgentLoopEvent, type AgentLoopResult, type Fetch, type Tool } from "../source/agent-loop.mts"
 import type { CompletionsMessage } from "../source/completions.mts"
 
 function chunk(delta: Record<string, unknown>, finish_reason: string | null = null): object {
@@ -29,9 +29,9 @@ function buildSse(chunks: object[]): string {
 
 type ResponseProvider = (request: { messages: readonly CompletionsMessage[]; callIndex: number }) => string
 
-function createFetchWithSignal(provider: ResponseProvider): { fetch: FetchWithSignal; callCount: () => number } {
+function createFetchWithSignal(provider: ResponseProvider): { fetch: Fetch; callCount: () => number } {
 	let callIndex = 0
-	const fetchWithSignal: FetchWithSignal = async (_signal: AbortSignal, body: string, _headers?: Record<string, string>) => {
+	const fetchWithSignal: Fetch = async (_signal: AbortSignal, body: string, _headers?: Record<string, string>) => {
 		const request = JSON.parse(body)
 		const sseText = provider({ messages: request.messages, callIndex })
 		callIndex++
@@ -47,7 +47,7 @@ function createFetchWithSignal(provider: ResponseProvider): { fetch: FetchWithSi
 	return { fetch: fetchWithSignal, callCount: () => callIndex }
 }
 
-function createHangingFetchWithSignal(): FetchWithSignal {
+function createHangingFetchWithSignal(): Fetch {
 	return (signal: AbortSignal, _body: string, _headers?: Record<string, string>) => {
 		return new Promise<Response>((_resolve, reject) => {
 			if (signal.aborted) {
@@ -554,7 +554,7 @@ describe("agentLoop", () => {
 			]
 			const encoder = new TextEncoder()
 			let chunkIndex = 0
-			const fetchWithSignal: FetchWithSignal = async (_signal, _body, _headers) => {
+			const fetchWithSignal: Fetch = async (_signal, _body, _headers) => {
 				const stream = new ReadableStream({
 					pull(controller) {
 						if (chunkIndex < chunks.length) {
@@ -582,7 +582,7 @@ describe("agentLoop", () => {
 		it("propagates error when external signal is already aborted", async () => {
 			const controller = new AbortController()
 			controller.abort()
-			const fetchWithSignal: FetchWithSignal = (signal, _body, _headers) => {
+			const fetchWithSignal: Fetch = (signal, _body, _headers) => {
 				return new Promise<Response>((_resolve, reject) => {
 					if (signal.aborted) {
 						reject(new DOMException("The operation was aborted.", "AbortError"))
@@ -600,7 +600,7 @@ describe("agentLoop", () => {
 
 		it("aborts in-progress request when signal fires", async () => {
 			const controller = new AbortController()
-			const fetchWithSignal: FetchWithSignal = (signal, _body, _headers) => {
+			const fetchWithSignal: Fetch = (signal, _body, _headers) => {
 				return new Promise<Response>((_resolve, reject) => {
 					const onAbort = () => {
 						reject(new DOMException("The operation was aborted.", "AbortError"))
@@ -761,7 +761,7 @@ describe("agentLoop", () => {
 	describe("request construction", () => {
 		it("passes model to completions request", async () => {
 			let capturedBody: string | undefined
-			const fetchWithSignal: FetchWithSignal = async (_signal, body, _headers) => {
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
@@ -776,7 +776,7 @@ describe("agentLoop", () => {
 
 		it("passes max_tokens when provided", async () => {
 			let capturedBody: string | undefined
-			const fetchWithSignal: FetchWithSignal = async (_signal, body, _headers) => {
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
@@ -792,7 +792,7 @@ describe("agentLoop", () => {
 
 		it("omits max_tokens when not provided", async () => {
 			let capturedBody: string | undefined
-			const fetchWithSignal: FetchWithSignal = async (_signal, body, _headers) => {
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
@@ -807,7 +807,7 @@ describe("agentLoop", () => {
 
 		it("converts tools to wire format", async () => {
 			let capturedBody: string | undefined
-			const fetchWithSignal: FetchWithSignal = async (_signal, body, _headers) => {
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
@@ -829,7 +829,7 @@ describe("agentLoop", () => {
 
 		it("omits tools from request when tools array is empty", async () => {
 			let capturedBody: string | undefined
-			const fetchWithSignal: FetchWithSignal = async (_signal, body, _headers) => {
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
@@ -844,7 +844,7 @@ describe("agentLoop", () => {
 
 		it("omits description from wire format when not provided", async () => {
 			let capturedBody: string | undefined
-			const fetchWithSignal: FetchWithSignal = async (_signal, body, _headers) => {
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
@@ -875,7 +875,7 @@ describe("agentLoop", () => {
 					chunk({}, "stop"),
 				]),
 			]
-			const fetchWithSignal: FetchWithSignal = async (_signal, body, _headers) => {
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
 				capturedBodies.push(body)
 				const callIndex = capturedBodies.length - 1
 				const sseText = responses[callIndex] ?? responses[responses.length - 1]!
@@ -900,7 +900,7 @@ describe("agentLoop", () => {
 	describe("signal passing", () => {
 		it("passes signal to fetch via currying", async () => {
 			let capturedSignal: AbortSignal | undefined
-			const fetchWithSignal: FetchWithSignal = async (signal, _body, _headers) => {
+			const fetchWithSignal: Fetch = async (signal, _body, _headers) => {
 				capturedSignal = signal
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
