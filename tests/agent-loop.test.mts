@@ -470,43 +470,212 @@ describe("agentLoop", () => {
 		})
 	})
 
-	describe("finish reason validation", () => {
-		it("throws when finishReason is undefined", async () => {
-			const { fetch } = createFetchWithSignal(() =>
+	describe("continuation turns", () => {
+		it("continues when finishReason is undefined", async () => {
+			const responses = [
 				buildSse([
 					chunk({ content: "partial" }),
 				]),
-			)
-			expect(collectLoop(agentLoop({ fetch }, {
+				buildSse([
+					chunk({ content: " complete" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
+
+			const { result } = await collectLoop(agentLoop({ fetch }, {
 				model: "test-model",
 				messages: [{ role: "user", content: "hi" }],
 				tools: [],
-			}))).rejects.toThrow("AI stream ended without a finish reason")
+			}))
+
+			expect(callCount()).toBe(2)
+			expect(result.finishReason).toBe("stop")
+			expect(result.messages.length).toBe(3)
 		})
 
-		it("yields completion event before throwing on undefined finishReason", async () => {
-			const { fetch } = createFetchWithSignal(() =>
+		it("yields completion event for each turn including incomplete ones", async () => {
+			const responses = [
 				buildSse([
 					chunk({ content: "partial" }),
 				]),
-			)
-			const events: AgentLoopEvent[] = []
-			const gen = agentLoop({ fetch }, {
+				buildSse([
+					chunk({ content: " done" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
+
+			const { events } = await collectLoop(agentLoop({ fetch }, {
 				model: "test-model",
 				messages: [{ role: "user", content: "hi" }],
 				tools: [],
-			})
-			try {
-				while (true) {
-					const { value, done } = await gen.next()
-					if (done) break
-					events.push(value)
-				}
-			} catch {
-				// expected
-			}
+			}))
+
 			const completionEvents = events.filter(e => e.type === "completion")
-			expect(completionEvents).toHaveLength(1)
+			expect(completionEvents).toHaveLength(2)
+			if (completionEvents[0]!.type === "completion") {
+				expect(completionEvents[0]!.finishReason).toBeUndefined()
+			}
+			if (completionEvents[1]!.type === "completion") {
+				expect(completionEvents[1]!.finishReason).toBe("stop")
+			}
+		})
+
+		it("continues when content is null", async () => {
+			const responses = [
+				buildSse([
+					chunk({ reasoning: "thinking" }),
+					chunk({}, "stop"),
+				]),
+				buildSse([
+					chunk({ content: "answer" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
+
+			const { result } = await collectLoop(agentLoop({ fetch }, {
+				model: "test-model",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [],
+			}))
+
+			expect(callCount()).toBe(2)
+			expect(result.finishReason).toBe("stop")
+			expect(result.messages.at(-1)!.content).toBe("answer")
+		})
+
+		it("continues when content is empty string", async () => {
+			const responses = [
+				buildSse([
+					chunk({ content: "" }),
+					chunk({}, "stop"),
+				]),
+				buildSse([
+					chunk({ content: "actual answer" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
+
+			const { result } = await collectLoop(agentLoop({ fetch }, {
+				model: "test-model",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [],
+			}))
+
+			expect(callCount()).toBe(2)
+			expect(result.finishReason).toBe("stop")
+			expect(result.messages.at(-1)!.content).toBe("actual answer")
+		})
+
+		it("does not continue when content is non-empty string", async () => {
+			const { fetch, callCount } = createFetchWithSignal(() =>
+				buildSse([
+					chunk({ content: "real content" }),
+					chunk({}, "stop"),
+				]),
+			)
+
+			const { result } = await collectLoop(agentLoop({ fetch }, {
+				model: "test-model",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [],
+			}))
+
+			expect(callCount()).toBe(1)
+			expect(result.finishReason).toBe("stop")
+		})
+
+		it("continues through multiple empty turns before content", async () => {
+			const responses = [
+				buildSse([
+					chunk({ reasoning: "thinking step 1" }),
+					chunk({}, "stop"),
+				]),
+				buildSse([
+					chunk({ reasoning: "thinking step 2" }),
+					chunk({}, "stop"),
+				]),
+				buildSse([
+					chunk({ reasoning: "thinking step 3" }),
+					chunk({}, "stop"),
+				]),
+				buildSse([
+					chunk({ content: "final answer" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
+
+			const { result } = await collectLoop(agentLoop({ fetch }, {
+				model: "test-model",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [],
+			}))
+
+			expect(callCount()).toBe(4)
+			expect(result.finishReason).toBe("stop")
+			expect(result.messages.at(-1)!.content).toBe("final answer")
+		})
+
+		it("includes prior assistant messages in subsequent requests", async () => {
+			const capturedBodies: string[] = []
+			const responses = [
+				buildSse([
+					chunk({ reasoning: "hmm" }),
+					chunk({}, "stop"),
+				]),
+				buildSse([
+					chunk({ content: "answer" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
+				capturedBodies.push(body)
+				const callIndex = capturedBodies.length - 1
+				const sseText = responses[callIndex] ?? responses[responses.length - 1]!
+				return createMockFetchResponse(sseText)
+			}
+
+			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
+				model: "test-model",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [],
+			}))
+
+			const secondRequest = JSON.parse(capturedBodies[1]!)
+			expect(secondRequest.messages).toEqual([
+				{ role: "user", content: "hi" },
+				{ role: "assistant", content: null, reasoning: "hmm" },
+			])
+		})
+
+		it("does not continue when message has tool calls", async () => {
+			const responses = [
+				buildSse([
+					chunk({
+						tool_calls: [{
+							index: 0, id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+						}],
+					}, "tool_calls"),
+				]),
+				buildSse([
+					chunk({ content: "done" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
+
+			const { result } = await collectLoop(agentLoop({ fetch }, {
+				model: "test-model",
+				messages: [{ role: "user", content: "hi" }],
+				tools: TOOLS,
+			}))
+
+			expect(callCount()).toBe(2)
+			expect(result.finishReason).toBe("stop")
 		})
 
 		it("throws when finishReason is length", async () => {
@@ -521,6 +690,35 @@ describe("agentLoop", () => {
 				messages: [{ role: "user", content: "hi" }],
 				tools: [],
 			}))).rejects.toThrow("AI response truncated")
+		})
+
+		it("continues when no finish reason and no content, then gets tool calls", async () => {
+			const responses = [
+				buildSse([
+					chunk({ reasoning: "let me think" }),
+				]),
+				buildSse([
+					chunk({
+						tool_calls: [{
+							index: 0, id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+						}],
+					}, "tool_calls"),
+				]),
+				buildSse([
+					chunk({ content: "final" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
+
+			const { result } = await collectLoop(agentLoop({ fetch }, {
+				model: "test-model",
+				messages: [{ role: "user", content: "hi" }],
+				tools: TOOLS,
+			}))
+
+			expect(callCount()).toBe(3)
+			expect(result.finishReason).toBe("stop")
 		})
 	})
 

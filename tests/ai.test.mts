@@ -184,14 +184,6 @@ describe("analyze", () => {
 			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow(/Failed to parse aggregator output as JSON[\s\S]*not json/)
 		})
 
-		it("throws Error with aggregator output when output is empty string", async () => {
-			const fetch = makeFetchWithAggregatorOutput("")
-			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
-			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
-
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow(/Failed to parse aggregator output as JSON/)
-		})
-
 		it("throws when aggregator output does not match expected shape", async () => {
 			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({ wrong: "shape" }))
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]

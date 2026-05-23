@@ -149,10 +149,6 @@ export async function* agentLoop(dependencies: { fetch: Fetch }, params: AgentLo
 
 		yield { type: 'completion', finishReason: completionResult.finishReason, usage: completionResult.usage }
 
-		if (completionResult.finishReason === undefined) {
-			throw new Error('AI stream ended without a finish reason. The response may have been interrupted before completion.')
-		}
-
 		if (completionResult.finishReason === 'length') {
 			throw new Error('AI response truncated: model reached maximum output token limit (finishReason: length). Consider increasing max_tokens or reducing prompt size.')
 		}
@@ -161,35 +157,40 @@ export async function* agentLoop(dependencies: { fetch: Fetch }, params: AgentLo
 		messages.push(message)
 
 		const toolCalls = 'tool_calls' in message ? message.tool_calls : undefined
-		if (!toolCalls || toolCalls.length === 0) {
-			return {
-				finishReason: completionResult.finishReason,
-				usage: completionResult.usage,
-				messages,
+		if (toolCalls && toolCalls.length > 0) {
+			for (const toolCall of toolCalls) {
+				yield { type: 'tool_call', toolCall }
+
+				const tool = toolMap.get(toolCall.function.name)
+				let result: string
+				if (!tool) {
+					result = `Unknown tool: ${toolCall.function.name}`
+				} else {
+					try {
+						result = await withTimeout(
+							tool.execute(toolCall.function.arguments),
+							DEFAULT_TOOL_TIMEOUT_MS,
+							`Tool "${toolCall.function.name}" timed out after ${DEFAULT_TOOL_TIMEOUT_MS}ms`,
+						)
+					} catch (error) {
+						result = `Tool execution error: ${error instanceof Error ? error.message : String(error)}`
+					}
+				}
+
+				yield { type: 'tool_result', toolCallId: toolCall.id, name: toolCall.function.name, result }
+				messages.push({ role: 'tool', content: result, tool_call_id: toolCall.id })
 			}
+			continue
 		}
 
-		for (const toolCall of toolCalls) {
-			yield { type: 'tool_call', toolCall }
+		if (completionResult.finishReason === undefined || !message.content) {
+			continue
+		}
 
-			const tool = toolMap.get(toolCall.function.name)
-			let result: string
-			if (!tool) {
-				result = `Unknown tool: ${toolCall.function.name}`
-			} else {
-				try {
-					result = await withTimeout(
-						tool.execute(toolCall.function.arguments),
-						DEFAULT_TOOL_TIMEOUT_MS,
-						`Tool "${toolCall.function.name}" timed out after ${DEFAULT_TOOL_TIMEOUT_MS}ms`,
-					)
-				} catch (error) {
-					result = `Tool execution error: ${error instanceof Error ? error.message : String(error)}`
-				}
-			}
-
-			yield { type: 'tool_result', toolCallId: toolCall.id, name: toolCall.function.name, result }
-			messages.push({ role: 'tool', content: result, tool_call_id: toolCall.id })
+		return {
+			finishReason: completionResult.finishReason,
+			usage: completionResult.usage,
+			messages,
 		}
 	}
 }
