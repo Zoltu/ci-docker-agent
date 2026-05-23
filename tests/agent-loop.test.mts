@@ -106,7 +106,7 @@ describe("agentLoop", () => {
 				messages: [{ role: "user", content: "hi" }],
 				tools: [],
 			}))
-			expect(result.message).toEqual({
+			expect(result.messages.at(-1)).toEqual({
 				role: "assistant",
 				content: "Hello world",
 			})
@@ -183,7 +183,7 @@ describe("agentLoop", () => {
 			}))
 
 			expect(callCount()).toBe(2)
-			expect(result.message).toEqual({
+			expect(result.messages.at(-1)).toEqual({
 				role: "assistant",
 				content: "The file shows no issues",
 			})
@@ -250,7 +250,7 @@ describe("agentLoop", () => {
 			expect(toolCallEvents).toHaveLength(2)
 			expect(toolResultEvents).toHaveLength(2)
 
-			expect(result.message).toEqual({
+			expect(result.messages.at(-1)).toEqual({
 				role: "assistant",
 				content: "All clear",
 			})
@@ -286,7 +286,7 @@ describe("agentLoop", () => {
 			}))
 
 			expect(callCount()).toBe(3)
-			expect(result.message).toEqual({
+			expect(result.messages.at(-1)).toEqual({
 				role: "assistant",
 				content: "Final answer",
 			})

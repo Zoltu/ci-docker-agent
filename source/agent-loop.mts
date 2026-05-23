@@ -40,7 +40,6 @@ export type AgentLoopEvent =
 	| AgentLoopToolResultEvent
 
 export interface AgentLoopResult {
-	readonly message: CompletionsMessage
 	readonly finishReason: string
 	readonly usage?: CompletionUsage
 	readonly messages: readonly CompletionsMessage[]
@@ -164,7 +163,6 @@ export async function* agentLoop(dependencies: { fetch: Fetch }, params: AgentLo
 		const toolCalls = 'tool_calls' in message ? message.tool_calls : undefined
 		if (!toolCalls || toolCalls.length === 0) {
 			return {
-				message,
 				finishReason: completionResult.finishReason,
 				usage: completionResult.usage,
 				messages,

@@ -2,7 +2,7 @@
 	"scripts": {
 		"setup": "bun install --frozen-lockfile",
 		"typecheck": "bun --bun tsc --noEmit",
-		"test": "bun test"
+		"test": "bun test --randomize --concurrent"
 	},
 	"dependencies": {},
 	"devDependencies": {
