@@ -1,108 +1,133 @@
 import { buildAgentPrompt, type Agent } from "./agents.mts"
-import { createAiFetch, parseAiConfiguration, type AiConfiguration, type AiFetch, type AiMessage, type AiToolCall } from "./ai-fetch.mts"
-import { buildAiToolCalls, consumeAiStream, isContextWindowExceededError } from "./ai-stream.mts"
+import { agentLoop, type Fetch, type AgentLoopResult } from "./agent-loop.mts"
+import type { CompletionsMessage } from "./completions.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
+import type { SpawnGit } from "./diff.mts"
 import type { DebugWriter } from "./debug.mts"
 import type { LineComment } from "./github-types.mts"
 import { SIDES } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
 import type { AiReviewResult } from "./review.mts"
-import type { ToolCallRequest, ToolCallResult, ToolDefinition, ToolExecutor } from "./tool-executor.mts"
+import { createTools } from "./tool-executor.mts"
 import { includes, isReadonlyArray } from "./typescript-helpers.mts"
-export { createAiFetch, parseAiConfiguration, type AiConfiguration, type AiFetch, type AiMessage, type AiToolCall }
 
-const IDLE_TIMEOUT_MILLISECONDS = 300_000
-
-interface IdleTimer {
-	reset: () => void
-	cleanup: () => void
+export interface AiConfiguration {
+	apiUrl: string
+	model: string
+	apiKey?: string
 }
 
-function createIdleTimer(controller: AbortController): IdleTimer {
-	let timer: ReturnType<typeof setTimeout> | undefined = undefined
-	return {
-		reset(): void {
-			if (timer !== undefined) clearTimeout(timer)
-			timer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MILLISECONDS)
-		},
-		cleanup(): void {
-			clearTimeout(timer)
-		},
+export function parseAiConfiguration(environment: Record<string, string | undefined>): AiConfiguration {
+	const apiUrl = environment.AI_API_URL
+	if (!apiUrl) throw new Error("AI_API_URL is required")
+
+	if (!URL.canParse(apiUrl)) throw new Error(`AI_API_URL is not a valid URL: ${apiUrl}`)
+	const url = new URL(apiUrl)
+	if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`AI_API_URL must use http: or https: protocol, got: ${url.protocol}`)
+
+	const model = environment.AI_MODEL
+	if (!model) throw new Error("AI_MODEL is required")
+
+	const apiKey = environment.AI_API_KEY
+	return { apiUrl, model, apiKey }
+}
+
+export function createFetch(configuration: AiConfiguration): Fetch {
+	return async (signal, body, headers) => {
+		const url = `${configuration.apiUrl}/chat/completions`
+		const requestHeaders: Record<string, string> = { ...headers }
+		if (configuration.apiKey) requestHeaders["Authorization"] = `Bearer ${configuration.apiKey}`
+		return await fetch(url, { method: "POST", headers: requestHeaders, body, signal })
 	}
 }
 
-async function fetchAiStreamResponse(aiFetch: AiFetch, messages: AiMessage[], tools: ToolDefinition[], signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+function isContextWindowExceededError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false
+	const message = error.message.toLowerCase()
+	return message.includes("context length") || message.includes("context window") || message.includes("maximum context") || message.includes("token limit")
+}
+
+async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, agentInputs?: Map<string, string>): Promise<string> {
+	dependencies.logger.log(`Building prompt for ${agent.name}`)
+	const prompt = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
+	await dependencies.debugWriter.writePrompt(agent.name, prompt)
+	dependencies.logger.log(`Running agent ${agent.name}`)
+
+	const tools = createTools(dependencies, baseCommit)
+	const messages: CompletionsMessage[] = [{ role: "user", content: prompt }]
+	const onTrace = (trace: string) => dependencies.debugWriter.writeTrace(agent.name, trace)
+
+	let result: AgentLoopResult
 	try {
-		return await aiFetch(messages, tools, signal)
+		const generator = agentLoop(dependencies, { model, messages, tools, maxTokens: 100_000 })
+
+		let reasoningStarted = false
+		let contentStarted = false
+
+		while (true) {
+			const iteratorResult = await generator.next()
+			if (iteratorResult.done) {
+				result = iteratorResult.value
+				break
+			}
+
+			const event = iteratorResult.value
+			if (event.type === "delta") {
+				const reasoning = event.delta.reasoning ?? event.delta.reasoning_content
+				if (reasoning) {
+					if (contentStarted) {
+						await onTrace("\n\n")
+						contentStarted = false
+					}
+					if (!reasoningStarted) {
+						await onTrace("# Reasoning\n\n")
+						reasoningStarted = true
+					}
+					await onTrace(reasoning)
+				}
+				if (event.delta.content) {
+					if (reasoningStarted) {
+						await onTrace("\n\n")
+						reasoningStarted = false
+					}
+					if (!contentStarted) {
+						await onTrace("# Content\n\n")
+						contentStarted = true
+					}
+					await onTrace(event.delta.content)
+				}
+			} else if (event.type === "tool_call") {
+				await onTrace(`# Tool Call: ${event.toolCall.function.name}\n\n${event.toolCall.function.arguments}\n\n`)
+			} else if (event.type === "tool_result") {
+				await onTrace(`# Tool Result: ${event.name}\n\n${event.result}\n\n`)
+			} else if (event.type === "completion") {
+				if (reasoningStarted || contentStarted) {
+					await onTrace("\n\n")
+					reasoningStarted = false
+					contentStarted = false
+				}
+				if (event.finishReason) {
+					await onTrace(`<!-- finish_reason: ${event.finishReason} -->\n`)
+				}
+			}
+		}
 	} catch (error) {
 		if (isContextWindowExceededError(error)) {
 			throw new Error(`Context window exceeded. Original error: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
 		}
 		throw error
 	}
+
+	const lastMessage = result.messages.at(-1)
+	if (lastMessage === undefined) throw new Error("Agent loop returned no messages")
+	if (lastMessage.role !== "assistant") throw new Error(`Expected last message role to be "assistant", got "${lastMessage.role}"`)
+	if (lastMessage.content === null) throw new Error("Agent loop returned null content for the last assistant message")
+
+	return lastMessage.content
 }
 
-export async function callAiApi(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor }, prompt: string, onTrace?: (trace: string) => Promise<void>): Promise<string> {
-	const messages: AiMessage[] = [{ role: "user", content: prompt }]
-
-	while (true) {
-		const controller = new AbortController()
-		const idleTimer = createIdleTimer(controller)
-		idleTimer.reset()
-
-		const stream = await fetchAiStreamResponse(dependencies.aiFetch, messages, dependencies.toolExecutor.definitions, controller.signal)
-		idleTimer.reset()
-
-		const result = await consumeAiStream(stream, onTrace, idleTimer.reset)
-		idleTimer.cleanup()
-
-		if (result.finishReason !== null) onTrace?.(`<!-- finish_reason: ${result.finishReason} -->\n`)
-
-		if (result.finishReason === null) {
-			throw new Error("AI stream ended without a finish reason. The response may have been interrupted before completion.")
-		}
-
-		if (result.finishReason === "length") {
-			throw new Error("AI response truncated: model reached maximum output token limit (finishReason: length). Consider increasing max_tokens or reducing prompt size.")
-		}
-
-		if (result.toolCallAccumulator.size === 0) return result.content
-
-		const assistantToolCalls = buildAiToolCalls(result.toolCallAccumulator)
-
-		messages.push({
-			role: "assistant",
-			content: result.fullContent || null,
-			tool_calls: assistantToolCalls,
-		})
-
-		for (const toolCall of assistantToolCalls) {
-			const request: ToolCallRequest = { id: toolCall.id, name: toolCall.function.name, arguments: toolCall.function.arguments }
-			onTrace?.(`# Tool Call: ${toolCall.function.name}\n\n${toolCall.function.arguments}\n\n`)
-
-			const toolResult: ToolCallResult = await dependencies.toolExecutor.execute(request)
-			onTrace?.(`# Tool Result: ${toolCall.function.name}\n\n${toolResult.content}\n\n`)
-
-			messages.push({
-				role: "tool",
-				tool_call_id: toolResult.toolCallId,
-				content: toolResult.content,
-			})
-		}
-	}
-}
-
-async function runAgent(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs?: Map<string, string>): Promise<string> {
-	dependencies.logger.log(`Building prompt for ${agent.name}`)
-	const prompt = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
-	await dependencies.debugWriter.writePrompt(agent.name, prompt)
-	dependencies.logger.log(`Running agent ${agent.name}`)
-	const onTrace = (trace: string) => dependencies.debugWriter.writeTrace(agent.name, trace)
-	return await callAiApi({ aiFetch: dependencies.aiFetch, toolExecutor: dependencies.toolExecutor }, prompt, onTrace)
-}
-
-async function runAgents(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[]): Promise<Map<string, string>> {
-	const promises = agents.map(async agent => [agent.name, await runAgent(dependencies, agent, baseCommitContext, diffText)] as const)
+async function runAgents(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], model: string): Promise<Map<string, string>> {
+	const promises = agents.map(async agent => [agent.name, await runAgent(dependencies, agent, baseCommit, baseCommitContext, diffText, model)] as const)
 	const reviewResults = await Promise.all(promises)
 	return new Map(reviewResults)
 }
@@ -139,11 +164,11 @@ function parseAggregatorOutput(output: string): AiReviewResult {
 	return parsed
 }
 
-export async function analyze(dependencies: { aiFetch: AiFetch; toolExecutor: ToolExecutor; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent): Promise<AiReviewResult> {
+export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string,): Promise<AiReviewResult> {
 	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 
-	const agentOutputs = await runAgents(dependencies, baseCommitContext, diffText, agents)
-	const finalOutput = await runAgent(dependencies, aggregator, baseCommitContext, diffText, agentOutputs)
+	const agentOutputs = await runAgents(dependencies, baseCommit, baseCommitContext, diffText, agents, model)
+	const finalOutput = await runAgent(dependencies, aggregator, baseCommit, baseCommitContext, diffText, model, agentOutputs)
 
 	dependencies.logger.log("Agent analysis complete")
 

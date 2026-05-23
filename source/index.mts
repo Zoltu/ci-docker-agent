@@ -1,9 +1,9 @@
-import { createAiFetch, parseAiConfiguration } from "./ai.mts"
-import { createLoadAgents, createLoadAggregator, createReadAgentsFromDisk } from "./agents.mts"
+import { createFetch, parseAiConfiguration } from "./ai.mts"
+import { createReadAgentsFromDisk } from "./agents.mts"
 import { getConfiguration } from "./configuration.mts"
-import { createGenerateLocalDiff, createSpawnGit, createValidateGitRepository } from "./diff.mts"
+import { createSpawnGit } from "./diff.mts"
 import { createDebugWriter } from "./debug.mts"
-import { createFetchPullRequestBaseCommit, createFetchPullRequestDiff, createGithubFetch, createSubmitReview } from "./github.mts"
+import { createGithubFetch } from "./github.mts"
 import { createLogger } from "./logger.mts"
 import { runOnCommentTrigger, runOnLocalDiff, runOnPullRequest } from "./orchestrator.mts"
 import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, USER_AGENTS_DIRECTORY } from "./paths.mts"
@@ -15,47 +15,30 @@ async function main(): Promise<void> {
 
 	const logger = createLogger()
 	const debugWriter = createDebugWriter(DEBUG_DIRECTORY)
-	const readAgentsFromDisk = createReadAgentsFromDisk()
+	const readAgents = createReadAgentsFromDisk()
 	const spawnGit = createSpawnGit()
-	const validateGitRepository = createValidateGitRepository(spawnGit)
 	const aiConfiguration = parseAiConfiguration(Bun.env)
-	const aiFetch = createAiFetch(aiConfiguration)
-	const loadAgents = createLoadAgents(agentDirectories, readAgentsFromDisk)
-	const loadAggregator = createLoadAggregator(agentDirectories, readAgentsFromDisk)
+	const fetch = createFetch(aiConfiguration)
 	const githubFetch = createGithubFetch(logger)
 
 	const dependencies = {
 		spawnGit,
-		validateGitRepository,
-		loadAgents,
-		loadAggregator,
-		aiFetch,
+		readAgents,
+		githubFetch,
+		fetch,
 		logger,
 		debugWriter,
 	}
 
 	switch (configuration.type) {
 		case "comment-trigger": {
-			return runOnCommentTrigger({
-				...dependencies,
-				fetchPullRequestDiff: createFetchPullRequestDiff(githubFetch, configuration.github),
-				fetchPullRequestBaseCommit: createFetchPullRequestBaseCommit(githubFetch, configuration.github),
-				submitReview: createSubmitReview(githubFetch, configuration.github),
-			}, configuration)
+			return runOnCommentTrigger(dependencies, configuration, agentDirectories, aiConfiguration.model)
 		}
 		case "pull-request": {
-			return runOnPullRequest({
-				...dependencies,
-				fetchPullRequestDiff: createFetchPullRequestDiff(githubFetch, configuration.github),
-				fetchPullRequestBaseCommit: createFetchPullRequestBaseCommit(githubFetch, configuration.github),
-				submitReview: createSubmitReview(githubFetch, configuration.github),
-			}, configuration)
+			return runOnPullRequest(dependencies, configuration, agentDirectories, aiConfiguration.model)
 		}
 		case "local-diff": {
-			const result = await runOnLocalDiff({
-				...dependencies,
-				generateLocalDiff: createGenerateLocalDiff(spawnGit),
-			}, configuration)
+			const result = await runOnLocalDiff(dependencies, configuration, agentDirectories, aiConfiguration.model)
 			logger.log(result)
 			return
 		}

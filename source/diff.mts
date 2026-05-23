@@ -32,16 +32,14 @@ async function validateCommitExists(dependencies: { spawnGit: SpawnGit }, commit
 	)
 }
 
-export function createValidateGitRepository(spawnGit: SpawnGit): () => Promise<void> {
-	return async function validateGitRepository(): Promise<void> {
-		const result = await spawnGit(["rev-parse", "--git-dir"])
-		if (result.exitCode === 0) return
-		throw new Error(
-			`No git repository found at ${WORKSPACE_DIRECTORY}\n` +
-			`Please ensure you are mounting a git repository to ${WORKSPACE_DIRECTORY}\n` +
-			`Error: ${result.stderr.trim()}`
-		)
-	}
+export async function validateGitRepository(dependencies: { spawnGit: SpawnGit }): Promise<void> {
+	const result = await dependencies.spawnGit(["rev-parse", "--git-dir"])
+	if (result.exitCode === 0) return
+	throw new Error(
+		`No git repository found at ${WORKSPACE_DIRECTORY}\n` +
+		`Please ensure you are mounting a git repository to ${WORKSPACE_DIRECTORY}\n` +
+		`Error: ${result.stderr.trim()}`
+	)
 }
 
 export async function ensureCommitAvailable(dependencies: { spawnGit: SpawnGit }, commit: string): Promise<void> {
@@ -53,19 +51,17 @@ export async function ensureCommitAvailable(dependencies: { spawnGit: SpawnGit }
 	if (fetch.exitCode !== 0) throw new Error(`Failed to fetch commit ${commit}: ${fetch.stderr.trim()}`)
 }
 
-export async function validateGitEnvironment(dependencies: { spawnGit: SpawnGit; validateGitRepository: () => Promise<void> }, baseCommit: string, headCommit: string): Promise<void> {
-	await dependencies.validateGitRepository()
+export async function validateGitEnvironment(dependencies: { spawnGit: SpawnGit }, baseCommit: string, headCommit: string): Promise<void> {
+	await validateGitRepository(dependencies)
 
 	await validateCommitExists(dependencies, baseCommit, "Base")
 	await validateCommitExists(dependencies, headCommit, "Head")
 }
 
-export function createGenerateLocalDiff(spawnGit: SpawnGit): (baseCommit: string, headCommit: string) => Promise<string> {
-	return async function generateLocalDiff(baseCommit: string, headCommit: string): Promise<string> {
-		const result = await spawnGit(["diff", "--unified=3", baseCommit, headCommit])
-		if (result.exitCode === null && result.signalCode !== null) throw new Error(`Command "git diff --unified=3" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
-		if (result.exitCode === 0) return result.stdout
-		const errorOutput = result.stderr || result.stdout || "Unknown error"
-		throw new Error(`Failed to get diff: ${errorOutput}`)
-	}
+export async function generateLocalDiff(dependencies: { spawnGit: SpawnGit }, baseCommit: string, headCommit: string): Promise<string> {
+	const result = await dependencies.spawnGit(["diff", "--unified=3", baseCommit, headCommit])
+	if (result.exitCode === null && result.signalCode !== null) throw new Error(`Command "git diff --unified=3" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
+	if (result.exitCode === 0) return result.stdout
+	const errorOutput = result.stderr || result.stdout || "Unknown error"
+	throw new Error(`Failed to get diff: ${errorOutput}`)
 }

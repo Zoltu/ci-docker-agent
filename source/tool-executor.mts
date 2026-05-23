@@ -1,78 +1,6 @@
 import type { SpawnGit } from "./diff.mts"
+import type { Tool } from "./agent-loop.mts"
 import { isBinaryExtension, isContentText } from "./text-detection.mts"
-
-export interface ToolDefinition {
-	type: "function"
-	function: {
-		name: string
-		description: string
-		parameters: Record<string, unknown>
-	}
-}
-
-export interface ToolCallRequest {
-	id: string
-	name: string
-	arguments: string
-}
-
-export interface ToolCallResult {
-	toolCallId: string
-	content: string
-}
-
-export interface ToolExecutor {
-	definitions: ToolDefinition[]
-	execute(toolCall: ToolCallRequest): Promise<ToolCallResult>
-}
-
-const READ_FILE_TOOL: ToolDefinition = {
-	type: "function",
-	function: {
-		name: "read_file",
-		description: "Read the contents of a file from the base commit (before the changes in the diff). The path must be one of the files listed in the repository files section. To understand the current state of a changed file, apply the diff to the base version. Optionally specify a line range to read a subset of the file.",
-		parameters: {
-			type: "object",
-			properties: {
-				path: {
-					type: "string",
-					description: "The path of the file to read, relative to the repository root",
-				},
-				start_line: {
-					type: "number",
-					description: "The 1-indexed line number to start reading from. If omitted, starts from line 1.",
-				},
-				end_line: {
-					type: "number",
-					description: "The 1-indexed line number to read up to (inclusive). If omitted, reads to the end of the file. If greater than the file length, reads to the end of the file.",
-				},
-			},
-			required: ["path"],
-		},
-	},
-}
-
-const SEARCH_FILES_TOOL: ToolDefinition = {
-	type: "function",
-	function: {
-		name: "search_files",
-		description: "Search the codebase at the base commit using a regular expression pattern. Returns matching file paths, line numbers, and matching line content. Uses extended regex syntax (ERE). Searches all text files in the repository.",
-		parameters: {
-			type: "object",
-			properties: {
-				pattern: {
-					type: "string",
-					description: "Extended regular expression (ERE) pattern to search for",
-				},
-				path: {
-					type: "string",
-					description: "Optional path prefix to limit search scope (e.g., 'src/' or 'config.json')",
-				},
-			},
-			required: ["pattern"],
-		},
-	},
-}
 
 interface ReadFileArguments {
 	path: string
@@ -147,38 +75,58 @@ function formatSearchResults(matches: SearchMatch[]): string {
 	return lines.join("\n")
 }
 
-export function createToolExecutor(dependencies: { spawnGit: SpawnGit }, baseCommit: string): ToolExecutor {
+export function createTools(dependencies: { spawnGit: SpawnGit }, baseCommit: string): Tool[] {
 	const { spawnGit } = dependencies
-	return {
-		definitions: [READ_FILE_TOOL, SEARCH_FILES_TOOL],
-		async execute(toolCall: ToolCallRequest): Promise<ToolCallResult> {
-			if (toolCall.name === "read_file") {
+
+	return [
+		{
+			name: "read_file",
+			description: "Read the contents of a file from the base commit (before the changes in the diff). The path must be one of the files listed in the repository files section. To understand the current state of a changed file, apply the diff to the base version. Optionally specify a line range to read a subset of the file.",
+			parameters: {
+				type: "object",
+				properties: {
+					path: {
+						type: "string",
+						description: "The path of the file to read, relative to the repository root",
+					},
+					start_line: {
+						type: "number",
+						description: "The 1-indexed line number to start reading from. If omitted, starts from line 1.",
+					},
+					end_line: {
+						type: "number",
+						description: "The 1-indexed line number to read up to (inclusive). If omitted, reads to the end of the file. If greater than the file length, reads to the end of the file.",
+					},
+				},
+				required: ["path"],
+			},
+			execute: async (args: string): Promise<string> => {
 				let parsed: unknown
 				try {
-					parsed = JSON.parse(toolCall.arguments)
+					parsed = JSON.parse(args)
 				} catch {
-					return { toolCallId: toolCall.id, content: `Invalid JSON in tool call arguments: ${toolCall.arguments}` }
+					return `Invalid JSON in tool call arguments: ${args}`
 				}
 
 				if (!isValidReadFileArguments(parsed)) {
-					return { toolCallId: toolCall.id, content: `Invalid arguments for read_file. Expected { "path": string, "start_line"?: number, "end_line"?: number }. Got: ${toolCall.arguments}` }
+					return `Invalid arguments for read_file. Expected { "path": string, "start_line"?: number, "end_line"?: number }. Got: ${args}`
 				}
 
 				if (isBinaryExtension(parsed.path)) {
-					return { toolCallId: toolCall.id, content: `File is binary and cannot be displayed: ${parsed.path}` }
+					return `File is binary and cannot be displayed: ${parsed.path}`
 				}
 
 				const result = await spawnGit(["show", `${baseCommit}:${parsed.path}`])
 				if (result.exitCode !== 0) {
-					return { toolCallId: toolCall.id, content: `File not found: ${parsed.path}` }
+					return `File not found: ${parsed.path}`
 				}
 
 				if (!isContentText(result.stdout)) {
-					return { toolCallId: toolCall.id, content: `File is binary and cannot be displayed: ${parsed.path}` }
+					return `File is binary and cannot be displayed: ${parsed.path}`
 				}
 
 				if (parsed.start_line === undefined && parsed.end_line === undefined) {
-					return { toolCallId: toolCall.id, content: result.stdout }
+					return result.stdout
 				}
 
 				const allLines = result.stdout.split("\n")
@@ -186,25 +134,42 @@ export function createToolExecutor(dependencies: { spawnGit: SpawnGit }, baseCom
 
 				const effectiveStart = parsed.start_line ?? 1
 				if (effectiveStart > allLines.length) {
-					return { toolCallId: toolCall.id, content: `File ${parsed.path} has ${allLines.length} lines, start_line ${effectiveStart} is past the end` }
+					return `File ${parsed.path} has ${allLines.length} lines, start_line ${effectiveStart} is past the end`
 				}
 
 				const effectiveEnd = parsed.end_line !== undefined ? Math.min(parsed.end_line, allLines.length) : allLines.length
 				const sliced = allLines.slice(effectiveStart - 1, effectiveEnd)
 				const header = `Lines ${effectiveStart}-${effectiveEnd} of ${parsed.path}:`
-				return { toolCallId: toolCall.id, content: `${header}\n${sliced.join("\n")}` }
-			}
-
-			if (toolCall.name === "search_files") {
+				return `${header}\n${sliced.join("\n")}`
+			},
+		},
+		{
+			name: "search_files",
+			description: "Search the codebase at the base commit using a regular expression pattern. Returns matching file paths, line numbers, and matching line content. Uses extended regex syntax (ERE). Searches all text files in the repository.",
+			parameters: {
+				type: "object",
+				properties: {
+					pattern: {
+						type: "string",
+						description: "Extended regular expression (ERE) pattern to search for",
+					},
+					path: {
+						type: "string",
+						description: "Optional path prefix to limit search scope (e.g., 'src/' or 'config.json')",
+					},
+				},
+				required: ["pattern"],
+			},
+			execute: async (args: string): Promise<string> => {
 				let parsed: unknown
 				try {
-					parsed = JSON.parse(toolCall.arguments)
+					parsed = JSON.parse(args)
 				} catch {
-					return { toolCallId: toolCall.id, content: `Invalid JSON in tool call arguments: ${toolCall.arguments}` }
+					return `Invalid JSON in tool call arguments: ${args}`
 				}
 
 				if (!isValidSearchFilesArguments(parsed)) {
-					return { toolCallId: toolCall.id, content: `Invalid arguments for search_files. Expected { "pattern": string, "path"?: string }. Got: ${toolCall.arguments}` }
+					return `Invalid arguments for search_files. Expected { "pattern": string, "path"?: string }. Got: ${args}`
 				}
 
 				const gitGrepArgs = ["grep", "-n", "-E", "-I", "-e", parsed.pattern, baseCommit]
@@ -213,18 +178,16 @@ export function createToolExecutor(dependencies: { spawnGit: SpawnGit }, baseCom
 				const result = await spawnGit(gitGrepArgs)
 
 				if (result.exitCode === 1) {
-					return { toolCallId: toolCall.id, content: "No matches found." }
+					return "No matches found."
 				}
 
 				if (result.exitCode !== 0) {
-					return { toolCallId: toolCall.id, content: `Search failed: ${result.stderr.trim() || result.stdout.trim()}` }
+					return `Search failed: ${result.stderr.trim() || result.stdout.trim()}`
 				}
 
 				const matches = parseGitGrepOutput(result.stdout)
-				return { toolCallId: toolCall.id, content: formatSearchResults(matches) }
-			}
-
-			return { toolCallId: toolCall.id, content: `Unknown tool: ${toolCall.name}` }
+				return formatSearchResults(matches)
+			},
 		},
-	}
+	]
 }

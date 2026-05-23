@@ -50,38 +50,34 @@ export function createGithubFetch(logger: Logger): GitHubFetch {
 	}
 }
 
-export function createFetchPullRequestDiff(githubFetch: GitHubFetch, configuration: GitHubConfiguration): () => Promise<string> {
-	return async function fetchPullRequestDiff(): Promise<string> {
-		const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
+export async function fetchPullRequestDiff(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration): Promise<string> {
+	const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
 
-		const response = await githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}`, {
-			method: "GET",
-			headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.diff" },
-		})
+	const response = await dependencies.githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}`, {
+		method: "GET",
+		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.diff" },
+	})
 
-		if (!response.ok) {
-			const body = await response.text().catch(() => "")
-			throw new Error(`Failed to fetch PR diff: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
-		}
-
-		return response.text()
+	if (!response.ok) {
+		const body = await response.text().catch(() => "")
+		throw new Error(`Failed to fetch PR diff: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
 	}
+
+	return response.text()
 }
 
-export function createSubmitReview(githubFetch: GitHubFetch, configuration: GitHubConfiguration): (review: GitHubReviewPayload) => Promise<void> {
-	return async function submitReview(review: GitHubReviewPayload): Promise<void> {
-		const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
+export async function submitReview(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, review: GitHubReviewPayload): Promise<void> {
+	const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
 
-		const response = await githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}/reviews`, {
-			method: "POST",
-			headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" },
-			body: JSON.stringify(review),
-		})
+	const response = await dependencies.githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}/reviews`, {
+		method: "POST",
+		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" },
+		body: JSON.stringify(review),
+	})
 
-		if (!response.ok) {
-			const body = await response.text().catch(() => "")
-			throw new Error(`Failed to submit review: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
-		}
+	if (!response.ok) {
+		const body = await response.text().catch(() => "")
+		throw new Error(`Failed to submit review: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
 	}
 }
 
@@ -93,23 +89,21 @@ function isValidPrMetadata(data: unknown): data is { base: { sha: string } } {
 	return true
 }
 
-export function createFetchPullRequestBaseCommit(githubFetch: GitHubFetch, configuration: GitHubConfiguration): () => Promise<string> {
-	return async function fetchPullRequestBaseCommit(): Promise<string> {
-		const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
+export async function fetchPullRequestBaseCommit(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration): Promise<string> {
+	const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
 
-		const response = await githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}`, {
-			method: "GET",
-			headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" },
-		})
+	const response = await dependencies.githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}`, {
+		method: "GET",
+		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" },
+	})
 
-		if (!response.ok) {
-			const body = await response.text().catch(() => "")
-			throw new Error(`Failed to fetch PR base commit: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
-		}
-
-		const data: unknown = await response.json()
-		if (!isValidPrMetadata(data)) throw new Error("Invalid PR response: missing base.sha")
-
-		return data.base.sha
+	if (!response.ok) {
+		const body = await response.text().catch(() => "")
+		throw new Error(`Failed to fetch PR base commit: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
 	}
+
+	const data: unknown = await response.json()
+	if (!isValidPrMetadata(data)) throw new Error("Invalid PR response: missing base.sha")
+
+	return data.base.sha
 }

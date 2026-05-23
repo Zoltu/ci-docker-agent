@@ -1,12 +1,12 @@
 import { describe, it, expect } from "bun:test"
-import { createLoadAgents, createLoadAggregator } from "../source/agents.mts"
+import { loadAgents, loadAggregator } from "../source/agents.mts"
 import type { AgentDirectories, AgentReader, Agent } from "../source/agents.mts"
 
 function mockReader(agentsByDirectory: Map<string, Agent[]>): AgentReader {
 	return (directory) => Promise.resolve(agentsByDirectory.get(directory) ?? [])
 }
 
-describe("createLoadAgents", () => {
+describe("loadAgents", () => {
 	it("returns Default when 'run all agents' and no user agents exist", async () => {
 		const userDirectory = "/user"
 		const builtinDirectory = "/builtins"
@@ -16,8 +16,7 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, [{ name: "Default", prompt: "Default agent prompt" }, { name: "Aggregator", prompt: "Aggregator prompt" }]],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		const result = await loadAgents("run all agents")
+		const result = await loadAgents({ readAgents }, directories, "run all agents")
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("Default")
@@ -33,11 +32,10 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, [{ name: "Default", prompt: "Default prompt" }]],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		const result = await loadAgents("run all agents")
+		const result = await loadAgents({ readAgents }, directories, "run all agents")
 
 		expect(result.agents).toHaveLength(2)
-		expect(result.agents.map(a => a.name)).toEqual(["SecurityAgent", "StyleAgent"])
+		expect(result.agents.map((a: Agent) => a.name)).toEqual(["SecurityAgent", "StyleAgent"])
 	})
 
 	it("resolves named agents from user directory first", async () => {
@@ -49,8 +47,7 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, [{ name: "SecurityAgent", prompt: "Builtin security prompt" }]],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		const result = await loadAgents(["SecurityAgent"])
+		const result = await loadAgents({ readAgents }, directories, ["SecurityAgent"])
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.prompt).toBe("User security prompt")
@@ -65,8 +62,7 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, [{ name: "Default", prompt: "Default prompt" }]],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		const result = await loadAgents(["Default"])
+		const result = await loadAgents({ readAgents }, directories, ["Default"])
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.prompt).toBe("Default prompt")
@@ -81,8 +77,7 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		expect(loadAgents(["NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
+		expect(loadAgents({ readAgents }, directories, ["NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
 	it("throws for unresolved names even when some agents resolve", async () => {
@@ -94,8 +89,7 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		expect(loadAgents(["SecurityAgent", "NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
+		expect(loadAgents({ readAgents }, directories, ["SecurityAgent", "NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
 	it("filters out Aggregator from user agents when 'run all agents'", async () => {
@@ -107,8 +101,7 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		const result = await loadAgents("run all agents")
+		const result = await loadAgents({ readAgents }, directories, "run all agents")
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("SecurityAgent")
@@ -123,8 +116,7 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, [{ name: "Aggregator", prompt: "Builtin aggregator" }, { name: "Default", prompt: "Default prompt" }]],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		const result = await loadAgents("run all agents")
+		const result = await loadAgents({ readAgents }, directories, "run all agents")
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("Default")
@@ -139,8 +131,7 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		const result = await loadAgents(["securityagent"])
+		const result = await loadAgents({ readAgents }, directories, ["securityagent"])
 
 		expect(result.agents).toHaveLength(1)
 		expect(result.agents[0]!.name).toBe("SecurityAgent")
@@ -156,8 +147,7 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		expect(loadAgents(["SecurityAgent", "SecurityAgent"])).rejects.toThrow(
+		expect(loadAgents({ readAgents }, directories, ["SecurityAgent", "SecurityAgent"])).rejects.toThrow(
 			'Duplicate agent name: "SecurityAgent"'
 		)
 	})
@@ -171,15 +161,14 @@ describe("createLoadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		const loadAgents = createLoadAgents(directories, readAgents)
-		expect(loadAgents(["SecurityAgent", "securityagent"])).rejects.toThrow(
+		expect(loadAgents({ readAgents }, directories, ["SecurityAgent", "securityagent"])).rejects.toThrow(
 			'Duplicate agent name: "securityagent"'
 		)
 	})
 
 })
 
-describe("createLoadAggregator", () => {
+describe("loadAggregator", () => {
 	it("returns user aggregator when it exists", async () => {
 		const userDirectory = "/user"
 		const builtinDirectory = "/builtins"
@@ -189,8 +178,7 @@ describe("createLoadAggregator", () => {
 			[builtinDirectory, [{ name: "Aggregator", prompt: "Builtin aggregator" }]],
 		]))
 
-		const loadAggregator = createLoadAggregator(directories, readAgents)
-		const aggregator = await loadAggregator()
+		const aggregator = await loadAggregator({ readAgents }, directories)
 
 		expect(aggregator.prompt).toBe("User aggregator")
 	})
@@ -204,8 +192,7 @@ describe("createLoadAggregator", () => {
 			[builtinDirectory, [{ name: "Aggregator", prompt: "Builtin aggregator" }]],
 		]))
 
-		const loadAggregator = createLoadAggregator(directories, readAgents)
-		const aggregator = await loadAggregator()
+		const aggregator = await loadAggregator({ readAgents }, directories)
 
 		expect(aggregator.prompt).toBe("Builtin aggregator")
 	})
@@ -219,8 +206,7 @@ describe("createLoadAggregator", () => {
 			[builtinDirectory, []],
 		]))
 
-		const loadAggregator = createLoadAggregator(directories, readAgents)
-		const aggregator = await loadAggregator()
+		const aggregator = await loadAggregator({ readAgents }, directories)
 
 		expect(aggregator.name).toBe("aggregator")
 	})

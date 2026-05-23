@@ -4,8 +4,8 @@ import type { CommentTriggerConfiguration, PullRequestConfiguration, LocalDiffCo
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { GitHubConfiguration } from "../source/github-types.mts"
 import type { Logger } from "../source/logger.mts"
-import type { ToolCallResult, ToolExecutor } from "../source/tool-executor.mts"
-import type { Fetch } from "../source/sse.mts"
+import type { Fetch as SseFetch } from "../source/sse.mts"
+import type { Fetch as AgentFetch } from "../source/agent-loop.mts"
 
 export function makeAgent(overrides: Partial<Agent> = {}): Agent {
 	return { name: "TestAgent", prompt: "Test prompt.", ...overrides }
@@ -58,38 +58,41 @@ export function makeLocalDiffConfiguration(overrides: Partial<LocalDiffConfigura
 	}
 }
 
-export function createMockStream(chunks: string[]): ReadableStream<Uint8Array> {
-	const encoder = new TextEncoder()
-	const encodedChunks = chunks.map(chunk => encoder.encode(chunk))
-	let index = 0
-	return new ReadableStream({
-		pull(controller) {
-			if (index >= encodedChunks.length) {
+export function createMockFetch(sseText: string): SseFetch {
+	return async (_body: string, _headers?: Record<string, string>) => {
+		const encoder = new TextEncoder()
+		const stream = new ReadableStream({
+			start(controller) {
+				controller.enqueue(encoder.encode(sseText))
 				controller.close()
-				return
 			}
-			controller.enqueue(encodedChunks[index])
-			index++
-		}
-	})
+		})
+		return new Response(stream, { status: 200 })
+	}
 }
 
-export function wrapInSse(content: string): string {
-	return `data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`
+export function buildContentSse(content: string): string {
+	const firstChunk = { choices: [{ delta: { content }, finish_reason: null }] }
+	const finalChunk = { choices: [{ delta: {}, finish_reason: "stop" }] }
+	return `data: ${JSON.stringify(firstChunk)}\n\ndata: ${JSON.stringify(finalChunk)}\n\ndata: [DONE]\n\n`
+}
+
+export function createMockAgentFetch(sseText: string): AgentFetch {
+	return async (_signal: AbortSignal, _body: string, _headers?: Record<string, string>) => {
+		const encoder = new TextEncoder()
+		const stream = new ReadableStream({
+			start(controller) {
+				controller.enqueue(encoder.encode(sseText))
+				controller.close()
+			}
+		})
+		return new Response(stream, { status: 200 })
+	}
 }
 
 export function createMockLogger(): Logger {
 	return {
 		log: () => {},
-	}
-}
-
-export function makeNoopToolExecutor(): ToolExecutor {
-	return {
-		definitions: [],
-		async execute(): Promise<ToolCallResult> {
-			throw new Error("Unexpected tool call in test")
-		},
 	}
 }
 
@@ -112,17 +115,4 @@ export function error(stderr: string): GitDiffResult {
 
 export function timeout(): GitDiffResult {
 	return { stdout: "", stderr: "", exitCode: null, signalCode: "SIGTERM" }
-}
-
-export function createMockFetch(sseText: string): Fetch {
-	return async (_body: string, _headers?: Record<string, string>) => {
-		const encoder = new TextEncoder()
-		const stream = new ReadableStream({
-			start(controller) {
-				controller.enqueue(encoder.encode(sseText))
-				controller.close()
-			}
-		})
-		return new Response(stream, { status: 200 })
-	}
 }
