@@ -101,6 +101,7 @@ export function createTools(dependencies: { spawnGit: SpawnGit }, baseCommit: st
 				required: ["path"],
 			},
 			execute: async (args: string): Promise<string> => {
+				// Intentional deviation from fail-fast rule: returning an error string lets the AI self-correct its tool call arguments
 				let parsed: unknown
 				try {
 					parsed = JSON.parse(args)
@@ -161,6 +162,7 @@ export function createTools(dependencies: { spawnGit: SpawnGit }, baseCommit: st
 				required: ["pattern"],
 			},
 			execute: async (args: string): Promise<string> => {
+				// Intentional deviation from fail-fast rule: returning an error string lets the AI self-correct its tool call arguments
 				let parsed: unknown
 				try {
 					parsed = JSON.parse(args)

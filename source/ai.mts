@@ -38,7 +38,7 @@ export function createFetch(configuration: AiConfiguration): Fetch {
 	const MAX_BACKOFF_MILLISECONDS = 30_000
 
 	return async (signal, body, headers) => {
-		const url = `${configuration.apiUrl}/chat/completions`
+		const url = `${configuration.apiUrl.replace(/\/$/, "")}/chat/completions`
 		const requestHeaders: Record<string, string> = { ...headers }
 		if (configuration.apiKey) requestHeaders["Authorization"] = `Bearer ${configuration.apiKey}`
 
@@ -69,7 +69,7 @@ export function createFetch(configuration: AiConfiguration): Fetch {
 	}
 }
 
-function isContextWindowExceededError(error: unknown): boolean {
+function isContextWindowExceededError(error: unknown): error is Error {
 	if (!(error instanceof Error)) return false
 	const message = error.message.toLowerCase()
 	return message.includes("context length") || message.includes("context window") || message.includes("maximum context") || message.includes("token limit")
@@ -141,7 +141,7 @@ async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger
 		}
 	} catch (error) {
 		if (isContextWindowExceededError(error)) {
-			throw new Error(`Context window exceeded. Original error: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+			throw new Error(`Context window exceeded. Original error: ${error.message}`, { cause: error })
 		}
 		throw error
 	}

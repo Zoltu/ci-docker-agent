@@ -212,7 +212,7 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 
 	for await (const sseEvent of readSseStream(dependencies, body, { 'Content-Type': 'application/json' })) {
 		if (sseEvent.data === '[DONE]') {
-			return { message: completeAccumulation(accumulator), finishReason: finishReason, usage }
+			return { message: completeAccumulation(accumulator), finishReason, usage }
 		}
 
 		let parsed: unknown

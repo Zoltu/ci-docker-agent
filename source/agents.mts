@@ -35,6 +35,10 @@ export function createReadAgentsFromDisk(): AgentReader {
 	}
 }
 
+function buildAgentMap(agents: Agent[]): Map<string, Agent> {
+	return new Map(agents.map(a => [a.name.toLowerCase(), a]))
+}
+
 function filterOutAggregator(agents: Agent[]): Agent[] {
 	return agents.filter(a => a.name.toLowerCase() !== "aggregator")
 }
@@ -51,6 +55,8 @@ export interface ResolveResult {
 function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinAgents: Agent[]): ResolveResult {
 	const filteredUserAgents = filterOutAggregator(userAgents)
 	const filteredBuiltinAgents = filterOutAggregator(builtinAgents)
+	const userAgentMap = buildAgentMap(filteredUserAgents)
+	const builtinAgentMap = buildAgentMap(filteredBuiltinAgents)
 
 	const resolvedNames = requestedNames === "run all agents"
 		? filteredUserAgents.length > 0
@@ -66,13 +72,13 @@ function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinA
 		if (seenNames.has(key)) throw new Error(`Duplicate agent name: "${name}"`)
 		seenNames.add(key)
 
-		const userAgent = filteredUserAgents.find(a => a.name.toLowerCase() === key)
+		const userAgent = userAgentMap.get(key)
 		if (userAgent) {
 			agents.push(userAgent)
 			continue
 		}
 
-		const builtinAgent = filteredBuiltinAgents.find(a => a.name.toLowerCase() === key)
+		const builtinAgent = builtinAgentMap.get(key)
 		if (builtinAgent) {
 			agents.push(builtinAgent)
 			continue
