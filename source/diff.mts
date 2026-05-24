@@ -21,30 +21,32 @@ export function createSpawnGit(): SpawnGit {
 	}
 }
 
+const COMMITISH_TYPES = new Set(["commit", "tag"])
+
+function isCommitishType(stdout: string): boolean {
+	return COMMITISH_TYPES.has(stdout.trim())
+}
+
 async function validateCommitExists(dependencies: { spawnGit: SpawnGit }, commit: string, label: string): Promise<void> {
-	const { exitCode, signalCode, stderr } = await dependencies.spawnGit(["cat-file", "-t", commit])
+	const { exitCode, signalCode, stdout, stderr } = await dependencies.spawnGit(["cat-file", "-t", commit])
 	if (exitCode === null && signalCode !== null) throw new Error(`Command "git cat-file -t <${label}>" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)
-	if (exitCode === 0) return
-	throw new Error(
-		`${label} commit "${commit}" not found in repository\n` +
-		`Please ensure the commit hash is valid and exists in the mounted repository\n` +
-		`Error: ${stderr.trim()}`
-	)
+	if (exitCode === 0 && isCommitishType(stdout)) return
+	if (exitCode === 0) throw new Error(`${label} reference "${commit}" is a ${stdout.trim()}, not a commit\nPlease ensure the reference points to a commit`)
+	throw new Error(`${label} commit "${commit}" not found in repository\nPlease ensure the commit hash is valid and exists in the mounted repository\nError: ${stderr.trim()}`)
 }
 
 export async function validateGitRepository(dependencies: { spawnGit: SpawnGit }): Promise<void> {
 	const result = await dependencies.spawnGit(["rev-parse", "--git-dir"])
 	if (result.exitCode === 0) return
-	throw new Error(
-		`No git repository found at ${WORKSPACE_DIRECTORY}\n` +
-		`Please ensure you are mounting a git repository to ${WORKSPACE_DIRECTORY}\n` +
-		`Error: ${result.stderr.trim()}`
-	)
+	throw new Error(`No git repository found at ${WORKSPACE_DIRECTORY}\nPlease ensure you are mounting a git repository to ${WORKSPACE_DIRECTORY}\nError: ${result.stderr.trim()}`)
 }
 
 export async function ensureCommitAvailable(dependencies: { spawnGit: SpawnGit }, commit: string): Promise<void> {
 	const check = await dependencies.spawnGit(["cat-file", "-t", commit])
-	if (check.exitCode === 0) return
+	if (check.exitCode === 0) {
+		if (isCommitishType(check.stdout)) return
+		throw new Error(`Reference "${commit}" is a ${check.stdout.trim()}, not a commit`)
+	}
 
 	const fetch = await dependencies.spawnGit(["fetch", "--depth=1", "origin", commit])
 	if (fetch.exitCode === null && fetch.signalCode !== null) throw new Error(`Command "git fetch --depth=1 origin ${commit}" timed out after ${SUBPROCESS_TIMEOUT_MILLISECONDS / 1000}s`)

@@ -14,7 +14,7 @@ async function main(): Promise<void> {
 	const agentDirectories = { userAgentsDirectory: USER_AGENTS_DIRECTORY, builtinAgentsDirectory: BUILTIN_AGENTS_DIRECTORY }
 
 	const logger = createLogger()
-	const debugWriter = createDebugWriter(DEBUG_DIRECTORY)
+	const debugWriter = await createDebugWriter(DEBUG_DIRECTORY)
 	const readAgents = createReadAgentsFromDisk()
 	const spawnGit = createSpawnGit()
 	const aiConfiguration = parseAiConfiguration(Bun.env)

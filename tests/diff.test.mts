@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { ensureCommitAvailable } from "../source/diff.mts"
+import { ensureCommitAvailable, validateGitEnvironment } from "../source/diff.mts"
 import { makeSpawnGit, ok, error, timeout } from "./helpers.mts"
 
 describe("ensureCommitAvailable", () => {
@@ -9,6 +9,30 @@ describe("ensureCommitAvailable", () => {
 		]))
 
 		expect(ensureCommitAvailable({ spawnGit }, "abc123")).resolves.toBeUndefined()
+	})
+
+	it("returns immediately when tag is already available", async () => {
+		const spawnGit = makeSpawnGit(new Map([
+			["cat-file -t v1.0", ok("tag")],
+		]))
+
+		expect(ensureCommitAvailable({ spawnGit }, "v1.0")).resolves.toBeUndefined()
+	})
+
+	it("throws when object exists but is a tree", async () => {
+		const spawnGit = makeSpawnGit(new Map([
+			["cat-file -t treeSha", ok("tree")],
+		]))
+
+		expect(ensureCommitAvailable({ spawnGit }, "treeSha")).rejects.toThrow("is a tree, not a commit")
+	})
+
+	it("throws when object exists but is a blob", async () => {
+		const spawnGit = makeSpawnGit(new Map([
+			["cat-file -t blobSha", ok("blob")],
+		]))
+
+		expect(ensureCommitAvailable({ spawnGit }, "blobSha")).rejects.toThrow("is a blob, not a commit")
 	})
 
 	it("fetches commit when not locally available", async () => {
@@ -36,5 +60,26 @@ describe("ensureCommitAvailable", () => {
 		]))
 
 		expect(ensureCommitAvailable({ spawnGit }, "abc123")).rejects.toThrow("timed out")
+	})
+})
+
+describe("validateGitEnvironment", () => {
+	it("throws when base commit is a tree", async () => {
+		const spawnGit = makeSpawnGit(new Map([
+			["rev-parse --git-dir", ok(".git")],
+			["cat-file -t treeSha", ok("tree")],
+		]))
+
+		expect(validateGitEnvironment({ spawnGit }, "treeSha", "def456")).rejects.toThrow("is a tree, not a commit")
+	})
+
+	it("throws when head commit is a blob", async () => {
+		const spawnGit = makeSpawnGit(new Map([
+			["rev-parse --git-dir", ok(".git")],
+			["cat-file -t abc123", ok("commit")],
+			["cat-file -t blobSha", ok("blob")],
+		]))
+
+		expect(validateGitEnvironment({ spawnGit }, "abc123", "blobSha")).rejects.toThrow("is a blob, not a commit")
 	})
 })

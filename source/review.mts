@@ -10,11 +10,7 @@ export function buildReviewPayload(aiResult: AiReviewResult): GitHubReviewPayloa
 }
 
 export function formatReviewForConsole(aiResult: AiReviewResult): string {
-	const lines = [
-		"## CI Agent Review",
-		"",
-		aiResult.body,
-	]
+	const lines = [ "## CI Agent Review", "", aiResult.body ]
 
 	if (aiResult.comments.length > 0) {
 		lines.push("", "### Line Comments")

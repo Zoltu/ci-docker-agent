@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { assertNever, guard, includes, isArray, isArrayOf, isBoolean, isInteger, isLiteral, isNull, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, isUndefined, optional, parseCommaSeparatedList, type Guard } from "../source/typescript-helpers.mts"
+import { assertNever, guard, includes, isArray, isArrayOf, isBoolean, isInteger, isLiteral, isNull, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, isUndefined, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
 
 describe("includes", () => {
 	it("returns true when needle is in haystack", () => {
@@ -386,4 +386,22 @@ describe("optional", () => {
 		expect(isEvent({ type: "click" })).toBe(true)
 		expect(isEvent({ type: "keypress", x: 1 })).toBe(false)
 	})
+})
+
+describe("sleepWithSignal", () => {
+	it("resolves after the specified duration", async () => {
+		await sleepWithSignal(1, AbortSignal.timeout(100))
+	})
+
+	it("throws Error when signal is already aborted", () => {
+		const controller = new AbortController()
+		controller.abort()
+		expect(sleepWithSignal(1, controller.signal)).rejects.toThrow("The operation was aborted.")
+	})
+
+	it("throws Error when signal fires during sleep", async () => {
+		const controller = new AbortController()
+		setTimeout(() => controller.abort(), 1)
+		expect(sleepWithSignal(60000, controller.signal)).rejects.toThrow("The operation was aborted.")
+	}, { timeout: 100 })
 })

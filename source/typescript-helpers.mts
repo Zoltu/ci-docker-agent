@@ -85,6 +85,16 @@ export function guard<S extends Record<string, SchemaValue>>(schema: S): Guard<I
 	return (value: unknown): value is InferSchemaType<S> => isObjectOf(value, schema)
 }
 
+export async function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> {
+	if (signal.aborted) throw new Error("The operation was aborted.")
+	await Promise.race([
+		Bun.sleep(ms),
+		new Promise<never>((_, reject) => {
+			signal.addEventListener("abort", () => reject(new Error("The operation was aborted.")), { once: true })
+		}),
+	])
+}
+
 export function isObjectOf<S extends Record<string, SchemaValue>>(value: unknown, schema: S): value is InferSchemaType<S> {
 	if (!isRecord(value)) return false
 	for (const [key, keyGuardOrOptional] of Object.entries(schema)) {

@@ -23,12 +23,16 @@ function makeFetch(body: string): Fetch {
 }
 
 function makeSpawnGitOk(): SpawnGit {
-	return async () => ({ stdout: "", stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult)
+	return async (params: string[]) => {
+		if (params[0] === "cat-file" && params[1] === "-t") return { stdout: "commit", stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult
+		return { stdout: "", stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult
+	}
 }
 
 function makeSpawnGitWithDiff(diffText: string): SpawnGit {
 	return async (params: string[]) => {
 		if (params[0] === "diff") return { stdout: diffText, stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult
+		if (params[0] === "cat-file" && params[1] === "-t") return { stdout: "commit", stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult
 		return { stdout: "", stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult
 	}
 }
@@ -318,6 +322,7 @@ describe("runOnLocalDiff", () => {
 	it("propagates error when validateGitRepository throws", async () => {
 		const spawnGit: SpawnGit = async (params) => {
 			if (params[0] === "rev-parse") return { stdout: "", stderr: "fatal: not a git repository", exitCode: 1, signalCode: null }
+			if (params[0] === "cat-file" && params[1] === "-t") return { stdout: "commit", stderr: "", exitCode: 0, signalCode: null }
 			return { stdout: "", stderr: "", exitCode: 0, signalCode: null }
 		}
 
@@ -338,6 +343,7 @@ describe("runOnLocalDiff", () => {
 	it("propagates error when generateLocalDiff throws", async () => {
 		const spawnGit: SpawnGit = async (params) => {
 			if (params[0] === "diff") return { stdout: "", stderr: "diff failed", exitCode: 1, signalCode: null }
+			if (params[0] === "cat-file" && params[1] === "-t") return { stdout: "commit", stderr: "", exitCode: 0, signalCode: null }
 			return { stdout: "", stderr: "", exitCode: 0, signalCode: null }
 		}
 

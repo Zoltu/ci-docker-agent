@@ -78,10 +78,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
 }
 
 function isValidToolParameters(value: Record<string, unknown>): boolean {
-	if (typeof value !== 'object' || value === null) return false
-	if (Array.isArray(value)) return false
-	if (!('type' in value)) return false
-	if (typeof value.type !== 'string' || value.type !== 'object') return false
+	if (value.type !== 'object') return false
 	if ('properties' in value && !(isRecord(value.properties) || value.properties === undefined)) return false
 	if ('required' in value && !isArrayOf(isString)(value.required)) return false
 	return true

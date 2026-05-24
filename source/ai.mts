@@ -9,7 +9,7 @@ import { SIDES } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
 import type { AiReviewResult } from "./review.mts"
 import { createTools } from "./tool-executor.mts"
-import { includes, isReadonlyArray } from "./typescript-helpers.mts"
+import { includes, isReadonlyArray, sleepWithSignal } from "./typescript-helpers.mts"
 
 export interface AiConfiguration {
 	apiUrl: string
@@ -33,11 +33,39 @@ export function parseAiConfiguration(environment: Record<string, string | undefi
 }
 
 export function createFetch(configuration: AiConfiguration): Fetch {
+	const MAX_RETRIES = 5
+	const INITIAL_BACKOFF_MILLISECONDS = 1_000
+	const MAX_BACKOFF_MILLISECONDS = 30_000
+
 	return async (signal, body, headers) => {
 		const url = `${configuration.apiUrl}/chat/completions`
 		const requestHeaders: Record<string, string> = { ...headers }
 		if (configuration.apiKey) requestHeaders["Authorization"] = `Bearer ${configuration.apiKey}`
-		return await fetch(url, { method: "POST", headers: requestHeaders, body, signal })
+
+		let lastResponse: Response | undefined
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			if (attempt > 0) {
+				const backoff = Math.min(INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, attempt - 1), MAX_BACKOFF_MILLISECONDS)
+				const jitter = backoff * (0.5 + Math.random() * 0.5)
+				await sleepWithSignal(jitter, signal)
+			}
+
+			lastResponse = await fetch(url, { method: "POST", headers: requestHeaders, body, signal })
+
+			if (lastResponse.status === 429 || (lastResponse.status >= 500 && lastResponse.status <= 599)) {
+				if (attempt === MAX_RETRIES) return lastResponse
+				if (lastResponse.status === 429) {
+					const retryAfter = lastResponse.headers.get("Retry-After")
+					const delay = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : Math.min(INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, attempt), MAX_BACKOFF_MILLISECONDS)
+					await sleepWithSignal(delay, signal)
+				}
+				continue
+			}
+
+			return lastResponse
+		}
+
+		return lastResponse!
 	}
 }
 
