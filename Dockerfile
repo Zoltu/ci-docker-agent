@@ -81,4 +81,7 @@ COPY --from=builder /ci-agent/source/ /ci-agent/source/
 # Must stay in sync with source/paths.mts DEBUG_DIRECTORY
 VOLUME /debug
 
+# disable annoying feature of BUN that makes it so source lines show up in error output
+ENV BUN_DISABLE_SOURCE_CODE_PREVIEW=1
+
 ENTRYPOINT ["bun", "/ci-agent/source/index.mts"]
