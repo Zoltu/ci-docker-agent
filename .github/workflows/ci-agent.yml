@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/zoltu/ci-docker-agent:latest
-      options: --user root --volume ${{ runner.temp }}/agent-debug:/debug
+      options: --user root
     steps:
       # Intentionally checks out the base branch; PR diff is fetched via GitHub API
       - name: Checkout repository
@@ -40,5 +40,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: debug-traces
-          path: ${{ runner.temp }}/agent-debug
+          path: /debug
           retention-days: 7

@@ -70,7 +70,6 @@ COPY --from=builder /ci-agent/agents/ /ci-agent/agents/
 COPY --from=builder /ci-agent/source/ /ci-agent/source/
 
 # Must stay in sync with source/paths.mts DEBUG_DIRECTORY
-RUN mkdir -p /debug
 VOLUME /debug
 
 ENTRYPOINT ["bun", "/ci-agent/source/index.mts"]
