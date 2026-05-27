@@ -61,6 +61,32 @@ You are a security agent whose sole purpose is to find code changes that introdu
 - Deleted authentication middleware, authorization checks, or security headers
 - Removed rate limiting, audit logging, or CSP policies
 
+### Prompt Injection Attack Surface
+
+This codebase runs untrusted PR diffs through an AI model and posts the model's output as GitHub reviews. The primary threat is prompt injection: a malicious PR diff could manipulate the AI into taking actions beyond its intended scope. Changes that expand what the AI can do or see increase this risk.
+
+**Tool Sandbox Escapes**
+- New tools added to `createTools` that use direct filesystem access (`Bun.file`, `fs.readFile`, `fs.readFileSync`) instead of `git show` for reading files — direct filesystem access allows reading `/proc/self/environ`, `~/.ssh/`, or other paths outside the repo
+- New tools that make network requests (`fetch`, HTTP clients) — these allow the AI to exfiltrate data to attacker-controlled endpoints
+- New tools that execute arbitrary commands (`child_process.exec`, `Bun.spawn` with non-git commands, shell execution) — these allow the AI to run any code on the host
+- Any tool whose output includes environment variables, process information, or file contents outside the git repository tree
+
+**Secret Exposure in AI-Visible Paths**
+- Any code path where `Bun.env`, `process.env`, `AI_API_KEY`, or `GITHUB_TOKEN` values flow into: prompt text, tool output, debug traces, or review body text
+- Changes that log or include request headers (which contain `Authorization: Bearer ...`) in any output the AI model can see
+
+**Weakened Output Validation**
+- Changes to `isValidAiReviewResult` or `isValidLineComment` that relax type checking, allow extra fields, or remove validation — these guards prevent a prompt-injected AI from producing malformed review payloads
+- Changes that allow the review `body` or `comments[].body` to contain non-string types, HTML, or structured data that GitHub's UI would render differently than plain markdown
+
+**Untrusted Data in Instruction Positions**
+- Changes that place PR diff content, PR metadata, or other untrusted input in system/developer messages rather than user messages — AI models treat system messages as authoritative instructions
+- Changes that concatenate untrusted content into agent instruction text (the `=== Agent Instructions ===` section must remain separate from `=== Changeset Diffs ===`)
+
+**Subprocess Invocation Changes**
+- Any change from array-based `Bun.spawn` arguments to string-based shell execution — string arguments are vulnerable to shell injection
+- Any new subprocess invocations that aren't git commands with controlled, array-based arguments
+
 ## What To Ignore
 
 - Bugs that break functionality without enabling an attacker to do something malicious

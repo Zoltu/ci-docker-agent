@@ -77,12 +77,13 @@ function isContextWindowExceededError(error: unknown): error is Error {
 
 async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, agentInputs?: Map<string, string>): Promise<string> {
 	dependencies.logger.log(`Building prompt for ${agent.name}`)
-	const prompt = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
-	await dependencies.debugWriter.writePrompt(agent.name, prompt)
+	const promptMessages = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
+	const debugText = promptMessages.map(m => `--- ${m.role} ---\n${m.content}`).join("\n\n")
+	await dependencies.debugWriter.writePrompt(agent.name, debugText)
 	dependencies.logger.log(`Running agent ${agent.name}`)
 
 	const tools = createTools(dependencies, baseCommit)
-	const messages: CompletionsMessage[] = [{ role: "user", content: prompt }]
+	const messages: CompletionsMessage[] = [...promptMessages]
 	const onTrace = (trace: string) => dependencies.debugWriter.writeTrace(agent.name, trace)
 
 	let result: AgentLoopResult
