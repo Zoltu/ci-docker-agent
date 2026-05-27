@@ -1,0 +1,25 @@
+name: Debug Git Repo
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug-git:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/zoltu/ci-docker-agent:latest
+      options: --user root
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Debug git repo
+        run: |
+          echo "=== ls -la /github/workspace/.git ==="
+          ls -la /github/workspace/.git
+          echo ""
+          echo "=== git rev-parse --git-dir ==="
+          git -C /github/workspace rev-parse --git-dir
+          echo ""
+          echo "=== git log --oneline -5 ==="
+          git -C /github/workspace log --oneline -5
