@@ -7,11 +7,14 @@ RUN <<EOF
 	sed -i 's|^# http://snapshot|URIs: http://snapshot|' /etc/apt/sources.list.d/debian.sources
 EOF
 
-# Install git so tests that invoke it can pass
-RUN <<EOF
+# install dependencies, making sure debian package history hasn't been tampered with
+RUN <<-EOF
 	set -e
 	apt-get update -o Acquire::Check-Valid-Until=false
-	apt-get install -y --no-install-recommends git=1:2.47.3-0+deb13u1
+	echo "471db8082190a3cfd344b0d08ffadcb2769abdbc0f75ea2ee1e1b937dd9e9d29  /var/lib/apt/lists/snapshot.debian.org_archive_debian-security_20260406T000000Z_dists_trixie-security_InRelease
+	ce2a89c36c0590c968f690bcdcdf06df8767efdcc9ffbe0b5a7cf63623902b81  /var/lib/apt/lists/snapshot.debian.org_archive_debian_20260406T000000Z_dists_trixie-updates_InRelease
+	7592e4ccb4658a58bfe485d3356b3c983bf8ccff7fca1f6091e4d4296284ed18  /var/lib/apt/lists/snapshot.debian.org_archive_debian_20260406T000000Z_dists_trixie_InRelease" | sha256sum -c
+	apt-get install -y --no-install-recommends git
 	rm -rf /var/lib/apt/lists/*
 EOF
 
@@ -52,10 +55,14 @@ RUN <<EOF
 	sed -i 's|^# http://snapshot|URIs: http://snapshot|' /etc/apt/sources.list.d/debian.sources
 EOF
 
+# install dependencies, making sure debian package history hasn't been tampered with
 RUN <<EOF
 	set -e
 	apt-get update -o Acquire::Check-Valid-Until=false
-	apt-get install -y --no-install-recommends git=1:2.47.3-0+deb13u1
+	echo "471db8082190a3cfd344b0d08ffadcb2769abdbc0f75ea2ee1e1b937dd9e9d29  /var/lib/apt/lists/snapshot.debian.org_archive_debian-security_20260406T000000Z_dists_trixie-security_InRelease
+	ce2a89c36c0590c968f690bcdcdf06df8767efdcc9ffbe0b5a7cf63623902b81  /var/lib/apt/lists/snapshot.debian.org_archive_debian_20260406T000000Z_dists_trixie-updates_InRelease
+	7592e4ccb4658a58bfe485d3356b3c983bf8ccff7fca1f6091e4d4296284ed18  /var/lib/apt/lists/snapshot.debian.org_archive_debian_20260406T000000Z_dists_trixie_InRelease" | sha256sum -c
+	apt-get install -y --no-install-recommends git ca-certificates
 	rm -rf /var/lib/apt/lists/*
 EOF
 
