@@ -13,7 +13,6 @@ function getLocalDiffConfiguration(environment: Record<string, string | undefine
 
 function getCommentTriggerConfiguration(environment: Record<string, string | undefined> = {}): CommentTriggerConfiguration {
 	const configuration = resolveConfiguration({
-		EVENT_TYPE: "issue_comment",
 		GITHUB_TOKEN: "my-token",
 		PR_NUMBER: "42",
 		REPO: "owner/repo",
@@ -79,7 +78,7 @@ describe("resolveConfiguration", () => {
 	})
 
 	describe("comment-trigger configuration", () => {
-		it("returns comment-trigger when EVENT_TYPE is issue_comment with GitHub vars", () => {
+		it("returns comment-trigger when COMMENT_BODY is set with GitHub vars", () => {
 			const configuration = getCommentTriggerConfiguration()
 
 			expect(configuration.type).toBe("comment-trigger")
@@ -94,12 +93,6 @@ describe("resolveConfiguration", () => {
 			expect(configuration.commentBody).toBe("/review")
 		})
 
-		it("defaults commentBody to empty string when not provided", () => {
-			const configuration = getCommentTriggerConfiguration({ COMMENT_BODY: undefined })
-
-			expect(configuration.commentBody).toBe("")
-		})
-
 		it("uses custom GITHUB_API_URL when provided", () => {
 			const configuration = getCommentTriggerConfiguration({ GITHUB_API_URL: "https://github.enterprise.com/api/v3" })
 
@@ -108,7 +101,7 @@ describe("resolveConfiguration", () => {
 	})
 
 	describe("pull-request configuration", () => {
-		it("returns pull-request when GitHub vars are provided without issue_comment event type", () => {
+		it("returns pull-request when GitHub vars are provided without COMMENT_BODY", () => {
 			const configuration = getPullRequestConfiguration()
 
 			expect(configuration.type).toBe("pull-request")
@@ -122,18 +115,6 @@ describe("resolveConfiguration", () => {
 			})
 		})
 
-		it("returns pull-request when EVENT_TYPE is workflow_dispatch", () => {
-			const configuration = getPullRequestConfiguration({ EVENT_TYPE: "workflow_dispatch" })
-
-			expect(configuration.type).toBe("pull-request")
-		})
-
-		it("returns pull-request when EVENT_TYPE is pull_request_target", () => {
-			const configuration = getPullRequestConfiguration({ EVENT_TYPE: "pull_request_target" })
-
-			expect(configuration.type).toBe("pull-request")
-		})
-
 		it("uses custom GITHUB_API_URL when provided", () => {
 			const configuration = getPullRequestConfiguration({ GITHUB_API_URL: "https://github.enterprise.com/api/v3" })
 
@@ -144,33 +125,6 @@ describe("resolveConfiguration", () => {
 			const configuration = getPullRequestConfiguration({ AGENTS: "SecurityAgent" })
 
 			expect(configuration.agents).toEqual(["SecurityAgent"])
-		})
-	})
-
-	describe("EVENT_TYPE validation", () => {
-		it("accepts local-diff when EVENT_TYPE is unset", () => {
-			const configuration = resolveConfiguration({
-				BASE_COMMIT: "abc123",
-				HEAD_COMMIT: "def456",
-			})
-			expect(configuration.type).toBe("local-diff")
-		})
-
-		it("accepts local-diff when EVENT_TYPE is 'local'", () => {
-			const configuration = resolveConfiguration({
-				BASE_COMMIT: "abc123",
-				HEAD_COMMIT: "def456",
-				EVENT_TYPE: "local",
-			})
-			expect(configuration.type).toBe("local-diff")
-		})
-
-		it("throws when EVENT_TYPE is invalid for local diff", () => {
-			expect(() => resolveConfiguration({
-				BASE_COMMIT: "abc123",
-				HEAD_COMMIT: "def456",
-				EVENT_TYPE: "bogus",
-			})).toThrow("EVENT_TYPE must be 'local' or unset")
 		})
 	})
 

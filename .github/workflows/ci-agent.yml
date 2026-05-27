@@ -2,7 +2,7 @@ name: CI Agent
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened]
   issue_comment:
     types: [created]
   workflow_dispatch:
@@ -42,7 +42,6 @@ jobs:
           GITHUB_API_URL: ${{ github.api_url }}
           PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.issue.number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-          EVENT_TYPE: ${{ (github.event.inputs.base_commit && 'local') || github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           BASE_COMMIT: ${{ github.event.inputs.base_commit }}
           HEAD_COMMIT: ${{ github.event.inputs.head_commit }}
