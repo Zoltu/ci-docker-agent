@@ -67,7 +67,9 @@ RUN <<EOF
 EOF
 
 # Configure git to trust all directories
-RUN git config --global --add safe.directory *
+ENV GIT_CONFIG_COUNT=1
+ENV GIT_CONFIG_KEY_0=safe.directory
+ENV GIT_CONFIG_VALUE_0=*
 
 # Default working directory; must stay in sync with source/paths.mts getWorkspaceDirectory fallback
 WORKDIR /workspace
