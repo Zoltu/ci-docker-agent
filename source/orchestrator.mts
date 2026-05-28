@@ -80,8 +80,8 @@ type RunOnLocalDiffDependencies = {
 	debugWriter: DebugWriter
 }
 
-export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration, agentDirectories: AgentDirectories, model: string): Promise<string> {
-	await validateGitEnvironment(dependencies, configuration.baseCommit, configuration.headCommit)
+export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration, agentDirectories: AgentDirectories, model: string, workspaceDirectory: string): Promise<string> {
+	await validateGitEnvironment(dependencies, configuration.baseCommit, configuration.headCommit, workspaceDirectory)
 
 	const diffText = await generateLocalDiff(dependencies, configuration.baseCommit, configuration.headCommit)
 

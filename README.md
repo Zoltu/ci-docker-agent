@@ -21,16 +21,16 @@ Analyze the difference between two git commits locally. The output is printed to
 #### Example
 
 ```bash
-docker container run --rm -it --mount="type=bind,source=$(pwd),target=/github/workspace" --env="BASE_COMMIT=$(git rev-parse HEAD~1)" --env="HEAD_COMMIT=$(git rev-parse HEAD)" --env="AI_API_URL=https://api.ppq.ai" --env="AI_MODEL=z-ai/glm-5.1" --env="AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxx" ci-agent:latest
+docker container run --rm -it --mount="type=bind,source=$(pwd),target=/workspace" --env="BASE_COMMIT=$(git rev-parse HEAD~1)" --env="HEAD_COMMIT=$(git rev-parse HEAD)" --env="AI_API_URL=https://api.ppq.ai" --env="AI_MODEL=z-ai/glm-5.1" --env="AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxx" ci-agent:latest
 ```
 
 #### Environment Variables
 - `BASE_COMMIT` - The base commit hash (required)
 - `HEAD_COMMIT` - The head commit hash (required)
-- `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 - `AI_API_URL` - Base URL of the OpenAI-compatible API (required, e.g. `https://api.openai.com/v1`)
 - `AI_MODEL` - Model name to use (required, e.g. `gpt-4`)
 - `AI_API_KEY` - API key for authentication (optional, omit for local models that don't require auth)
+- `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 
 ### Mode 2: GitHub PR Review
 
@@ -54,11 +54,23 @@ docker run -it \
 - `GITHUB_TOKEN` - Your GitHub personal access token (required)
 - `PR_NUMBER` - The pull request number (required)
 - `REPO` - The repository in `owner/name` format (required)
-- `GITHUB_API_URL` - Custom GitHub API URL (optional, defaults to `https://api.github.com`)
-- `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 - `AI_API_URL` - Base URL of the OpenAI-compatible API (required, e.g. `https://api.openai.com/v1`)
 - `AI_MODEL` - Model name to use (required, e.g. `gpt-4`)
 - `AI_API_KEY` - API key for authentication (optional, omit for local models that don't require auth)
+- `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
+- `GITHUB_API_URL` - Custom GitHub API URL (optional, defaults to `https://api.github.com`)
+
+### Mode 3: GitHub Action
+
+See [./.github/workflows/ci-agent.yml](./.github/workflows/ci-agent.yml) for an example.
+
+#### Secrets and Variables
+
+Setup a GitHub repository/organization secret for `AI_API_KEY`.
+
+Setup a GitHub repository/organization variable for `AI_API_URL` and `AI_MODEL`.
+
+Everything else should "just work".
 
 ### Trigger Commands (GitHub Mode)
 
@@ -69,59 +81,52 @@ When running in GitHub Actions, the agent can be triggered via PR comments:
 
 ## Agents
 
-The CI Agent uses a multi-agent architecture where each agent provides feedback in prose form, and an `Aggregator` agent consolidates the results.
-
-### Context Window
-
-The agent reads the entire repository at the base commit into the context window (excluding `.git/` and files matched by `.gitignore`). This is designed for well-maintained, focused repositories rather than large monorepos.
+The CI Agent uses a multi-agent architecture where each agent provides feedback in prose form, and an `Aggregator` agent consolidates the results.  By default, a single generic agent is used, but users can provide their own agent prompts in their project.
 
 ### Adding Custom Agents
 
-To add custom agents, create markdown files in `/github/workspace/.ci-agents/`:
+To add custom agents, create markdown files in `<project root>/.ci-agents/`:
 
 ```
-/github/workspace/.ci-agents/
-├── SecurityAgent.md
-├── StyleAgent.md
-└── PerformanceAgent.md
+<project root>/.ci-agents/
+├── Security.md
+├── Style Master.md
+└── Performance.md
 ```
 
-Each markdown file should contain instructions for that agent. The filename (without `.md`) becomes the agent's name.
+Each markdown file should contain instructions for that agent.
+The filename (without `.md`) becomes the agent's name.
+
+### Context Window
+
+The agent reads the entire diff into the context window.
+It then reads files from the base commit as needed.
+This is designed for well-maintained and focused repositories with reasonable sized PRs rather than large monorepos.
 
 ### Agent Resolution
 
-Agents are resolved in the following order:
-1. User-provided agents in `/github/workspace/.ci-agents/` (case-insensitive)
-2. Builtin agents in `/github/workspace/agents/` (case-insensitive)
-
-If an agent is not found, the process exits with a fatal error.
+If the user provides any agents, the built-in `Default` agent will not be used.
 
 ### The Aggregator Agent
 
 The `Aggregator` agent is responsible for consolidating feedback from all other agents and producing the final output. It is always run last.
 
-You can override the default aggregator by providing your own `Aggregator.md` file (case-insensitive) in `/github/workspace/.ci-agents/`.
-
-### Default Agent
-
-The `Default` agent is used only when:
-- No agents are specified via environment variable or comment trigger, AND
-- No user-provided agents exist in `/github/workspace/.ci-agents/`
-
-If user-provided agents exist, they are all used by default (except `Aggregator`).
+You can override the default aggregator by providing your own `Aggregator.md` file (case-insensitive) in `/workspace/.ci-agents/`.
+If you choose to override the `Aggregator` agent, you must ensure that your agent always returns valid JSON for GitHub reviews.
+See [./agents/Aggregator.md](./agents/Aggregator.md) for an example of one way to achieve this.
 
 ### Specifying Agents
 
 #### Via Environment Variable
 
 ```bash
-AGENTS="SecurityAgent,StyleAgent" docker run ...
+docker container run -e AGENTS="Security, Style Master" ...
 ```
 
 #### Via PR Comment
 
 ```
-/review SecurityAgent, StyleAgent
+/review Security, Style Master
 ```
 
 ## Output
@@ -151,10 +156,6 @@ A review is submitted to the pull request with:
 See `.github/workflows/ci-agent.yml` for the workflow configuration.
 
 The workflow triggers on:
-- `pull_request_target` events (opened, synchronize, reopened)
+- `pull_request_target` events
 - `issue_comment` events (when trigger commands are detected)
 - Manual `workflow_dispatch`
-
-## AI Agent Instructions
-
-See `agents/Aggregator.md` for detailed instructions on how the Aggregator consolidates feedback from multiple agents.

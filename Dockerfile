@@ -66,11 +66,11 @@ RUN <<EOF
 	rm -rf /var/lib/apt/lists/*
 EOF
 
-# Configure git to trust the workspace directory (for bun user)
-RUN git config --global --add safe.directory /github/workspace
+# Configure git to trust all directories
+RUN git config --global --add safe.directory *
 
-# Must stay in sync with source/paths.mts WORKSPACE_DIRECTORY
-WORKDIR /github/workspace
+# Default working directory; must stay in sync with source/paths.mts getWorkspaceDirectory fallback
+WORKDIR /workspace
 
 # Must stay in sync with source/paths.mts BUILTIN_AGENTS_DIRECTORY
 COPY --from=builder /ci-agent/agents/ /ci-agent/agents/

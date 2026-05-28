@@ -297,6 +297,7 @@ describe("runOnLocalDiff", () => {
 			makeLocalDiffConfiguration(),
 			agentDirectories,
 			"test-model",
+			"/test/workspace",
 		)
 
 		expect(result).toBe("No files changed, nothing to review")
@@ -314,6 +315,7 @@ describe("runOnLocalDiff", () => {
 			makeLocalDiffConfiguration(),
 			agentDirectories,
 			"test-model",
+			"/test/workspace",
 		)
 
 		expect(result).toContain("Looks good")
@@ -337,6 +339,7 @@ describe("runOnLocalDiff", () => {
 			makeLocalDiffConfiguration(),
 			agentDirectories,
 			"test-model",
+			"/test/workspace",
 		)).rejects.toThrow("No git repository found")
 	})
 
@@ -358,6 +361,7 @@ describe("runOnLocalDiff", () => {
 			makeLocalDiffConfiguration(),
 			agentDirectories,
 			"test-model",
+			"/test/workspace",
 		)).rejects.toThrow("Failed to get diff")
 	})
 
@@ -375,6 +379,7 @@ describe("runOnLocalDiff", () => {
 			makeLocalDiffConfiguration(),
 			agentDirectories,
 			"test-model",
+			"/test/workspace",
 		)).rejects.toThrow(/Failed to parse aggregator output as JSON/)
 	})
 })

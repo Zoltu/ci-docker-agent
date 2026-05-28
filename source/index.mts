@@ -6,17 +6,19 @@ import { createDebugWriter } from "./debug.mts"
 import { createGithubFetch } from "./github.mts"
 import { createLogger } from "./logger.mts"
 import { runOnCommentTrigger, runOnLocalDiff, runOnPullRequest } from "./orchestrator.mts"
-import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, USER_AGENTS_DIRECTORY } from "./paths.mts"
+import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, getWorkspaceDirectory, getUserAgentsDirectory } from "./paths.mts"
 import { assertNever } from "./typescript-helpers.mts"
 
 async function main(): Promise<void> {
 	const configuration = getConfiguration(Bun.env)
-	const agentDirectories = { userAgentsDirectory: USER_AGENTS_DIRECTORY, builtinAgentsDirectory: BUILTIN_AGENTS_DIRECTORY }
+	const workspaceDirectory = getWorkspaceDirectory(Bun.env)
+	const userAgentsDirectory = getUserAgentsDirectory(workspaceDirectory)
+	const agentDirectories = { userAgentsDirectory, builtinAgentsDirectory: BUILTIN_AGENTS_DIRECTORY }
 
 	const logger = createLogger()
 	const debugWriter = await createDebugWriter(DEBUG_DIRECTORY)
 	const readAgents = createReadAgentsFromDisk()
-	const spawnGit = createSpawnGit()
+	const spawnGit = createSpawnGit(workspaceDirectory)
 	const aiConfiguration = parseAiConfiguration(Bun.env)
 	const fetch = createFetch(aiConfiguration)
 	const githubFetch = createGithubFetch(logger)
@@ -38,7 +40,7 @@ async function main(): Promise<void> {
 			return runOnPullRequest(dependencies, configuration, agentDirectories, aiConfiguration.model)
 		}
 		case "local-diff": {
-			const result = await runOnLocalDiff(dependencies, configuration, agentDirectories, aiConfiguration.model)
+			const result = await runOnLocalDiff(dependencies, configuration, agentDirectories, aiConfiguration.model, workspaceDirectory)
 			logger.log(result)
 			return
 		}

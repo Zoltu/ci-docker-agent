@@ -1,7 +1,10 @@
-// Must stay in sync with Dockerfile WORKDIR
-export const WORKSPACE_DIRECTORY = "/github/workspace"
+export function getWorkspaceDirectory(environment: Record<string, string | undefined>): string {
+	return environment.GITHUB_WORKSPACE ?? "/workspace"
+}
 
-export const USER_AGENTS_DIRECTORY = `${WORKSPACE_DIRECTORY}/.ci-agents`
+export function getUserAgentsDirectory(workspaceDirectory: string): string {
+	return `${workspaceDirectory}/.ci-agents`
+}
 
 // Must stay in sync with Dockerfile COPY destination for agents/
 export const BUILTIN_AGENTS_DIRECTORY = "/ci-agent/agents"

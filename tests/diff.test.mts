@@ -70,7 +70,7 @@ describe("validateGitEnvironment", () => {
 			["cat-file -t treeSha", ok("tree")],
 		]))
 
-		expect(validateGitEnvironment({ spawnGit }, "treeSha", "def456")).rejects.toThrow("is a tree, not a commit")
+		expect(validateGitEnvironment({ spawnGit }, "treeSha", "def456", "/test/workspace")).rejects.toThrow("is a tree, not a commit")
 	})
 
 	it("throws when head commit is a blob", async () => {
@@ -80,6 +80,6 @@ describe("validateGitEnvironment", () => {
 			["cat-file -t blobSha", ok("blob")],
 		]))
 
-		expect(validateGitEnvironment({ spawnGit }, "abc123", "blobSha")).rejects.toThrow("is a blob, not a commit")
+		expect(validateGitEnvironment({ spawnGit }, "abc123", "blobSha", "/test/workspace")).rejects.toThrow("is a blob, not a commit")
 	})
 })
