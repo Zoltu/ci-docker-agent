@@ -2,10 +2,23 @@ name: CI Agent
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened]
   issue_comment:
     types: [created]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number (PR review mode)"
+        required: false
+        type: number
+      base_commit:
+        description: "Base commit SHA (diff mode)"
+        required: false
+        type: string
+      head_commit:
+        description: "Head commit SHA (diff mode)"
+        required: false
+        type: string
 
 permissions:
   pull-requests: write
@@ -20,17 +33,18 @@ jobs:
     steps:
       # Intentionally checks out the base branch; PR diff is fetched via GitHub API
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Run CI Agent
         run: bun /ci-agent/source/index.mts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_API_URL: ${{ github.api_url }}
-          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.issue.number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-          EVENT_TYPE: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
+          BASE_COMMIT: ${{ github.event.inputs.base_commit }}
+          HEAD_COMMIT: ${{ github.event.inputs.head_commit }}
           AI_API_URL: ${{ vars.AI_API_URL }}
           AI_MODEL: ${{ vars.AI_MODEL }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}

@@ -112,27 +112,29 @@ export async function loadAggregator(dependencies: { readAgents: AgentReader }, 
 	throw new Error(`No aggregator agent found in ${directories.userAgentsDirectory} or ${directories.builtinAgentsDirectory}`)
 }
 
-export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs?: Map<string, string>): string {
-	const lines: string[] = []
+export type PromptMessage =
+	| { readonly role: "system"; readonly content: string }
+	| { readonly role: "user"; readonly content: string }
 
-	lines.push("=== Repository Files (Base Commit) ===")
-	for (const file of baseCommitContext.fileList) {
-		lines.push(`- ${file}`)
-	}
+export function buildAgentPrompt(agent: Agent, baseCommitContext: BaseCommitContext, diffText: string, agentInputs?: Map<string, string>): readonly PromptMessage[] {
+	const messages: PromptMessage[] = []
 
-	lines.push("", "=== Changeset Diffs ===")
-	lines.push(diffText)
+	messages.push({ role: "system", content: agent.prompt })
+
+	messages.push({ role: "system", content: "=== Repository Files (Base Commit) ===" })
+	const fileListContent = baseCommitContext.fileList.map(f => `- ${f}`).join("\n")
+	messages.push({ role: "user", content: fileListContent })
+
+	messages.push({ role: "system", content: "=== Changeset Diffs ===" })
+	messages.push({ role: "user", content: diffText })
 
 	if (agentInputs && agentInputs.size > 0) {
-		lines.push("", "=== Agent Feedback ===")
+		messages.push({ role: "system", content: "=== Agent Feedback ===" })
 		for (const [name, output] of agentInputs.entries()) {
-			lines.push(`=== Agent: ${name} ===`)
-			lines.push(output)
+			messages.push({ role: "system", content: `=== Agent: ${name} ===` })
+			messages.push({ role: "user", content: output })
 		}
 	}
 
-	lines.push("", "=== Agent Instructions ===")
-	lines.push(agent.prompt)
-
-	return lines.join("\n")
+	return messages
 }

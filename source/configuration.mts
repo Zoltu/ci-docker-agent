@@ -1,10 +1,6 @@
 import type { AgentNames } from "./agents.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
-import { includes, parseCommaSeparatedList } from "./typescript-helpers.mts"
-
-const EVENT_TYPES = ["pull_request_target", "workflow_dispatch", "issue_comment", "local"] as const
-
-export type EventType = typeof EVENT_TYPES[number]
+import { parseCommaSeparatedList } from "./typescript-helpers.mts"
 
 export interface CommentTriggerConfiguration {
 	type: "comment-trigger"
@@ -62,9 +58,6 @@ function tryParseGitHubConfiguration(environment: Record<string, string | undefi
 }
 
 function tryGetLocalDiffConfiguration(environment: Record<string, string | undefined>, agents: AgentNames): TryResult<LocalDiffConfiguration> {
-	const eventType = environment.EVENT_TYPE
-	if (eventType && eventType !== "local") return { ok: false, reason: `EVENT_TYPE must be 'local' or unset for local diff mode. Got: ${eventType}` }
-
 	const baseCommit = environment.BASE_COMMIT
 	const headCommit = environment.HEAD_COMMIT
 
@@ -78,23 +71,16 @@ function tryGetLocalDiffConfiguration(environment: Record<string, string | undef
 }
 
 function tryGetCommentTriggerConfiguration(environment: Record<string, string | undefined>): TryResult<CommentTriggerConfiguration> {
-	const eventType = environment.EVENT_TYPE
-	if (eventType !== "issue_comment") return { ok: false, reason: "EVENT_TYPE is not 'issue_comment'" }
+	const commentBody = environment.COMMENT_BODY
+	if (!commentBody) return { ok: false, reason: "COMMENT_BODY is not set" }
 
 	const githubResult = tryParseGitHubConfiguration(environment)
 	if (!githubResult.ok) return githubResult
-
-	const commentBody = environment.COMMENT_BODY ?? ""
 
 	return { ok: true, value: { type: "comment-trigger", github: githubResult.value, commentBody } }
 }
 
 function tryGetPullRequestConfiguration(environment: Record<string, string | undefined>, agents: AgentNames): TryResult<PullRequestConfiguration> {
-	const eventType = environment.EVENT_TYPE
-	if (eventType === "issue_comment") return { ok: false, reason: "EVENT_TYPE is 'issue_comment', which requires comment trigger mode" }
-	if (eventType === "local") return { ok: false, reason: "EVENT_TYPE is 'local', which requires local diff mode" }
-	if (eventType && !includes(EVENT_TYPES, eventType)) return { ok: false, reason: `EVENT_TYPE must be one of: ${EVENT_TYPES.join(", ")}. Got: ${eventType}` }
-
 	const githubResult = tryParseGitHubConfiguration(environment)
 	if (!githubResult.ok) return githubResult
 
