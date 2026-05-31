@@ -88,10 +88,13 @@ export interface CompletionsRequest {
 			readonly parameters?: Record<string, unknown>
 		}
 	}[]
-	readonly reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high'
+	readonly reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 	readonly reasoning?: {
 		readonly enabled: boolean
-		readonly effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high'
+		readonly effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+	}
+	readonly thinking?: {
+		readonly type: 'enabled' | 'disabled'
 	}
 	readonly chat_template_kwargs?: {
 		readonly preserve_thinking?: true
@@ -187,7 +190,7 @@ export interface CompletionResult {
 
 export async function* completions(dependencies: { fetch: Fetch }, request: CompletionsRequest): AsyncGenerator<CompletionDelta, CompletionResult> {
 	const body = JSON.stringify({
-		reasoning_effort: 'high',
+		reasoning_effort: 'xhigh',
 		venice_parameters: {
 			include_venice_system_prompt: false,
 		},
@@ -197,7 +200,10 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 		},
 		reasoning: {
 			enabled: true,
-			effort: 'high',
+			effort: 'xhigh',
+		},
+		thinking: {
+			type: 'enabled',
 		},
 		stream_options: {
 			include_usage: true,
