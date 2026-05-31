@@ -26,6 +26,8 @@ permissions:
 
 jobs:
   ci-agent:
+    # if triggered by an issue_comment, the issue must be a Pull Request comment and the commentor must be semi-trusted (not internet rando)
+    if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/zoltu/ci-docker-agent:latest
