@@ -39,7 +39,7 @@ type InferSchemaValueType<G> = G extends Guard<infer T> ? T : G extends Optional
 export type GuardedType<G> = G extends Guard<infer T> ? T : never
 type SchemaValue = Guard<unknown> | OptionalMarker<unknown>
 type InferSchemaType<S extends Record<string, SchemaValue>> = Expand<
-	& { [K in keyof S as S[K] extends OptionalMarker<unknown> ? K : never]?: S[K] extends OptionalMarker<infer T> ? T : never }
+	& { [K in keyof S as S[K] extends OptionalMarker<unknown> ? K : never]?: S[K] extends OptionalMarker<infer T> ? T | null : never }
 	& { [K in keyof S as S[K] extends OptionalMarker<unknown> ? never : K]: InferSchemaValueType<S[K]> }
 >
 
@@ -100,6 +100,7 @@ export function isObjectOf<S extends Record<string, SchemaValue>>(value: unknown
 	for (const [key, keyGuardOrOptional] of Object.entries(schema)) {
 		if (isOptionalMarker(keyGuardOrOptional)) {
 			if (!(key in value)) continue
+			if (value[key] === null) continue
 			if (!keyGuardOrOptional.guard(value[key])) return false
 		} else {
 			if (!(key in value)) return false

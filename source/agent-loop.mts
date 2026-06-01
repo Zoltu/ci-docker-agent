@@ -180,7 +180,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch }, params: AgentLo
 			continue
 		}
 
-		if (completionResult.finishReason === undefined || !message.content) {
+		if (!completionResult.finishReason || !message.content) {
 			continue
 		}
 

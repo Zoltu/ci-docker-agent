@@ -6,9 +6,9 @@ const isStringOrNull: Guard<string | null> = (v): v is string | null => isString
 const isSseCompletionEvent = guard({
 	choices: isArrayOf(guard({
 		delta: guard({
-			content: optional(isStringOrNull),
-			reasoning: optional(isStringOrNull),
-			reasoning_content: optional(isStringOrNull),
+			content: optional(isString),
+			reasoning: optional(isString),
+			reasoning_content: optional(isString),
 			tool_calls: optional(isArrayOf(guard({
 				index: isInteger,
 				id: optional(isString),
@@ -19,7 +19,7 @@ const isSseCompletionEvent = guard({
 				}),
 			}))),
 		}),
-		finish_reason: optional(isStringOrNull),
+		finish_reason: optional(isString),
 	})),
 	usage: optional(guard({
 		prompt_tokens: isInteger,
@@ -38,12 +38,12 @@ const isAssistantMessage = (value: unknown): value is CompletionsMessage & { rol
 	const isValid = guard({
 		role: isLiteral('assistant'),
 		content: isStringOrNull,
-		reasoning: optional(isStringOrNull),
-		reasoning_content: optional(isStringOrNull),
+		reasoning: optional(isString),
+		reasoning_content: optional(isString),
 		tool_calls: optional(isArrayOf(isAssistantMessageToolCall)),
 	})
 	if (!isValid(value)) return false
-	if (value.reasoning !== undefined && value.reasoning_content !== undefined) {
+	if (value.reasoning && value.reasoning_content) {
 		// Exception to the Guard contract: a provider sending both fields is a bug that must fail fast rather than be silently ignored.
 		throw new Error('Assistant message has both reasoning and reasoning_content; these are mutually exclusive')
 	}
@@ -232,7 +232,7 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 			throw new Error(`Unexpected SSE event structure: ${sseEvent.data}`)
 		}
 
-		if (parsed.usage !== undefined) usage = parsed.usage
+		if (parsed.usage) usage = parsed.usage
 
 		if (parsed.choices.length === 0) continue
 		const choice = parsed.choices[0]

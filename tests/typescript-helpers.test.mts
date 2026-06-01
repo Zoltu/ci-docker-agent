@@ -374,7 +374,7 @@ describe("optional", () => {
 		expect(isConfig({ name: "test", options: { verbose: true } })).toBe(true)
 		expect(isConfig({ name: "test" })).toBe(true)
 		expect(isConfig({ name: "test", options: { verbose: "yes" } })).toBe(false)
-		expect(isConfig({ name: "test", options: null })).toBe(false)
+		expect(isConfig({ name: "test", options: null })).toBe(true)
 	})
 	it("combines with isLiteral for discriminated unions", () => {
 		const isEvent = guard({
