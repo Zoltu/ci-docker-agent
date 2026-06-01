@@ -210,6 +210,35 @@ describe("completions", () => {
 			await expect(collectStream(completions({ fetch }, BASE_REQUEST))).rejects.toThrow("Unexpected SSE event structure")
 		})
 
+		it("accepts null usage in SSE event (GLM-5.1 via Together.ai)", async () => {
+			const glChunk = {
+				id: "omPxi4g-2byqsH-a04c8c1e3b39db23",
+				object: "chat.completion.chunk",
+				created: 1780299387,
+				model: "zai-org/GLM-5.1",
+				choices: [{ index: 0, delta: { role: "assistant", content: "", reasoning: "Let" }, finish_reason: null }],
+				usage: null,
+			}
+			const sse = `data: ${JSON.stringify(glChunk)}\n\ndata: ${JSON.stringify({ ...glChunk, choices: [{ index: 0, delta: { content: " me explain" }, finish_reason: null }], usage: null })}\n\ndata: ${JSON.stringify({ ...glChunk, choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: null })}\n\ndata: [DONE]\n\n`
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			expect(result.finishReason).toBe("stop")
+			expect(result.usage).toBeUndefined()
+			expect(result.message.content).toBe(" me explain")
+			if ("reasoning" in result.message) expect(result.message.reasoning).toBe("Let")
+		})
+
+		it("accepts null optional string fields in SSE event", async () => {
+			const sse = buildSseFromChunks([
+				{ id: "1", object: "chat.completion.chunk", created: 1234, model: "test-model", choices: [{ index: 0, delta: { content: null, reasoning: null, reasoning_content: null, finish_reason: null } }] },
+				chunk("1", "test-model", { content: "actual" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			expect(deltas).toEqual([{ content: "actual" }])
+		})
+
 		it("throws on HTTP error", async () => {
 			const fetch: Fetch = async () => new Response("forbidden", { status: 403, statusText: "Forbidden" })
 			await expect(collectStream(completions({ fetch }, BASE_REQUEST))).rejects.toThrow("HTTP 403 Forbidden")
