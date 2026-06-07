@@ -56,15 +56,6 @@ export function isNumber(value: unknown): value is number {
 export function isInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isInteger(value)
 }
-export function isBoolean(value: unknown): value is boolean {
-	return typeof value === 'boolean'
-}
-export function isNull(value: unknown): value is null {
-	return value === null
-}
-export function isUndefined(value: unknown): value is undefined {
-	return value === undefined
-}
 
 export function isLiteral<T extends string | number | boolean>(literal: T): Guard<T> {
 	return (value: unknown): value is T => value === literal
@@ -108,4 +99,20 @@ export function isObjectOf<S extends Record<string, SchemaValue>>(value: unknown
 		}
 	}
 	return true
+}
+
+// Recursively merges two objects, with `override` winning on scalar conflicts and replacing arrays entirely.
+// Both values must be plain records at the same key to recurse; otherwise the override value is used as-is.
+export function deepMerge<T>(base: T, override: T): T {
+	if (!isRecord(base) || !isRecord(override)) return override
+	const result: Record<string, unknown> = { ...base }
+	for (const [key, overrideValue] of Object.entries(override)) {
+		const baseValue = result[key]
+		if (isRecord(baseValue) && isRecord(overrideValue)) {
+			result[key] = deepMerge(baseValue, overrideValue)
+		} else {
+			result[key] = overrideValue
+		}
+	}
+	return result as T
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { agentLoop, type AgentLoopEvent, type AgentLoopResult, type Fetch, type Tool } from "../source/agent-loop.mts"
 import type { CompletionsMessage } from "../source/completions.mts"
+import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 
 function chunk(delta: Record<string, unknown>, finish_reason: string | null = null): object {
 	return {
@@ -24,7 +25,13 @@ function usageChunk(usage: object): object {
 }
 
 function buildSse(chunks: object[]): string {
-	return chunks.map(c => `data: ${JSON.stringify(c)}\n\n`).join("") + "data: [DONE]\n\n"
+	return chunks.map((c, i) => {
+		if (i !== 0) return `data: ${JSON.stringify(c)}\n\n`
+		const obj = c as { choices: Array<{ delta: Record<string, unknown> }> }
+		const firstDelta = obj.choices?.[0]?.delta
+		if (!firstDelta || 'role' in firstDelta) return `data: ${JSON.stringify(c)}\n\n`
+		return `data: ${JSON.stringify({ ...obj, choices: [{ ...obj.choices[0], delta: { role: "assistant", ...firstDelta } }] })}\n\n`
+	}).join("") + "data: [DONE]\n\n"
 }
 
 type ResponseProvider = (request: { messages: readonly CompletionsMessage[]; callIndex: number }) => string
@@ -101,11 +108,7 @@ describe("agentLoop", () => {
 					chunk({}, "stop"),
 				]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(result.messages.at(-1)).toEqual({
 				role: "assistant",
 				content: "Hello world",
@@ -121,11 +124,7 @@ describe("agentLoop", () => {
 					usageChunk({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }),
 				]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(result.usage).toEqual({
 				prompt_tokens: 10,
 				completion_tokens: 5,
@@ -140,14 +139,10 @@ describe("agentLoop", () => {
 					chunk({}, "stop"),
 				]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [
-					{ role: "system", content: "You are helpful" },
-					{ role: "user", content: "hi" },
-				],
-				tools: [],
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [
+				{ role: "system", content: "You are helpful" },
+				{ role: "user", content: "hi" },
+			], [], IDENTITY_PROFILE))
 			expect(result.messages).toEqual([
 				{ role: "system", content: "You are helpful" },
 				{ role: "user", content: "hi" },
@@ -176,11 +171,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "review" }],
-				tools: TOOLS,
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "review" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.messages.at(-1)).toEqual({
@@ -215,11 +206,7 @@ describe("agentLoop", () => {
 				])
 			})
 
-			await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: TOOLS,
-			}))
+			await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 		})
 
 		it("handles multiple tool calls in one round", async () => {
@@ -239,11 +226,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events, result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "review" }],
-				tools: TOOLS,
-			}))
+			const { events, result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "review" }], TOOLS, IDENTITY_PROFILE))
 
 			const toolCallEvents = events.filter(e => e.type === "tool_call")
 			const toolResultEvents = events.filter(e => e.type === "tool_result")
@@ -279,11 +262,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "review" }],
-				tools: TOOLS,
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "review" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(3)
 			expect(result.messages.at(-1)).toEqual({
@@ -308,15 +287,11 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: TOOLS,
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(result.messages).toEqual([
 				{ role: "user", content: "hi" },
-				{ role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' } }] },
+				{ role: "assistant", tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' } }] },
 				{ role: "tool", content: "Contents of a.ts", tool_call_id: "call_1" },
 				{ role: "assistant", content: "Done" },
 			])
@@ -332,18 +307,17 @@ describe("agentLoop", () => {
 					chunk({}, "stop"),
 				]),
 			)
-			const { events } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { events } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			const deltaEvents = events.filter(e => e.type === "delta")
-			expect(deltaEvents).toHaveLength(2)
+			expect(deltaEvents).toHaveLength(3)
 			if (deltaEvents[0]!.type === "delta") {
 				expect(deltaEvents[0]!.delta.reasoning).toBe("thinking")
 			}
 			if (deltaEvents[1]!.type === "delta") {
 				expect(deltaEvents[1]!.delta.content).toBe("answer")
+			}
+			if (deltaEvents[2]!.type === "delta") {
+				expect(deltaEvents[2]!.delta).toEqual({})
 			}
 		})
 
@@ -355,11 +329,7 @@ describe("agentLoop", () => {
 					usageChunk({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }),
 				]),
 			)
-			const { events } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { events } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			const completionEvents = events.filter(e => e.type === "completion")
 			expect(completionEvents).toHaveLength(1)
 			if (completionEvents[0]!.type === "completion") {
@@ -388,11 +358,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: TOOLS,
-			}))
+			const { events } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const toolCallEvent = events.find(e => e.type === "tool_call")
 			expect(toolCallEvent).toBeDefined()
@@ -419,11 +385,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: TOOLS,
-			}))
+			const { events } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const toolResultEvent = events.find(e => e.type === "tool_result")
 			expect(toolResultEvent).toBeDefined()
@@ -451,11 +413,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: TOOLS,
-			}))
+			const { events } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const eventTypes = events.map(e => e.type)
 			expect(eventTypes).toEqual([
@@ -464,6 +422,7 @@ describe("agentLoop", () => {
 				"completion",
 				"tool_call",
 				"tool_result",
+				"delta",
 				"delta",
 				"completion",
 			])
@@ -483,11 +442,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.finishReason).toBe("stop")
@@ -506,11 +461,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { events } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			const completionEvents = events.filter(e => e.type === "completion")
 			expect(completionEvents).toHaveLength(2)
@@ -527,6 +478,7 @@ describe("agentLoop", () => {
 				buildSse([
 					chunk({ reasoning: "thinking" }),
 					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }),
 				]),
 				buildSse([
 					chunk({ content: "answer" }),
@@ -535,11 +487,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.finishReason).toBe("stop")
@@ -551,6 +499,7 @@ describe("agentLoop", () => {
 				buildSse([
 					chunk({ content: "" }),
 					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 10, completion_tokens: 0, total_tokens: 10 }),
 				]),
 				buildSse([
 					chunk({ content: "actual answer" }),
@@ -559,11 +508,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.finishReason).toBe("stop")
@@ -578,11 +523,7 @@ describe("agentLoop", () => {
 				]),
 			)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(1)
 			expect(result.finishReason).toBe("stop")
@@ -593,14 +534,17 @@ describe("agentLoop", () => {
 				buildSse([
 					chunk({ reasoning: "thinking step 1" }),
 					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }),
 				]),
 				buildSse([
 					chunk({ reasoning: "thinking step 2" }),
 					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 15, completion_tokens: 7, total_tokens: 22 }),
 				]),
 				buildSse([
 					chunk({ reasoning: "thinking step 3" }),
 					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 22, completion_tokens: 9, total_tokens: 31 }),
 				]),
 				buildSse([
 					chunk({ content: "final answer" }),
@@ -609,15 +553,66 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(4)
 			expect(result.finishReason).toBe("stop")
 			expect(result.messages.at(-1)!.content).toBe("final answer")
+		})
+
+		it("throws when provider does not return usage on a no-content turn", async () => {
+			const { fetch } = createFetchWithSignal(() =>
+				buildSse([
+					chunk({ reasoning: "thinking" }),
+					chunk({}, "stop"),
+				]),
+			)
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Provider did not return token usage in streaming response")
+		})
+
+		it("throws after MAX_EMPTY_TURNS consecutive responses with zero completion tokens", async () => {
+			const responses = Array.from({ length: 5 }, () =>
+				buildSse([
+					chunk({ reasoning: "thinking" }),
+					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 10, completion_tokens: 0, total_tokens: 10 }),
+				]),
+			)
+			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
+
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("5 consecutive responses with no output tokens")
+			expect(callCount()).toBe(5)
+		})
+
+		it("resets empty-turn counter when completion tokens are greater than zero between zero-token turns", async () => {
+			const responses = [
+				buildSse([
+					chunk({ reasoning: "thinking" }),
+					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 10, completion_tokens: 0, total_tokens: 10 }),
+				]),
+				buildSse([
+					chunk({ reasoning: "thinking more" }),
+					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 }),
+				]),
+				buildSse([
+					chunk({ reasoning: "thinking again" }),
+					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 15, completion_tokens: 0, total_tokens: 15 }),
+				]),
+				buildSse([
+					chunk({ content: "final" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
+
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+
+			expect(callCount()).toBe(4)
+			expect(result.finishReason).toBe("stop")
+			expect(result.messages.at(-1)!.content).toBe("final")
 		})
 
 		it("includes prior assistant messages in subsequent requests", async () => {
@@ -626,6 +621,7 @@ describe("agentLoop", () => {
 				buildSse([
 					chunk({ reasoning: "hmm" }),
 					chunk({}, "stop"),
+					usageChunk({ prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 }),
 				]),
 				buildSse([
 					chunk({ content: "answer" }),
@@ -639,16 +635,12 @@ describe("agentLoop", () => {
 				return createMockFetchResponse(sseText)
 			}
 
-			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			const secondRequest = JSON.parse(capturedBodies[1]!)
 			expect(secondRequest.messages).toEqual([
 				{ role: "user", content: "hi" },
-				{ role: "assistant", content: null, reasoning: "hmm" },
+				{ role: "assistant", reasoning: "hmm" },
 			])
 		})
 
@@ -668,11 +660,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: TOOLS,
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.finishReason).toBe("stop")
@@ -685,11 +673,7 @@ describe("agentLoop", () => {
 					chunk({}, "length"),
 				]),
 			)
-			expect(collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))).rejects.toThrow("AI response truncated")
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("AI response truncated")
 		})
 
 		it("continues when no finish reason and no content, then gets tool calls", async () => {
@@ -711,11 +695,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: TOOLS,
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(3)
 			expect(result.finishReason).toBe("stop")
@@ -725,27 +705,17 @@ describe("agentLoop", () => {
 	describe("idle timeout", () => {
 		it("throws when no deltas arrive within idle timeout", async () => {
 			const fetch = createHangingFetchWithSignal()
-			expect(collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-				idleTimeoutMs: 50,
-			}))).rejects.toThrow("Agent loop timed out due to inactivity")
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, 50))).rejects.toThrow("Agent loop timed out due to inactivity")
 		})
 
 		it("includes timeout duration in error message", async () => {
 			const fetch = createHangingFetchWithSignal()
-			expect(collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-				idleTimeoutMs: 123,
-			}))).rejects.toThrow("123ms")
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, 123))).rejects.toThrow("123 milliseconds")
 		})
 
 		it("resets idle timer on each delta", async () => {
 			const chunks = [
-				`data: ${JSON.stringify(chunk({ content: "chunk1" }))}\n\n`,
+				`data: ${JSON.stringify(chunk({ role: "assistant", content: "chunk1" }))}\n\n`,
 				`data: ${JSON.stringify(chunk({ content: "chunk2" }))}\n\n`,
 				`data: ${JSON.stringify(chunk({ content: "chunk3" }))}\n\n`,
 				`data: ${JSON.stringify(chunk({}, "stop"))}\n\ndata: [DONE]\n\n`,
@@ -766,12 +736,7 @@ describe("agentLoop", () => {
 				})
 				return new Response(stream, { status: 200 })
 			}
-			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-				idleTimeoutMs: 50,
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, 50))
 			expect(result.finishReason).toBe("stop")
 		})
 	})
@@ -788,12 +753,7 @@ describe("agentLoop", () => {
 					}
 				})
 			}
-			expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-				signal: controller.signal,
-			}))).rejects.toThrow()
+			expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))).rejects.toThrow()
 		})
 
 		it("aborts in-progress request when signal fires", async () => {
@@ -812,12 +772,7 @@ describe("agentLoop", () => {
 				})
 			}
 			setTimeout(() => controller.abort(), 30)
-			expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-				signal: controller.signal,
-			}))).rejects.toThrow()
+			expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))).rejects.toThrow()
 		})
 	})
 
@@ -838,11 +793,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events, result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: TOOLS,
-			}))
+			const { events, result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const toolResultEvent = events.find(e => e.type === "tool_result")
 			if (toolResultEvent && toolResultEvent.type === "tool_result") {
@@ -872,11 +823,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events, result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [failingTool],
-			}))
+			const { events, result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [failingTool], IDENTITY_PROFILE))
 
 			const toolResultEvent = events.find(e => e.type === "tool_result")
 			if (toolResultEvent && toolResultEvent.type === "tool_result") {
@@ -907,11 +854,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [stringThrowTool],
-			}))
+			const { events } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [stringThrowTool], IDENTITY_PROFILE))
 
 			const toolResultEvent = events.find(e => e.type === "tool_result")
 			if (toolResultEvent && toolResultEvent.type === "tool_result") {
@@ -931,11 +874,7 @@ describe("agentLoop", () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
 			)
-			expect(collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [tool],
-			}))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [tool], IDENTITY_PROFILE))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
 		})
 
 		it("throws when tool parameters has wrong type value", async () => {
@@ -948,11 +887,7 @@ describe("agentLoop", () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
 			)
-			expect(collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [tool],
-			}))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [tool], IDENTITY_PROFILE))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
 		})
 	})
 
@@ -963,44 +898,9 @@ describe("agentLoop", () => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "my-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal }, "my-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			const parsed = JSON.parse(capturedBody!)
 			expect(parsed.model).toBe("my-model")
-		})
-
-		it("passes max_tokens when provided", async () => {
-			let capturedBody: string | undefined
-			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
-				capturedBody = body
-				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
-			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-				maxTokens: 500,
-			}))
-			const parsed = JSON.parse(capturedBody!)
-			expect(parsed.max_tokens).toBe(500)
-		})
-
-		it("omits max_tokens when not provided", async () => {
-			let capturedBody: string | undefined
-			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
-				capturedBody = body
-				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
-			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
-			const parsed = JSON.parse(capturedBody!)
-			expect(parsed.max_tokens).toBeUndefined()
 		})
 
 		it("converts tools to wire format", async () => {
@@ -1009,11 +909,7 @@ describe("agentLoop", () => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [TOOLS[0]!],
-			}))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [TOOLS[0]!], IDENTITY_PROFILE))
 			const parsed = JSON.parse(capturedBody!)
 			expect(parsed.tools).toEqual([{
 				type: "function",
@@ -1031,11 +927,7 @@ describe("agentLoop", () => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			const parsed = JSON.parse(capturedBody!)
 			expect(parsed.tools).toBeUndefined()
 		})
@@ -1046,11 +938,7 @@ describe("agentLoop", () => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [{ name: "bare_tool", execute: async () => "" }],
-			}))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [{ name: "bare_tool", execute: async () => "" }], IDENTITY_PROFILE))
 			const parsed = JSON.parse(capturedBody!)
 			expect(parsed.tools).toEqual([{
 				type: "function",
@@ -1080,16 +968,12 @@ describe("agentLoop", () => {
 				return createMockFetchResponse(sseText)
 			}
 
-			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: TOOLS,
-			}))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const secondRequest = JSON.parse(capturedBodies[1]!)
 			expect(secondRequest.messages).toEqual([
 				{ role: "user", content: "hi" },
-				{ role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' } }] },
+				{ role: "assistant", tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' } }] },
 				{ role: "tool", content: "Contents of a.ts", tool_call_id: "call_1" },
 			])
 		})
@@ -1103,12 +987,7 @@ describe("agentLoop", () => {
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
 			const controller = new AbortController()
-			await collectLoop(agentLoop({ fetch: fetchWithSignal }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-				signal: controller.signal,
-			}))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))
 			expect(capturedSignal).toBeDefined()
 			expect(capturedSignal!.aborted).toBe(false)
 		})
@@ -1119,11 +998,7 @@ describe("agentLoop", () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch }, {
-				model: "test-model",
-				messages: [{ role: "user", content: "hi" }],
-				tools: [],
-			}))
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(result.finishReason).toBe("stop")
 		})
 	})

@@ -75,6 +75,10 @@ function formatSearchResults(matches: SearchMatch[]): string {
 	return lines.join("\n")
 }
 
+// Per-tool timeouts: reading a single file is quick, searching a repo is more expensive.
+const READ_FILE_TIMEOUT_MILLISECONDS = 5_000
+const SEARCH_FILES_TIMEOUT_MILLISECONDS = 30_000
+
 export function createTools(dependencies: { spawnGit: SpawnGit }, baseCommit: string): Tool[] {
 	const { spawnGit } = dependencies
 
@@ -117,7 +121,10 @@ export function createTools(dependencies: { spawnGit: SpawnGit }, baseCommit: st
 					return `File is binary and cannot be displayed: ${parsed.path}`
 				}
 
-				const result = await spawnGit(["show", `${baseCommit}:${parsed.path}`])
+				const result = await spawnGit(["show", `${baseCommit}:${parsed.path}`], READ_FILE_TIMEOUT_MILLISECONDS)
+				if (result.exitCode === null && result.signalCode !== null) {
+					return `Timed out after ${READ_FILE_TIMEOUT_MILLISECONDS}ms reading file: ${parsed.path}`
+				}
 				if (result.exitCode !== 0) {
 					return `File not found: ${parsed.path}`
 				}
@@ -177,8 +184,11 @@ export function createTools(dependencies: { spawnGit: SpawnGit }, baseCommit: st
 				const gitGrepArgs = ["grep", "-n", "-E", "-I", "-e", parsed.pattern, baseCommit]
 				if (parsed.path) gitGrepArgs.push("--", parsed.path)
 
-				const result = await spawnGit(gitGrepArgs)
+				const result = await spawnGit(gitGrepArgs, SEARCH_FILES_TIMEOUT_MILLISECONDS)
 
+				if (result.exitCode === null && result.signalCode !== null) {
+					return `Search timed out after ${SEARCH_FILES_TIMEOUT_MILLISECONDS}ms for pattern: ${parsed.pattern}`
+				}
 				if (result.exitCode === 1) {
 					return "No matches found."
 				}

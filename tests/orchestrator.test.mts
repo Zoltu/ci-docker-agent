@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
-import type { Agent, AgentReader, AgentDirectories } from "../source/agents.mts"
+import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
+import type { Agent, AgentReader } from "../source/agents.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { Fetch } from "../source/agent-loop.mts"
 import type { GitHubFetch } from "../source/github.mts"
@@ -11,7 +12,8 @@ import type { GitHubReviewPayload } from "../source/github-types.mts"
 const silentLogger = createMockLogger()
 const noopDebugWriter: DebugWriter = { writePrompt: async () => {}, writeTrace: async () => {} }
 
-const agentDirectories: AgentDirectories = { userAgentsDirectory: "/test/user-agents", builtinAgentsDirectory: "/test/builtin-agents" }
+const userAgentsDirectory = "/test/user-agents"
+const builtinAgentsDirectory = "/test/builtin-agents"
 
 function makeReadAgents(agents: Agent[]): AgentReader {
 	return async (_directory: string) => agents
@@ -84,8 +86,10 @@ describe("runOnCommentTrigger", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makeCommentTriggerConfiguration({ commentBody: "just a comment" }),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)
 
 		expect(fetchCalled).toBe(false)
@@ -105,8 +109,10 @@ describe("runOnCommentTrigger", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makeCommentTriggerConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)
 
 		expect(submitCalled).toBe(false)
@@ -136,8 +142,10 @@ describe("runOnCommentTrigger", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makeCommentTriggerConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)
 
 		expect(submittedReview!).toBeDefined()
@@ -158,8 +166,10 @@ describe("runOnCommentTrigger", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makeCommentTriggerConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)).rejects.toThrow("Read failure")
 	})
 
@@ -174,8 +184,10 @@ describe("runOnCommentTrigger", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makeCommentTriggerConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)).rejects.toThrow("API error")
 	})
 
@@ -190,8 +202,10 @@ describe("runOnCommentTrigger", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makeCommentTriggerConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)).rejects.toThrow("Failed to submit review")
 	})
 })
@@ -210,8 +224,10 @@ describe("runOnPullRequest", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makePullRequestConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)
 
 		expect(submitCalled).toBe(false)
@@ -241,8 +257,10 @@ describe("runOnPullRequest", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makePullRequestConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)
 
 		expect(submittedReview!).toBeDefined()
@@ -262,8 +280,10 @@ describe("runOnPullRequest", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makePullRequestConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)).rejects.toThrow("Read failure")
 	})
 
@@ -278,8 +298,10 @@ describe("runOnPullRequest", () => {
 				debugWriter: noopDebugWriter,
 			},
 			makePullRequestConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
+			IDENTITY_PROFILE,
 		)).rejects.toThrow("API error")
 	})
 })
@@ -290,14 +312,17 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit: makeSpawnGitOk(),
 				readAgents: makeReadAgents([]),
+				githubFetch: async () => new Response(),
 				fetch: makeFetch(""),
 				logger: silentLogger,
 				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
 			"/test/workspace",
+			IDENTITY_PROFILE,
 		)
 
 		expect(result).toBe("No files changed, nothing to review")
@@ -308,14 +333,17 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit: makeSpawnGitWithDiff(SAMPLE_DIFF),
 				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
+				githubFetch: async () => new Response(),
 				fetch: makeFetch("Looks good"),
 				logger: silentLogger,
 				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
 			"/test/workspace",
+			IDENTITY_PROFILE,
 		)
 
 		expect(result).toContain("Looks good")
@@ -332,14 +360,17 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit,
 				readAgents: makeReadAgents([]),
+				githubFetch: async () => new Response(),
 				fetch: makeFetch(""),
 				logger: silentLogger,
 				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
 			"/test/workspace",
+			IDENTITY_PROFILE,
 		)).rejects.toThrow("No git repository found")
 	})
 
@@ -354,14 +385,17 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit,
 				readAgents: makeReadAgents([]),
+				githubFetch: async () => new Response(),
 				fetch: makeFetch(""),
 				logger: silentLogger,
 				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
 			"/test/workspace",
+			IDENTITY_PROFILE,
 		)).rejects.toThrow("Failed to get diff")
 	})
 
@@ -372,14 +406,17 @@ describe("runOnLocalDiff", () => {
 			{
 				spawnGit: makeSpawnGitWithDiff(SAMPLE_DIFF),
 				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
+				githubFetch: async () => new Response(),
 				fetch,
 				logger: silentLogger,
 				debugWriter: noopDebugWriter,
 			},
 			makeLocalDiffConfiguration(),
-			agentDirectories,
+			userAgentsDirectory,
+			builtinAgentsDirectory,
 			"test-model",
 			"/test/workspace",
+			IDENTITY_PROFILE,
 		)).rejects.toThrow(/Failed to parse aggregator output as JSON/)
 	})
 })

@@ -1,4 +1,4 @@
-export const COMMON_BINARY_FILE_EXTENSIONS = new Set([ "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "mp3", "wav", "aac", "flac", "ogg", "m4a", "mp4", "mov", "avi", "mkv", "webm", "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "exe", "dll", "so", "dylib", "bin", "class", "jar", "node", "wasm", "o", "woff", "woff2", "ttf", "otf", "eot", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "db", "sqlite", "sqlite3", "pyc" ])
+const COMMON_BINARY_FILE_EXTENSIONS = new Set([ "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "mp3", "wav", "aac", "flac", "ogg", "m4a", "mp4", "mov", "avi", "mkv", "webm", "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "exe", "dll", "so", "dylib", "bin", "class", "jar", "node", "wasm", "o", "woff", "woff2", "ttf", "otf", "eot", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "db", "sqlite", "sqlite3", "pyc" ])
 
 function getExtension(filename: string): string {
 	const dotIndex = filename.lastIndexOf(".")

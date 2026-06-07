@@ -85,7 +85,6 @@ describe("resolveConfiguration", () => {
 			expect(configuration.github).toEqual({
 				token: "my-token",
 				apiUrl: "https://api.github.com",
-				repository: "owner/repo",
 				owner: "owner",
 				repositoryName: "repo",
 				pullRequestNumber: 42,
@@ -108,7 +107,6 @@ describe("resolveConfiguration", () => {
 			expect(configuration.github).toEqual({
 				token: "my-token",
 				apiUrl: "https://api.github.com",
-				repository: "owner/repo",
 				owner: "owner",
 				repositoryName: "repo",
 				pullRequestNumber: 42,

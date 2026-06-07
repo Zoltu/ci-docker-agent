@@ -9,7 +9,7 @@ export type GitHubFetch = (url: string, options: RequestInit) => Promise<Respons
 
 export function createGithubFetch(logger: Logger): GitHubFetch {
 	return async function githubFetch(url: string, options: RequestInit): Promise<Response> {
-		// Intentionally only retries rate limiting (429); all other errors fail fast
+		// Retries rate limiting (429) and request timeouts; everything else fails fast.
 		const deadline = Date.now() + DEADLINE_MILLISECONDS
 
 		while (true) {
@@ -26,9 +26,18 @@ export function createGithubFetch(logger: Logger): GitHubFetch {
 					}
 
 					const retryAfter = response.headers.get("Retry-After")
-					const delay = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : RETRY_DELAY_MILLISECONDS
-					logger.log(`Rate limited (429), retrying in ${delay / 1000}s`)
-					await new Promise(resolve => setTimeout(resolve, delay))
+					if (retryAfter !== null) {
+						const seconds = Number.parseInt(retryAfter, 10)
+						if (!Number.isFinite(seconds) || seconds < 0) {
+							throw new Error(`GitHub API returned a non-numeric Retry-After header: ${JSON.stringify(retryAfter)}`)
+						}
+						const milliseconds = seconds * 1000
+						logger.log(`Rate limited (429), retrying in ${seconds}s`)
+						await new Promise(resolve => setTimeout(resolve, milliseconds))
+					} else {
+						logger.log(`Rate limited (429), retrying in ${RETRY_DELAY_MILLISECONDS / 1000}s`)
+						await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MILLISECONDS))
+					}
 					continue
 				}
 

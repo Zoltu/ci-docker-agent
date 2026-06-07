@@ -1,7 +1,8 @@
-import type { AgentDirectories, AgentNames, AgentReader } from "./agents.mts"
+import type { AgentNames, AgentReader } from "./agents.mts"
 import { loadAgents, loadAggregator } from "./agents.mts"
 import { analyze } from "./ai.mts"
 import type { Fetch } from "./agent-loop.mts"
+import type { ProviderProfile } from "./provider-profiles.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
 import type { CommentTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
 import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from "./diff.mts"
@@ -15,23 +16,7 @@ import type { AiReviewResult } from "./review.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import { getAgentsFromComment } from "./trigger.mts"
 
-type RunAnalysisDependencies = {
-	spawnGit: SpawnGit
-	readAgents: AgentReader
-	fetch: Fetch
-	logger: Logger
-	debugWriter: DebugWriter
-}
-
-async function runAnalysis(dependencies: RunAnalysisDependencies, agentNames: AgentNames, agentDirectories: AgentDirectories, diffText: string, baseCommit: string, model: string): Promise<AiReviewResult> {
-	const { agents } = await loadAgents(dependencies, agentDirectories, agentNames)
-	const aggregator = await loadAggregator(dependencies, agentDirectories)
-	await ensureCommitAvailable(dependencies, baseCommit)
-	const baseCommitContext = await getBaseCommitContext(dependencies, baseCommit)
-	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model)
-}
-
-type PrReviewDependencies = {
+type OrchestratorDependencies = {
 	spawnGit: SpawnGit
 	readAgents: AgentReader
 	githubFetch: GitHubFetch
@@ -40,7 +25,15 @@ type PrReviewDependencies = {
 	debugWriter: DebugWriter
 }
 
-async function submitPrReview(dependencies: PrReviewDependencies, agentNames: AgentNames, agentDirectories: AgentDirectories, githubConfiguration: GitHubConfiguration, model: string): Promise<void> {
+async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, profile: ProviderProfile): Promise<AiReviewResult> {
+	const agents = await loadAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, agentNames)
+	const aggregator = await loadAggregator(dependencies, userAgentsDirectory, builtinAgentsDirectory)
+	await ensureCommitAvailable(dependencies, baseCommit)
+	const baseCommitContext = await getBaseCommitContext(dependencies, baseCommit)
+	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model, profile)
+}
+
+async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, profile: ProviderProfile): Promise<void> {
 	const [diffText, baseCommit] = await Promise.all([
 		fetchPullRequestDiff(dependencies, githubConfiguration),
 		fetchPullRequestBaseCommit(dependencies, githubConfiguration),
@@ -51,13 +44,13 @@ async function submitPrReview(dependencies: PrReviewDependencies, agentNames: Ag
 		return
 	}
 
-	const aiResult = await runAnalysis(dependencies, agentNames, agentDirectories, diffText, baseCommit, model)
+	const aiResult = await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseCommit, model, profile)
 	const reviewPayload = buildReviewPayload(aiResult)
 	await submitReview(dependencies, githubConfiguration, reviewPayload)
 	dependencies.logger.log("PR review submitted successfully")
 }
 
-export async function runOnCommentTrigger(dependencies: PrReviewDependencies, configuration: CommentTriggerConfiguration, agentDirectories: AgentDirectories, model: string): Promise<void> {
+export async function runOnCommentTrigger(dependencies: OrchestratorDependencies, configuration: CommentTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, profile: ProviderProfile): Promise<void> {
 	const triggerResult = getAgentsFromComment(configuration.commentBody)
 
 	if (triggerResult === "no review triggered") {
@@ -65,28 +58,20 @@ export async function runOnCommentTrigger(dependencies: PrReviewDependencies, co
 		return
 	}
 
-	await submitPrReview(dependencies, triggerResult, agentDirectories, configuration.github, model)
+	await submitPrReview(dependencies, triggerResult, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, profile)
 }
 
-export async function runOnPullRequest(dependencies: PrReviewDependencies, configuration: PullRequestConfiguration, agentDirectories: AgentDirectories, model: string): Promise<void> {
-	await submitPrReview(dependencies, configuration.agents, agentDirectories, configuration.github, model)
+export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, profile: ProviderProfile): Promise<void> {
+	await submitPrReview(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, profile)
 }
 
-type RunOnLocalDiffDependencies = {
-	spawnGit: SpawnGit
-	readAgents: AgentReader
-	fetch: Fetch
-	logger: Logger
-	debugWriter: DebugWriter
-}
-
-export async function runOnLocalDiff(dependencies: RunOnLocalDiffDependencies, configuration: LocalDiffConfiguration, agentDirectories: AgentDirectories, model: string, workspaceDirectory: string): Promise<string> {
+export async function runOnLocalDiff(dependencies: OrchestratorDependencies, configuration: LocalDiffConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, workspaceDirectory: string, profile: ProviderProfile): Promise<string> {
 	await validateGitEnvironment(dependencies, configuration.baseCommit, configuration.headCommit, workspaceDirectory)
 
 	const diffText = await generateLocalDiff(dependencies, configuration.baseCommit, configuration.headCommit)
 
 	if (diffText.trim() === "") return "No files changed, nothing to review"
 
-	const aiResult = await runAnalysis(dependencies, configuration.agents, agentDirectories, diffText, configuration.baseCommit, model)
+	const aiResult = await runAnalysis(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, profile)
 	return formatReviewForConsole(aiResult)
 }

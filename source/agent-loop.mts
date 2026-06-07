@@ -1,4 +1,5 @@
 import { completions, type CompletionsMessage, type CompletionsToolCall, type CompletionDelta, type CompletionUsage, type CompletionResult, type CompletionsRequest } from './completions.mts'
+import type { ProviderProfile } from './provider-profiles.mts'
 import { isArrayOf, isRecord, isString } from './typescript-helpers.mts'
 
 export type Fetch = (signal: AbortSignal, body: string, headers?: Record<string, string>) => Promise<Response>
@@ -45,36 +46,19 @@ export interface AgentLoopResult {
 	readonly messages: readonly CompletionsMessage[]
 }
 
-export interface AgentLoopParams {
-	readonly model: string
-	readonly messages: readonly CompletionsMessage[]
-	readonly tools: readonly Tool[]
-	readonly signal?: AbortSignal
-	readonly maxTokens?: number
-	readonly idleTimeoutMs?: number
-}
+const MAX_EMPTY_TURNS = 5
 
-const DEFAULT_IDLE_TIMEOUT_MS = 300_000
-const DEFAULT_TOOL_TIMEOUT_MS = 300_000
-
-function createIdleTimer(callback: () => void, timeoutMs: number) {
+function createIdleTimer(callback: () => void, timeoutMilliseconds: number) {
 	let timer: ReturnType<typeof setTimeout> | undefined
 	return {
 		reset() {
 			if (timer !== undefined) clearTimeout(timer)
-			timer = setTimeout(callback, timeoutMs)
+			timer = setTimeout(callback, timeoutMilliseconds)
 		},
 		cleanup() {
 			clearTimeout(timer)
 		},
 	}
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
-	return new Promise<T>((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
-		promise.then(resolve, reject).finally(() => clearTimeout(timer))
-	})
 }
 
 function isValidToolParameters(value: Record<string, unknown>): boolean {
@@ -99,34 +83,33 @@ function toWireTools(tools: readonly Tool[]): CompletionsRequest['tools'] {
 	})
 }
 
-export async function* agentLoop(dependencies: { fetch: Fetch }, params: AgentLoopParams): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
-	const toolMap = new Map(params.tools.map(tool => [tool.name, tool]))
-	const messages: CompletionsMessage[] = [...params.messages]
-	const idleTimeoutMs = params.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
-	const wireTools = toWireTools(params.tools)
+export async function* agentLoop(dependencies: { fetch: Fetch },  model: string, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, idleTimeoutMilliseconds: number = 300_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
+	const toolMap = new Map(tools.map(tool => [tool.name, tool]))
+	const wireTools = toWireTools(tools)
+	const mutableMessages: CompletionsMessage[] = [...messages]
 
-	if (params.messages.length === 0) throw new Error('At least one message is required')
+	if (mutableMessages.length === 0) throw new Error('At least one message is required')
 
 	const controller = new AbortController()
 	const signals: AbortSignal[] = [controller.signal]
-	if (params.signal) signals.push(params.signal)
+	if (signal) signals.push(signal)
 	const compositeSignal = AbortSignal.any(signals)
+	const boundFetch = (body: string, headers?: Record<string, string>) => dependencies.fetch(compositeSignal, body, headers)
 
 	// This loop is bounded because every tool call and response is appended to `messages`. Eventually the context window of the connected model will be exceeded and the completions() call will fail, so the loop cannot run forever.
+	let emptyTurnCount = 0
 	while (true) {
-		const idleTimer = createIdleTimer(() => {
-			controller.abort(new Error(`Agent loop timed out due to inactivity (no delta received for ${idleTimeoutMs}ms)`))
-		}, idleTimeoutMs)
+		const idleTimer = createIdleTimer(() => { controller.abort(new Error(`Agent loop timed out due to inactivity (no delta received for ${idleTimeoutMilliseconds} milliseconds)`)) }, idleTimeoutMilliseconds)
 
-		const request: CompletionsRequest = {
-			model: params.model,
-			messages,
+		const baseRequest: CompletionsRequest = {
+			model: model,
+			messages: mutableMessages,
+			max_tokens: 100_000,
 			...(wireTools && { tools: wireTools }),
-			...(params.maxTokens !== undefined && { max_tokens: params.maxTokens }),
 		}
 
-		const boundFetch = (body: string, headers?: Record<string, string>) => dependencies.fetch(compositeSignal, body, headers)
-		const completionsGenerator = completions({ fetch: boundFetch }, request)
+		const preparedRequest = profile.prepareRequest(baseRequest)
+		const completionsGenerator = completions({ fetch: boundFetch }, preparedRequest, profile.overwritePaths)
 
 		let completionResult: CompletionResult
 		try {
@@ -150,11 +133,16 @@ export async function* agentLoop(dependencies: { fetch: Fetch }, params: AgentLo
 			throw new Error('AI response truncated: model reached maximum output token limit (finishReason: length). Consider increasing max_tokens or reducing prompt size.')
 		}
 
+		if (completionResult.finishReason === 'content_filter') {
+			throw new Error('AI response blocked by a content filter (finishReason: content_filter). This usually means the provider/model is paternalistically refusing to process the input. Try switching to a less paternalistic provider or model.')
+		}
+
 		const message = completionResult.message
-		messages.push(message)
+		mutableMessages.push(message)
 
 		const toolCalls = 'tool_calls' in message ? message.tool_calls : undefined
 		if (toolCalls && toolCalls.length > 0) {
+			emptyTurnCount = 0
 			for (const toolCall of toolCalls) {
 				yield { type: 'tool_call', toolCall }
 
@@ -164,30 +152,38 @@ export async function* agentLoop(dependencies: { fetch: Fetch }, params: AgentLo
 					result = `Unknown tool: ${toolCall.function.name}`
 				} else {
 					try {
-						result = await withTimeout(
-							tool.execute(toolCall.function.arguments),
-							DEFAULT_TOOL_TIMEOUT_MS,
-							`Tool "${toolCall.function.name}" timed out after ${DEFAULT_TOOL_TIMEOUT_MS}ms`,
-						)
+						result = await tool.execute(toolCall.function.arguments)
 					} catch (error) {
 						result = `Tool execution error: ${error instanceof Error ? error.message : String(error)}`
 					}
 				}
 
 				yield { type: 'tool_result', toolCallId: toolCall.id, name: toolCall.function.name, result }
-				messages.push({ role: 'tool', content: result, tool_call_id: toolCall.id })
+				mutableMessages.push({ role: 'tool', content: result, tool_call_id: toolCall.id })
 			}
 			continue
 		}
 
-		if (!completionResult.finishReason || !message.content) {
+		if (!completionResult.finishReason) continue
+
+		if (!message.content) {
+			const usage = completionResult.usage
+			if (usage === undefined) throw new Error("Provider did not return token usage in streaming response; cannot determine if turn produced output.")
+			if (usage.completion_tokens > 0) {
+				emptyTurnCount = 0
+			} else {
+				emptyTurnCount++
+				if (emptyTurnCount >= MAX_EMPTY_TURNS) {
+					throw new Error(`Model returned ${MAX_EMPTY_TURNS} consecutive responses with no output tokens. Aborting to prevent an infinite loop.`)
+				}
+			}
 			continue
 		}
 
 		return {
 			finishReason: completionResult.finishReason,
 			usage: completionResult.usage,
-			messages,
+			messages: mutableMessages,
 		}
 	}
 }

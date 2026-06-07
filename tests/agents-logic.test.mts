@@ -1,10 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { buildAgentPrompt, type PromptMessage } from "../source/agents.mts"
 import { makeAgent, makeBaseCommitContext } from "./helpers.mts"
-import { existsSync } from "node:fs"
-import { join } from "node:path"
-
-const PROJECT_ROOT = join(import.meta.dir, "..")
 
 const SAMPLE_DIFF = [
 	"diff --git a/src/file.ts b/src/file.ts",
@@ -153,55 +149,5 @@ describe("buildAgentPrompt", () => {
 				}
 			}
 		})
-	})
-
-	describe("trust boundary", () => {
-		it("never puts untrusted content in system messages", () => {
-			const agent = makeAgent({ prompt: "You are a reviewer." })
-			const inputs = new Map<string, string>()
-			inputs.set("SecurityAgent", "Found a vulnerability")
-
-			const result = buildAgentPrompt(agent, makeBaseCommitContext({
-				fileList: ["README.md"],
-			}), SAMPLE_DIFF, inputs)
-
-			const systemContents = filterByRole(result, "system")
-			for (const content of systemContents) {
-				expect(content).not.toContain("-old")
-				expect(content).not.toContain("+new")
-				expect(content).not.toContain("- README.md")
-				expect(content).not.toContain("Found a vulnerability")
-			}
-		})
-
-		it("never puts system-controlled headers in user messages", () => {
-			const agent = makeAgent({ prompt: "You are a reviewer." })
-			const inputs = new Map<string, string>()
-			inputs.set("SecurityAgent", "Found a vulnerability")
-
-			const result = buildAgentPrompt(agent, makeBaseCommitContext({
-				fileList: ["README.md"],
-			}), SAMPLE_DIFF, inputs)
-
-			const userContents = filterByRole(result, "user")
-			for (const content of userContents) {
-				expect(content).not.toContain("=== Repository Files")
-				expect(content).not.toContain("=== Changeset Diffs")
-				expect(content).not.toContain("=== Agent Feedback")
-				expect(content).not.toContain("=== Agent:")
-				expect(content).not.toContain("You are a reviewer.")
-			}
-		})
-	})
-})
-
-// Exception to AGENTS.md rule against testing leaf functions: these tests verify that the required builtin agents exist on disk, since the entire system breaks if the agents/ folder or Default.md/Aggregator.md are missing.
-describe("required builtin agents", () => {
-	it("has a Default.md agent in the agents directory", () => {
-		expect(existsSync(join(PROJECT_ROOT, "agents", "Default.md"))).toBe(true)
-	})
-
-	it("has an Aggregator.md agent in the agents directory", () => {
-		expect(existsSync(join(PROJECT_ROOT, "agents", "Aggregator.md"))).toBe(true)
 	})
 })

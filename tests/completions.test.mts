@@ -8,8 +8,10 @@ function createBodyCapturingFetch(): { fetch: Fetch; getBody: () => string | und
 	const fetch: Fetch = async (body: string, _headers?: Record<string, string>) => {
 		capturedBody = body
 		const encoder = new TextEncoder()
+		const roleOnly = `data: ${JSON.stringify({ choices: [{ delta: { role: "assistant" }, finish_reason: null }] })}\n\n`
 		const stream = new ReadableStream({
 			start(controller) {
+				controller.enqueue(encoder.encode(roleOnly))
 				controller.enqueue(encoder.encode("data: [DONE]\n\n"))
 				controller.close()
 			}
@@ -41,7 +43,13 @@ function usageChunk(id: string, model: string, usage: object): object {
 }
 
 function buildSseFromChunks(chunks: object[]): string {
-	return chunks.map(c => `data: ${JSON.stringify(c)}\n\n`).join("") + "data: [DONE]\n\n"
+	return chunks.map((c, i) => {
+		if (i !== 0) return `data: ${JSON.stringify(c)}\n\n`
+		const obj = c as { choices: Array<{ delta: Record<string, unknown> }> }
+		const firstDelta = obj.choices?.[0]?.delta
+		if (!firstDelta || 'role' in firstDelta) return `data: ${JSON.stringify(c)}\n\n`
+		return `data: ${JSON.stringify({ ...obj, choices: [{ ...obj.choices[0], delta: { role: "assistant", ...firstDelta } }] })}\n\n`
+	}).join("") + "data: [DONE]\n\n"
 }
 
 async function collectStream(gen: AsyncGenerator<CompletionDelta, CompletionResult>): Promise<{ deltas: CompletionDelta[], result: CompletionResult }> {
@@ -68,10 +76,12 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(deltas).toEqual([
+				{ role: "assistant" },
 				{ content: "Hello" },
 				{ content: " world" },
+				{},
 			])
 		})
 
@@ -82,10 +92,11 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(deltas).toEqual([
-				{ reasoning: "thinking..." },
+				{ role: "assistant", reasoning: "thinking..." },
 				{ content: "answer" },
+				{},
 			])
 		})
 
@@ -96,10 +107,11 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(deltas).toEqual([
-				{ reasoning_content: "thinking..." },
+				{ role: "assistant", reasoning_content: "thinking..." },
 				{ content: "answer" },
+				{},
 			])
 		})
 
@@ -115,9 +127,10 @@ describe("completions", () => {
 				}, "tool_calls"),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(deltas).toEqual([
 				{
+					role: "assistant",
 					tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"src/foo.ts"}' } }],
 				},
 			])
@@ -136,9 +149,9 @@ describe("completions", () => {
 				}, "tool_calls"),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(deltas).toEqual([
-				{ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "read_file", arguments: "" } }] },
+				{ role: "assistant", tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "read_file", arguments: "" } }] },
 				{ tool_calls: [{ index: 0, function: { arguments: '{"pat' } }] },
 				{ tool_calls: [{ index: 0, function: { arguments: 'h":"a.ts"}' } }] },
 			])
@@ -154,9 +167,10 @@ describe("completions", () => {
 				}, "tool_calls"),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(deltas).toEqual([
 				{
+					role: "assistant",
 					tool_calls: [
 						{ index: 0, id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' } },
 						{ index: 1, id: "call_2", type: "function", function: { name: "read_file", arguments: '{"path":"b.ts"}' } },
@@ -165,29 +179,33 @@ describe("completions", () => {
 			])
 		})
 
-		it("skips role-only deltas", async () => {
+		it("yields role-only deltas", async () => {
 			const sse = buildSseFromChunks([
 				chunk("1", "test-model", { role: "assistant" }),
 				chunk("1", "test-model", { content: "response" }),
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(deltas).toEqual([
+				{ role: "assistant" },
 				{ content: "response" },
+				{},
 			])
 		})
 
-		it("skips empty content strings", async () => {
+		it("yields empty content deltas", async () => {
 			const sse = buildSseFromChunks([
 				chunk("1", "test-model", { content: "" }),
 				chunk("1", "test-model", { content: "real" }),
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(deltas).toEqual([
+				{ role: "assistant", content: "" },
 				{ content: "real" },
+				{},
 			])
 		})
 
@@ -196,8 +214,8 @@ describe("completions", () => {
 				chunk("1", "test-model", { content: "done" }),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
-			expect(deltas).toEqual([{ content: "done" }])
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(deltas).toEqual([{ role: "assistant", content: "done" }])
 		})
 
 		it("throws when SSE event fails guard validation", async () => {
@@ -207,7 +225,7 @@ describe("completions", () => {
 				}, "tool_calls"),
 			])
 			const fetch = createMockFetch(sse)
-			await expect(collectStream(completions({ fetch }, BASE_REQUEST))).rejects.toThrow("Unexpected SSE event structure")
+			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("Unexpected SSE event structure")
 		})
 
 		it("accepts null usage in SSE event (GLM-5.1 via Together.ai)", async () => {
@@ -221,7 +239,7 @@ describe("completions", () => {
 			}
 			const sse = `data: ${JSON.stringify(glChunk)}\n\ndata: ${JSON.stringify({ ...glChunk, choices: [{ index: 0, delta: { content: " me explain" }, finish_reason: null }], usage: null })}\n\ndata: ${JSON.stringify({ ...glChunk, choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: null })}\n\ndata: [DONE]\n\n`
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.finishReason).toBe("stop")
 			expect(result.usage).toBeUndefined()
 			expect(result.message.content).toBe(" me explain")
@@ -230,23 +248,27 @@ describe("completions", () => {
 
 		it("accepts null optional string fields in SSE event", async () => {
 			const sse = buildSseFromChunks([
-				{ id: "1", object: "chat.completion.chunk", created: 1234, model: "test-model", choices: [{ index: 0, delta: { content: null, reasoning: null, reasoning_content: null, finish_reason: null } }] },
+				{ id: "1", object: "chat.completion.chunk", created: 1234, model: "test-model", choices: [{ index: 0, delta: { content: null, reasoning: null, reasoning_content: null } }] },
 				chunk("1", "test-model", { content: "actual" }),
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST))
-			expect(deltas).toEqual([{ content: "actual" }])
+			const { deltas } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(deltas).toEqual([
+				{ role: "assistant", content: null, reasoning: null, reasoning_content: null },
+				{ content: "actual" },
+				{},
+			])
 		})
 
 		it("throws on HTTP error", async () => {
 			const fetch: Fetch = async () => new Response("forbidden", { status: 403, statusText: "Forbidden" })
-			await expect(collectStream(completions({ fetch }, BASE_REQUEST))).rejects.toThrow("HTTP 403 Forbidden")
+			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("HTTP 403 Forbidden")
 		})
 
 		it("throws on invalid JSON in SSE data", async () => {
 			const fetch = createMockFetch("data: {bad json\n\n")
-			await expect(collectStream(completions({ fetch }, BASE_REQUEST))).rejects.toThrow("Failed to parse SSE data as JSON")
+			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("Failed to parse SSE data as JSON")
 		})
 
 		})
@@ -266,7 +288,7 @@ describe("completions", () => {
 				}),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.message).toEqual({
 				role: "assistant",
 				content: "Hello world",
@@ -280,7 +302,7 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.message).toEqual({
 				role: "assistant",
 				content: "answer",
@@ -306,10 +328,9 @@ describe("completions", () => {
 				}, "tool_calls"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.message).toEqual({
 				role: "assistant",
-				content: null,
 				tool_calls: [
 					{ id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' } },
 					{ id: "call_2", type: "function", function: { name: "search", arguments: '{"q":"test"}' } },
@@ -324,7 +345,7 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.message).toEqual({
 				role: "assistant",
 				content: "answer",
@@ -338,7 +359,7 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.message.role).toBe("assistant")
 			expect(result.message.content).toBe("hi")
 			const obj: Record<string, unknown> = { ...result.message }
@@ -352,7 +373,7 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.message).toEqual({
 				role: "assistant",
 				content: "answer",
@@ -368,7 +389,7 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.message).toEqual({
 				role: "assistant",
 				content: "answer",
@@ -384,7 +405,7 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			await expect(collectStream(completions({ fetch }, BASE_REQUEST))).rejects.toThrow(
+			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow(
 				"Assistant message has both reasoning and reasoning_content; these are mutually exclusive"
 			)
 		})
@@ -402,7 +423,7 @@ describe("completions", () => {
 				}, "tool_calls"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			if (!("tool_calls" in result.message) || !result.message.tool_calls) throw new Error("expected tool_calls")
 			expect(result.message.tool_calls[0]).toEqual({
 				id: "call_1",
@@ -422,11 +443,29 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "tool_calls"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			if (!("tool_calls" in result.message) || !result.message.tool_calls) throw new Error("expected tool_calls")
 			expect(result.message.tool_calls).toHaveLength(2)
 			expect(result.message.tool_calls[0]).toEqual({ id: "call_1", type: "function", function: { name: "a", arguments: "" } })
 			expect(result.message.tool_calls[1]).toEqual({ id: "call_2", type: "function", function: { name: "b", arguments: "" } })
+		})
+
+		it("strips routing index from every array item in the accumulator (not just tool_calls)", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", {
+					reasoning_details: [{ type: "reasoning.text", text: "thinking", format: "unknown", index: 0 }],
+					tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "f", arguments: "" } }],
+				}, "tool_calls"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			if (!("tool_calls" in result.message) || !result.message.tool_calls) throw new Error("expected tool_calls")
+			expect(result.message.tool_calls[0]).not.toHaveProperty("index")
+			const obj: Record<string, unknown> = { ...result.message }
+			const reasoningDetails = obj.reasoning_details as Array<Record<string, unknown>> | undefined
+			expect(reasoningDetails).toBeDefined()
+			expect(reasoningDetails![0]).not.toHaveProperty("index")
+			expect(reasoningDetails![0]).toEqual({ type: "reasoning.text", text: "thinking", format: "unknown" })
 		})
 
 		it("throws when SSE event has invalid field types", async () => {
@@ -435,15 +474,14 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			await expect(collectStream(completions({ fetch }, BASE_REQUEST))).rejects.toThrow("Unexpected SSE event structure")
+			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("Unexpected SSE event structure")
 		})
 
 		it("returns empty assistant message for stream with no content", async () => {
-			const fetch = createMockFetch("data: [DONE]\n\n")
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const fetch = createMockFetch(`data: ${JSON.stringify({ choices: [{ delta: { role: "assistant" }, finish_reason: null }] })}\n\ndata: [DONE]\n\n`)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.message).toEqual({
 				role: "assistant",
-				content: null,
 			})
 		})
 
@@ -453,7 +491,7 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.finishReason).toBe("stop")
 		})
 
@@ -462,7 +500,7 @@ describe("completions", () => {
 				chunk("1", "test-model", { content: "hi" }),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.finishReason).toBeUndefined()
 		})
 
@@ -473,7 +511,7 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "length"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.finishReason).toBe("length")
 		})
 
@@ -488,7 +526,7 @@ describe("completions", () => {
 				}),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			const usage = result.usage!
 			expect(usage.prompt_tokens).toBe(100)
 			expect(usage.completion_tokens).toBe(10)
@@ -501,7 +539,7 @@ describe("completions", () => {
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.usage).toBeUndefined()
 		})
 
@@ -521,7 +559,7 @@ describe("completions", () => {
 				}),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.usage).toEqual({
 				prompt_tokens: 100,
 				completion_tokens: 10,
@@ -540,7 +578,7 @@ describe("completions", () => {
 				}),
 			])
 			const fetch = createMockFetch(sse)
-			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST))
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			const usage = result.usage!
 			expect(usage.prompt_tokens).toBe(100)
 		})
@@ -560,18 +598,13 @@ describe("completions", () => {
 				max_tokens: 500,
 				temperature: 0.7,
 				top_p: 0.9,
-				frequency_penalty: 0.1,
-				presence_penalty: 0.2,
 				stop: ["\n"],
 				n: 1,
 				seed: 42,
 				stream_options: { include_usage: true },
 				tools: [{ type: "function", function: { name: "read_file", description: "Read a file", parameters: { type: "object" } } }],
-				reasoning_effort: "high",
-				reasoning: { enabled: true },
-				venice_parameters: { disable_thinking: false, strip_thinking_response: true },
 			}
-			await collectStream(completions({ fetch }, request))
+			await collectStream(completions({ fetch }, request, []))
 			const parsed = JSON.parse(getBody()!)
 			expect(parsed.model).toBe("test-model")
 			expect(parsed.stream).toBe(true)
@@ -579,16 +612,11 @@ describe("completions", () => {
 			expect(parsed.max_completion_tokens).toBeUndefined()
 			expect(parsed.temperature).toBe(0.7)
 			expect(parsed.top_p).toBe(0.9)
-			expect(parsed.frequency_penalty).toBe(0.1)
-			expect(parsed.presence_penalty).toBe(0.2)
 			expect(parsed.stop).toEqual(["\n"])
 			expect(parsed.n).toBe(1)
 			expect(parsed.seed).toBe(42)
 			expect(parsed.stream_options).toEqual({ include_usage: true })
 			expect(parsed.tools).toHaveLength(1)
-			expect(parsed.reasoning_effort).toBe("high")
-			expect(parsed.reasoning).toEqual({ enabled: true })
-			expect(parsed.venice_parameters).toEqual({ disable_thinking: false, strip_thinking_response: true })
 			const [sys, user, assistant, tool] = parsed.messages
 			expect(sys.role).toBe("system")
 			expect(user.role).toBe("user")
@@ -602,21 +630,18 @@ describe("completions", () => {
 
 		it("omits undefined optional fields from request body", async () => {
 			const { fetch, getBody } = createBodyCapturingFetch()
-			await collectStream(completions({ fetch }, BASE_REQUEST))
+			await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			const parsed = JSON.parse(getBody()!)
 			expect(parsed.max_tokens).toBeUndefined()
 			expect(parsed.temperature).toBeUndefined()
 			expect(parsed.tools).toBeUndefined()
-			expect(parsed.reasoning_effort).toBe('xhigh')
-			expect(parsed.thinking).toEqual({ type: 'enabled' })
-			expect(parsed.venice_parameters).toEqual({ include_venice_system_prompt: false })
 			expect(parsed.stream_options).toEqual({ include_usage: true })
 		})
 
 		it("uses max_completion_tokens when provided", async () => {
 			const { fetch, getBody } = createBodyCapturingFetch()
 			const request: CompletionsRequest = { ...BASE_REQUEST, max_completion_tokens: 2000 }
-			await collectStream(completions({ fetch }, request))
+			await collectStream(completions({ fetch }, request, []))
 			const parsed = JSON.parse(getBody()!)
 			expect(parsed.max_completion_tokens).toBe(2000)
 			expect(parsed.max_tokens).toBeUndefined()
@@ -624,7 +649,7 @@ describe("completions", () => {
 
 		it("always sets stream to true in the body", async () => {
 			const { fetch, getBody } = createBodyCapturingFetch()
-			await collectStream(completions({ fetch }, BASE_REQUEST))
+			await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			const parsed = JSON.parse(getBody()!)
 			expect(parsed.stream).toBe(true)
 		})
@@ -643,7 +668,7 @@ describe("completions", () => {
 					{ role: "tool", content: "search results", tool_call_id: "call_1" },
 				],
 			}
-			await collectStream(completions({ fetch }, request))
+			await collectStream(completions({ fetch }, request, []))
 			const parsed = JSON.parse(getBody()!)
 			expect(parsed.messages).toHaveLength(4)
 			expect(parsed.messages[0]).toEqual({ role: "user", content: "hello" })
@@ -669,7 +694,7 @@ describe("completions", () => {
 					{ role: "assistant", content: "answer", reasoning_content: "I thought about it" },
 				],
 			}
-			await collectStream(completions({ fetch }, request))
+			await collectStream(completions({ fetch }, request, []))
 			const parsed = JSON.parse(getBody()!)
 			expect(parsed.messages[1]).toEqual({
 				role: "assistant",
@@ -687,13 +712,48 @@ describe("completions", () => {
 					{ role: "assistant", content: "answer", reasoning_content: null },
 				],
 			}
-			await collectStream(completions({ fetch }, request))
+			await collectStream(completions({ fetch }, request, []))
 			const parsed = JSON.parse(getBody()!)
 			expect(parsed.messages[1]).toEqual({
 				role: "assistant",
 				content: "answer",
 				reasoning_content: null,
 			})
+		})
+
+		it("serializes extra top-level properties on the request as-is", async () => {
+			const { fetch, getBody } = createBodyCapturingFetch()
+			const request: CompletionsRequest = {
+				...BASE_REQUEST,
+				arbitrary_extension_field: "extension value",
+				arbitrary_extension_object: { nested_key: 42 },
+			}
+			await collectStream(completions({ fetch }, request, []))
+			const parsed = JSON.parse(getBody()!)
+			expect(parsed.arbitrary_extension_field).toBe("extension value")
+			expect(parsed.arbitrary_extension_object).toEqual({ nested_key: 42 })
+		})
+
+		it("serializes a null extra property as null in the body", async () => {
+			const { fetch, getBody } = createBodyCapturingFetch()
+			const request: CompletionsRequest = {
+				...BASE_REQUEST,
+				arbitrary_nullable_field: null,
+			}
+			await collectStream(completions({ fetch }, request, []))
+			const parsed = JSON.parse(getBody()!)
+			expect(parsed.arbitrary_nullable_field).toBeNull()
+		})
+
+		it("omits undefined extra properties from the body", async () => {
+			const { fetch, getBody } = createBodyCapturingFetch()
+			const request: CompletionsRequest = {
+				...BASE_REQUEST,
+				arbitrary_undefined_field: undefined,
+			}
+			await collectStream(completions({ fetch }, request, []))
+			const parsed = JSON.parse(getBody()!)
+			expect("arbitrary_undefined_field" in parsed).toBe(false)
 		})
 	})
 })
