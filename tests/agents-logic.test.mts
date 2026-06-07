@@ -150,4 +150,43 @@ describe("buildAgentPrompt", () => {
 			}
 		})
 	})
+
+	describe("trust boundary", () => {
+		it("never puts untrusted content in system messages", () => {
+			const agent = makeAgent({ prompt: "You are a reviewer." })
+			const inputs = new Map<string, string>()
+			inputs.set("SecurityAgent", "Found a vulnerability")
+
+			const result = buildAgentPrompt(agent, makeBaseCommitContext({
+				fileList: ["README.md"],
+			}), SAMPLE_DIFF, inputs)
+
+			const systemContents = filterByRole(result, "system")
+			for (const content of systemContents) {
+				expect(content).not.toContain("-old")
+				expect(content).not.toContain("+new")
+				expect(content).not.toContain("- README.md")
+				expect(content).not.toContain("Found a vulnerability")
+			}
+		})
+
+		it("never puts system-controlled headers in user messages", () => {
+			const agent = makeAgent({ prompt: "You are a reviewer." })
+			const inputs = new Map<string, string>()
+			inputs.set("SecurityAgent", "Found a vulnerability")
+
+			const result = buildAgentPrompt(agent, makeBaseCommitContext({
+				fileList: ["README.md"],
+			}), SAMPLE_DIFF, inputs)
+
+			const userContents = filterByRole(result, "user")
+			for (const content of userContents) {
+				expect(content).not.toContain("=== Repository Files")
+				expect(content).not.toContain("=== Changeset Diffs")
+				expect(content).not.toContain("=== Agent Feedback")
+				expect(content).not.toContain("=== Agent:")
+				expect(content).not.toContain("You are a reviewer.")
+			}
+		})
+	})
 })
