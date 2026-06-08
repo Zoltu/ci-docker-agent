@@ -6,14 +6,15 @@ import { createDebugWriter } from "./debug.mts"
 import { createGithubFetch } from "./github.mts"
 import { createLogger } from "./logger.mts"
 import { runOnCommentTrigger, runOnLocalDiff, runOnPullRequest } from "./orchestrator.mts"
-import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, getWorkspaceDirectory, getUserAgentsDirectory } from "./paths.mts"
+import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, getWorkspaceDirectory } from "./paths.mts"
+import { selectProviderProfile } from "./provider-profiles.mts"
 import { assertNever } from "./typescript-helpers.mts"
 
 async function main(): Promise<void> {
 	const configuration = getConfiguration(Bun.env)
 	const workspaceDirectory = getWorkspaceDirectory(Bun.env)
-	const userAgentsDirectory = getUserAgentsDirectory(workspaceDirectory)
-	const agentDirectories = { userAgentsDirectory, builtinAgentsDirectory: BUILTIN_AGENTS_DIRECTORY }
+	const userAgentsDirectory = `${workspaceDirectory}/.ci-agents`
+	const builtinAgentsDirectory = BUILTIN_AGENTS_DIRECTORY
 
 	const logger = createLogger()
 	const debugWriter = await createDebugWriter(DEBUG_DIRECTORY)
@@ -22,6 +23,7 @@ async function main(): Promise<void> {
 	const aiConfiguration = parseAiConfiguration(Bun.env)
 	const fetch = createFetch(aiConfiguration)
 	const githubFetch = createGithubFetch(logger)
+	const profile = selectProviderProfile(aiConfiguration.apiUrl, aiConfiguration.model)
 
 	const dependencies = {
 		spawnGit,
@@ -34,13 +36,13 @@ async function main(): Promise<void> {
 
 	switch (configuration.type) {
 		case "comment-trigger": {
-			return runOnCommentTrigger(dependencies, configuration, agentDirectories, aiConfiguration.model)
+			return runOnCommentTrigger(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, profile)
 		}
 		case "pull-request": {
-			return runOnPullRequest(dependencies, configuration, agentDirectories, aiConfiguration.model)
+			return runOnPullRequest(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, profile)
 		}
 		case "local-diff": {
-			const result = await runOnLocalDiff(dependencies, configuration, agentDirectories, aiConfiguration.model, workspaceDirectory)
+			const result = await runOnLocalDiff(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, workspaceDirectory, profile)
 			logger.log(result)
 			return
 		}

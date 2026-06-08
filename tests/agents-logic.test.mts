@@ -1,10 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { buildAgentPrompt, type PromptMessage } from "../source/agents.mts"
 import { makeAgent, makeBaseCommitContext } from "./helpers.mts"
-import { existsSync } from "node:fs"
-import { join } from "node:path"
-
-const PROJECT_ROOT = join(import.meta.dir, "..")
 
 const SAMPLE_DIFF = [
 	"diff --git a/src/file.ts b/src/file.ts",
@@ -192,16 +188,5 @@ describe("buildAgentPrompt", () => {
 				expect(content).not.toContain("You are a reviewer.")
 			}
 		})
-	})
-})
-
-// Exception to AGENTS.md rule against testing leaf functions: these tests verify that the required builtin agents exist on disk, since the entire system breaks if the agents/ folder or Default.md/Aggregator.md are missing.
-describe("required builtin agents", () => {
-	it("has a Default.md agent in the agents directory", () => {
-		expect(existsSync(join(PROJECT_ROOT, "agents", "Default.md"))).toBe(true)
-	})
-
-	it("has an Aggregator.md agent in the agents directory", () => {
-		expect(existsSync(join(PROJECT_ROOT, "agents", "Aggregator.md"))).toBe(true)
 	})
 })

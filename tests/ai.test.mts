@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { analyze, parseAiConfiguration } from "../source/ai.mts"
+import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 import type { Agent } from "../source/agents.mts"
 import type { DebugWriter } from "../source/debug.mts"
 import type { Fetch } from "../source/agent-loop.mts"
@@ -96,7 +97,7 @@ describe("analyze", () => {
 		]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")
+		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 		expect(result.body).toBe("Review complete")
 		expect(result.comments).toEqual([])
@@ -120,7 +121,7 @@ describe("analyze", () => {
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")
+		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 		expect(result.body).toBe("Result 2")
 	})
@@ -138,7 +139,7 @@ describe("analyze", () => {
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")
+		await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 		expect(prompts.length).toBe(2)
 		expect(prompts[0]!.agentName).toBe("TestAgent")
@@ -155,7 +156,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(result.comments).toHaveLength(1)
@@ -170,7 +171,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("No issues found")
 			expect(result.comments).toEqual([])
@@ -181,7 +182,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow(/Failed to parse aggregator output as JSON[\s\S]*not json/)
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow(/Failed to parse aggregator output as JSON[\s\S]*not json/)
 		})
 
 		it("throws when aggregator output does not match expected shape", async () => {
@@ -189,7 +190,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator body is not a string", async () => {
@@ -197,7 +198,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator comments is not an array", async () => {
@@ -205,7 +206,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator comments is missing", async () => {
@@ -213,7 +214,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator body is empty string", async () => {
@@ -221,7 +222,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("throws when aggregator body is missing", async () => {
@@ -229,7 +230,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects line number zero in aggregator comments", async () => {
@@ -240,7 +241,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects negative line number in aggregator comments", async () => {
@@ -251,7 +252,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects non-integer line number in aggregator comments", async () => {
@@ -262,7 +263,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 
 		it("rejects empty comment body in aggregator comments", async () => {
@@ -273,7 +274,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model")).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
 		})
 	})
 })

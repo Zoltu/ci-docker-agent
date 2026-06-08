@@ -20,7 +20,6 @@ export interface GitHubReviewPayload {
 export interface GitHubConfiguration {
 	token: string
 	apiUrl: string
-	repository: string
 	owner: string
 	repositoryName: string
 	pullRequestNumber: number

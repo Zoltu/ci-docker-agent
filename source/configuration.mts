@@ -25,11 +25,6 @@ export type Configuration = CommentTriggerConfiguration | PullRequestConfigurati
 
 type TryResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 
-function parseAgents(value: string | undefined): AgentNames {
-	if (!value) return "run all agents"
-	return parseCommaSeparatedList(value)
-}
-
 function tryParseGitHubConfiguration(environment: Record<string, string | undefined>): TryResult<GitHubConfiguration> {
 	const token = environment.GITHUB_TOKEN
 	const pullRequestNumberString = environment.PR_NUMBER
@@ -45,6 +40,7 @@ function tryParseGitHubConfiguration(environment: Record<string, string | undefi
 
 	const pullRequestNumber = Number.parseInt(pullRequestNumberString, 10)
 	if (Number.isNaN(pullRequestNumber)) return { ok: false, reason: `PR_NUMBER must be a valid number, got: ${pullRequestNumberString}` }
+	if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) return { ok: false, reason: `PR_NUMBER must be a positive integer, got: ${pullRequestNumber}` }
 
 	const parts = repository.split("/")
 	if (parts.length !== 2) return { ok: false, reason: `REPO must be in format 'owner/repo', got: ${repository}` }
@@ -54,7 +50,7 @@ function tryParseGitHubConfiguration(environment: Record<string, string | undefi
 
 	const apiUrl = environment.GITHUB_API_URL ?? "https://api.github.com"
 
-	return { ok: true, value: { token, apiUrl, repository, owner, repositoryName, pullRequestNumber } }
+	return { ok: true, value: { token, apiUrl, owner, repositoryName, pullRequestNumber } }
 }
 
 function tryGetLocalDiffConfiguration(environment: Record<string, string | undefined>, agents: AgentNames): TryResult<LocalDiffConfiguration> {
@@ -88,7 +84,7 @@ function tryGetPullRequestConfiguration(environment: Record<string, string | und
 }
 
 export function getConfiguration(environment: Record<string, string | undefined>): Configuration {
-	const agents = parseAgents(environment.AGENTS)
+	const agents: AgentNames = environment.AGENTS ? parseCommaSeparatedList(environment.AGENTS) : "run all agents"
 
 	const localResult = tryGetLocalDiffConfiguration(environment, agents)
 	if (localResult.ok) return localResult.value

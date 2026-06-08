@@ -1,11 +1,10 @@
 import { type Fetch, readSseStream } from './sse.mts'
-import { type Guard, guard, type GuardedType, isArray, isArrayOf, isInteger, isLiteral, isRecord, isString, optional } from './typescript-helpers.mts'
-
-const isStringOrNull: Guard<string | null> = (v): v is string | null => isString(v) || v === null
+import { guard, type GuardedType, isArray, isArrayOf, isInteger, isLiteral, isRecord, isString, optional } from './typescript-helpers.mts'
 
 const isSseCompletionEvent = guard({
 	choices: isArrayOf(guard({
 		delta: guard({
+			role: optional(isLiteral('assistant')),
 			content: optional(isString),
 			reasoning: optional(isString),
 			reasoning_content: optional(isString),
@@ -37,7 +36,7 @@ const isAssistantMessageToolCall = guard({
 const isAssistantMessage = (value: unknown): value is CompletionsMessage & { role: 'assistant' } => {
 	const isValid = guard({
 		role: isLiteral('assistant'),
-		content: isStringOrNull,
+		content: optional(isString),
 		reasoning: optional(isString),
 		reasoning_content: optional(isString),
 		tool_calls: optional(isArrayOf(isAssistantMessageToolCall)),
@@ -53,8 +52,8 @@ const isAssistantMessage = (value: unknown): value is CompletionsMessage & { rol
 export type CompletionsMessage =
 	| { readonly role: 'system' | 'developer', readonly content: string }
 	| { readonly role: 'user', readonly content: string }
-	| { readonly role: 'assistant', readonly content: string | null, readonly reasoning_content?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] }
-	| { readonly role: 'assistant', readonly content: string | null, readonly reasoning?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] }
+	| { readonly role: 'assistant', readonly content?: string | null, readonly reasoning_content?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] }
+	| { readonly role: 'assistant', readonly content?: string | null, readonly reasoning?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] }
 	| { readonly role: 'tool', readonly content: string, readonly tool_call_id: string }
 
 export interface CompletionsToolCall {
@@ -73,59 +72,59 @@ export interface CompletionsRequest {
 	readonly max_completion_tokens?: number
 	readonly temperature?: number
 	readonly top_p?: number
-	readonly frequency_penalty?: number
-	readonly presence_penalty?: number
 	readonly stop?: string | readonly string[]
 	readonly n?: number
 	readonly seed?: number
 	readonly stream?: boolean
-	readonly stream_options?: { include_usage?: boolean }
+	readonly stream_options?: {
+		readonly include_usage?: boolean
+		readonly [extension: string]: unknown
+	}
 	readonly tools?: readonly {
 		readonly type: 'function'
 		readonly function: {
 			readonly name: string
 			readonly description?: string
 			readonly parameters?: Record<string, unknown>
+			readonly [extension: string]: unknown
 		}
+		readonly [extension: string]: unknown
 	}[]
-	readonly reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
-	readonly reasoning?: {
-		readonly enabled: boolean
-		readonly effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+	readonly tool_choice?: 'none' | 'auto' | 'required' | {
+		readonly type: 'function'
+		readonly function: { readonly name: string }
+		readonly [extension: string]: unknown
 	}
-	readonly thinking?: {
-		readonly type: 'enabled' | 'disabled'
-	}
-	readonly chat_template_kwargs?: {
-		readonly preserve_thinking?: true
-		readonly clear_thinking?: false
-	}
-	readonly venice_parameters?: {
-		readonly disable_thinking?: boolean
-		readonly strip_thinking_response?: boolean
-		readonly include_venice_system_prompt?: false
-	}
+	readonly [extension: string]: unknown
 }
 
 export type CompletionDelta = GuardedType<typeof isSseCompletionEvent>['choices'][number]['delta']
 export type CompletionUsage = NonNullable<GuardedType<typeof isSseCompletionEvent>['usage']>
 
-// Fields that may arrive in fragments across multiple deltas and need string concatenation
-const FRAGMENT_FIELDS = new Set(['content', 'reasoning', 'reasoning_content', 'name', 'arguments', 'text'])
+function isOverwritePath(fieldPath: readonly string[], overwritePaths: readonly (readonly string[])[]): boolean {
+	return overwritePaths.some(pattern => pattern.length === fieldPath.length && pattern.every((segment, i) => segment === fieldPath[i]))
+}
 
-function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>): void {
+function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>, overwritePaths: readonly (readonly string[])[], currentPath: readonly string[] = []): void {
 	for (const [key, value] of Object.entries(source)) {
 		if (value === undefined) continue
+		if (value === null) continue
 
+		const fieldPath = [...currentPath, key]
 		const existing = target[key]
 
-		// Known fragmentable fields: concatenate strings, skip null
-		if (FRAGMENT_FIELDS.has(key)) {
-			if (value === null) continue
-			if (typeof existing === 'string' && typeof value === 'string') {
+		if (isOverwritePath(fieldPath, overwritePaths)) {
+			target[key] = value
+			continue
+		}
+
+		if (typeof value === 'string') {
+			if (typeof existing === 'string') {
 				target[key] = existing + value
 				continue
 			}
+			target[key] = value
+			continue
 		}
 
 		// Arrays: validate items and merge by index
@@ -141,7 +140,7 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 				}
 				const slot = arr[index]
 				if (isRecord(slot)) {
-					mergeInto(slot, item)
+					mergeInto(slot, item, overwritePaths, fieldPath)
 				}
 			}
 			continue
@@ -154,7 +153,7 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 			}
 			const nested = target[key]
 			if (isRecord(nested)) {
-				mergeInto(nested, value)
+				mergeInto(nested, value, overwritePaths, fieldPath)
 			}
 			continue
 		}
@@ -166,14 +165,13 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 
 // Final validation that the accumulated object matches the assistant message contract
 function completeAccumulation(accumulator: Record<string, unknown>): CompletionsMessage {
-	// Empty tool_calls array should be absent from the final message, not present as []
-	if (isArray(accumulator.tool_calls) && accumulator.tool_calls.length === 0) {
-		delete accumulator.tool_calls
-	}
-	// Strip routing index from final tool calls; it is part of the wire format, not the message schema
-	if (isArray(accumulator.tool_calls)) {
-		for (const toolCall of accumulator.tool_calls) {
-			if (isRecord(toolCall)) delete toolCall.index
+	// The `index` is a streaming-side routing key used by mergeInto to know which slot each delta belongs to.
+	// Once accumulation is complete the slot is established and the routing is done, so the field is not part of the message.
+	for (const value of Object.values(accumulator)) {
+		if (isArray(value)) {
+			for (const item of value) {
+				if (isRecord(item)) delete item.index
+			}
 		}
 	}
 	if (!isAssistantMessage(accumulator)) {
@@ -188,23 +186,8 @@ export interface CompletionResult {
 	usage?: CompletionUsage
 }
 
-export async function* completions(dependencies: { fetch: Fetch }, request: CompletionsRequest): AsyncGenerator<CompletionDelta, CompletionResult> {
+export async function* completions(dependencies: { fetch: Fetch }, request: CompletionsRequest, overwritePaths: readonly (readonly string[])[]): AsyncGenerator<CompletionDelta, CompletionResult> {
 	const body = JSON.stringify({
-		reasoning_effort: 'xhigh',
-		venice_parameters: {
-			include_venice_system_prompt: false,
-		},
-		chat_template_kwargs: {
-			clear_thinking: false,
-			preserve_thinking: true,
-		},
-		reasoning: {
-			enabled: true,
-			effort: 'xhigh',
-		},
-		thinking: {
-			type: 'enabled',
-		},
 		stream_options: {
 			include_usage: true,
 		},
@@ -212,7 +195,7 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 		stream: true,
 	} satisfies CompletionsRequest)
 
-	const accumulator: Record<string, unknown> = { role: 'assistant', content: null, tool_calls: [] }
+	const accumulator: Record<string, unknown> = {}
 	let finishReason: string | undefined
 	let usage: CompletionUsage | undefined
 
@@ -241,11 +224,9 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 
 		if (finish_reason) finishReason = finish_reason
 
-		mergeInto(accumulator, delta)
+		mergeInto(accumulator, delta, overwritePaths)
 
-		if (delta.content || delta.reasoning || delta.reasoning_content || delta.tool_calls) {
-			yield delta
-		}
+		yield delta
 	}
 	return { message: completeAccumulation(accumulator), finishReason, usage }
 }

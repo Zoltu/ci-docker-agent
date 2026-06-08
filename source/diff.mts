@@ -7,11 +7,11 @@ export interface GitDiffResult {
 	signalCode: string | null
 }
 
-export type SpawnGit = (parameters: string[]) => Promise<GitDiffResult>
+export type SpawnGit = (parameters: string[], timeoutMilliseconds?: number) => Promise<GitDiffResult>
 
 export function createSpawnGit(workspaceDirectory: string): SpawnGit {
-	return async function spawnGit(parameters: string[]): Promise<GitDiffResult> {
-		const process = Bun.spawn(["git", ...parameters], { cwd: workspaceDirectory, stderr: "pipe", stdout: "pipe", timeout: SUBPROCESS_TIMEOUT_MILLISECONDS })
+	return async function spawnGit(parameters: string[], timeoutMilliseconds: number = SUBPROCESS_TIMEOUT_MILLISECONDS): Promise<GitDiffResult> {
+		const process = Bun.spawn(["git", ...parameters], { cwd: workspaceDirectory, stderr: "pipe", stdout: "pipe", timeout: timeoutMilliseconds })
 		await process.exited
 		const stdout = await Bun.readableStreamToText(process.stdout)
 		const stderr = await Bun.readableStreamToText(process.stderr)
@@ -33,7 +33,7 @@ async function validateCommitExists(dependencies: { spawnGit: SpawnGit }, commit
 	throw new Error(`${label} commit "${commit}" not found in repository\nPlease ensure the commit hash is valid and exists in the mounted repository\nError: ${stderr.trim()}`)
 }
 
-export async function validateGitRepository(dependencies: { spawnGit: SpawnGit }, workspaceDirectory: string): Promise<void> {
+async function validateGitRepository(dependencies: { spawnGit: SpawnGit }, workspaceDirectory: string): Promise<void> {
 	const result = await dependencies.spawnGit(["rev-parse", "--git-dir"])
 	if (result.exitCode === 0) return
 	throw new Error(`No git repository found at ${workspaceDirectory}\nPlease ensure you are mounting a git repository to ${workspaceDirectory}\nError: ${result.stderr.trim()}`)

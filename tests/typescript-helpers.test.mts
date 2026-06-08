@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { assertNever, guard, includes, isArray, isArrayOf, isBoolean, isInteger, isLiteral, isNull, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, isUndefined, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
+import { assertNever, deepMerge, guard, includes, isArray, isArrayOf, isInteger, isLiteral, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
 
 describe("includes", () => {
 	it("returns true when needle is in haystack", () => {
@@ -144,41 +144,6 @@ describe("isInteger", () => {
 	})
 })
 
-describe("isBoolean", () => {
-	it("returns true for booleans", () => {
-		expect(isBoolean(true)).toBe(true)
-		expect(isBoolean(false)).toBe(true)
-	})
-	it("returns false for non-booleans", () => {
-		expect(isBoolean(0)).toBe(false)
-		expect(isBoolean("true")).toBe(false)
-		expect(isBoolean(null)).toBe(false)
-		expect(isBoolean(undefined)).toBe(false)
-	})
-})
-
-describe("isNull", () => {
-	it("returns true for null", () => {
-		expect(isNull(null)).toBe(true)
-	})
-	it("returns false for non-null", () => {
-		expect(isNull(undefined)).toBe(false)
-		expect(isNull(0)).toBe(false)
-		expect(isNull("")).toBe(false)
-	})
-})
-
-describe("isUndefined", () => {
-	it("returns true for undefined", () => {
-		expect(isUndefined(undefined)).toBe(true)
-	})
-	it("returns false for non-undefined", () => {
-		expect(isUndefined(null)).toBe(false)
-		expect(isUndefined(0)).toBe(false)
-		expect(isUndefined("")).toBe(false)
-	})
-})
-
 describe("isArrayOf", () => {
 	const isStringArray = isArrayOf(isString)
 	const isNumberArray = isArrayOf(isNumber)
@@ -307,7 +272,7 @@ describe("isObjectOf", () => {
 		expect(isPerson(missingZip)).toBe(false)
 	})
 	it("works with nullable guards via union", () => {
-		const isStringOrNull: Guard<string | null> = (v): v is string | null => isString(v) || isNull(v)
+		const isStringOrNull: Guard<string | null> = (v): v is string | null => isString(v) || v === null
 		expect(isObjectOf({ name: "alice" }, { name: isStringOrNull })).toBe(true)
 		expect(isObjectOf({ name: null }, { name: isStringOrNull })).toBe(true)
 		expect(isObjectOf({ name: 42 }, { name: isStringOrNull })).toBe(false)
@@ -369,7 +334,7 @@ describe("optional", () => {
 	it("works with nested optional objects", () => {
 		const isConfig = guard({
 			name: isString,
-			options: optional(guard({ verbose: isBoolean })),
+			options: optional(guard({ verbose: (v): v is boolean => typeof v === "boolean" })),
 		})
 		expect(isConfig({ name: "test", options: { verbose: true } })).toBe(true)
 		expect(isConfig({ name: "test" })).toBe(true)
@@ -385,6 +350,85 @@ describe("optional", () => {
 		expect(isEvent({ type: "click", x: 1, y: 2 })).toBe(true)
 		expect(isEvent({ type: "click" })).toBe(true)
 		expect(isEvent({ type: "keypress", x: 1 })).toBe(false)
+	})
+})
+
+describe("deepMerge", () => {
+	it("merges two records with non-overlapping keys", () => {
+		const base: Record<string, unknown> = { a: 1, b: 2 }
+		const override: Record<string, unknown> = { c: 3, d: 4 }
+		expect(deepMerge(base, override)).toEqual({ a: 1, b: 2, c: 3, d: 4 })
+	})
+
+	it("override wins on scalar conflicts", () => {
+		const base: Record<string, unknown> = { a: 1, b: 2 }
+		const override: Record<string, unknown> = { a: 99 }
+		expect(deepMerge(base, override)).toEqual({ a: 99, b: 2 })
+	})
+
+	it("recursively merges nested objects", () => {
+		const base: Record<string, unknown> = { outer: { a: 1, b: 2 } }
+		const override: Record<string, unknown> = { outer: { b: 99, c: 3 } }
+		expect(deepMerge(base, override)).toEqual({ outer: { a: 1, b: 99, c: 3 } })
+	})
+
+	it("deeply merges nested objects three levels deep", () => {
+		const base: Record<string, unknown> = { a: { b: { c: 1, d: 2 } } }
+		const override: Record<string, unknown> = { a: { b: { d: 99, e: 3 } } }
+		expect(deepMerge(base, override)).toEqual({ a: { b: { c: 1, d: 99, e: 3 } } })
+	})
+
+	it("replaces arrays entirely (does not concatenate)", () => {
+		const base: Record<string, unknown> = { items: [1, 2, 3] }
+		const override: Record<string, unknown> = { items: [4, 5] }
+		expect(deepMerge(base, override)).toEqual({ items: [4, 5] })
+	})
+
+	it("override array replaces base array even when base has nested objects", () => {
+		const base: Record<string, unknown> = { items: [{ id: 1 }, { id: 2 }] }
+		const override: Record<string, unknown> = { items: [{ id: 3 }] }
+		expect(deepMerge(base, override)).toEqual({ items: [{ id: 3 }] })
+	})
+
+	it("null in override replaces value (does not skip)", () => {
+		const base: Record<string, unknown> = { a: { x: 1 } }
+		const override: Record<string, unknown> = { a: null }
+		expect(deepMerge(base, override)).toEqual({ a: null })
+	})
+
+	it("primitive on one side, object on the other: override wins", () => {
+		const base: Record<string, unknown> = { a: 1 }
+		const override: Record<string, unknown> = { a: { nested: true } }
+		expect(deepMerge(base, override)).toEqual({ a: { nested: true } })
+	})
+
+	it("array on one side, object on the other: override wins (not deep-merged)", () => {
+		const base: Record<string, unknown> = { a: [1, 2] }
+		const override: Record<string, unknown> = { a: { b: 1 } }
+		expect(deepMerge(base, override)).toEqual({ a: { b: 1 } })
+	})
+
+	it("does not mutate the input objects", () => {
+		const base: Record<string, unknown> = { outer: { a: 1 } }
+		const override: Record<string, unknown> = { outer: { b: 2 } }
+		const baseCopy = JSON.parse(JSON.stringify(base))
+		const overrideCopy = JSON.parse(JSON.stringify(override))
+		deepMerge(base, override)
+		expect(base).toEqual(baseCopy)
+		expect(override).toEqual(overrideCopy)
+	})
+
+	it("handles empty base", () => {
+		expect(deepMerge({} as Record<string, unknown>, { a: 1 } as Record<string, unknown>)).toEqual({ a: 1 })
+	})
+
+	it("handles empty override", () => {
+		expect(deepMerge({ a: 1 } as Record<string, unknown>, {} as Record<string, unknown>)).toEqual({ a: 1 })
+	})
+
+	it("preserves nested structure when both sides are identical", () => {
+		const shared: Record<string, unknown> = { a: { b: 1 } }
+		expect(deepMerge(shared, shared)).toEqual({ a: { b: 1 } })
 	})
 })
 

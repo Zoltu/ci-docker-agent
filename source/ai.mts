@@ -1,14 +1,17 @@
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 import { agentLoop, type Fetch, type AgentLoopResult } from "./agent-loop.mts"
 import type { CompletionsMessage } from "./completions.mts"
+import type { ProviderProfile } from "./provider-profiles.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
 import type { SpawnGit } from "./diff.mts"
 import type { DebugWriter } from "./debug.mts"
 import type { LineComment } from "./github-types.mts"
 import { SIDES } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
+import { readReasoningFromDelta } from "./reasoning.mts"
 import type { AiReviewResult } from "./review.mts"
 import { createTools } from "./tool-executor.mts"
+import { createTraceWriter } from "./trace-writer.mts"
 import { includes, isReadonlyArray, sleepWithSignal } from "./typescript-helpers.mts"
 
 export interface AiConfiguration {
@@ -69,13 +72,7 @@ export function createFetch(configuration: AiConfiguration): Fetch {
 	}
 }
 
-function isContextWindowExceededError(error: unknown): error is Error {
-	if (!(error instanceof Error)) return false
-	const message = error.message.toLowerCase()
-	return message.includes("context length") || message.includes("context window") || message.includes("maximum context") || message.includes("token limit")
-}
-
-async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, agentInputs?: Map<string, string>): Promise<string> {
+async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, profile: ProviderProfile, agentInputs?: Map<string, string>): Promise<string> {
 	dependencies.logger.log(`Building prompt for ${agent.name}`)
 	const promptMessages = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
 	const debugText = promptMessages.map(m => `--- ${m.role} ---\n${m.content}`).join("\n\n")
@@ -84,79 +81,45 @@ async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger
 
 	const tools = createTools(dependencies, baseCommit)
 	const messages: CompletionsMessage[] = [...promptMessages]
-	const onTrace = (trace: string) => dependencies.debugWriter.writeTrace(agent.name, trace)
+	const writer = createTraceWriter(dependencies.debugWriter, agent.name)
+
+	const generator = agentLoop(dependencies, model, messages, tools, profile, undefined)
 
 	let result: AgentLoopResult
-	try {
-		const generator = agentLoop(dependencies, { model, messages, tools, maxTokens: 100_000 })
+	while (true) {
+		const iteratorResult = await generator.next()
+		if (iteratorResult.done) {
+			result = iteratorResult.value
+			break
+		}
 
-		let reasoningStarted = false
-		let contentStarted = false
-
-		while (true) {
-			const iteratorResult = await generator.next()
-			if (iteratorResult.done) {
-				result = iteratorResult.value
+		const event = iteratorResult.value
+		switch (event.type) {
+			case "delta":
+				await writer.delta(readReasoningFromDelta(event.delta, profile), event.delta.content ?? undefined)
 				break
-			}
-
-			const event = iteratorResult.value
-			if (event.type === "delta") {
-				const reasoning = event.delta.reasoning ?? event.delta.reasoning_content
-				if (reasoning) {
-					if (contentStarted) {
-						await onTrace("\n\n")
-						contentStarted = false
-					}
-					if (!reasoningStarted) {
-						await onTrace("# Reasoning\n\n")
-						reasoningStarted = true
-					}
-					await onTrace(reasoning)
-				}
-				if (event.delta.content) {
-					if (reasoningStarted) {
-						await onTrace("\n\n")
-						reasoningStarted = false
-					}
-					if (!contentStarted) {
-						await onTrace("# Content\n\n")
-						contentStarted = true
-					}
-					await onTrace(event.delta.content)
-				}
-			} else if (event.type === "tool_call") {
-				await onTrace(`# Tool Call: ${event.toolCall.function.name}\n\n${event.toolCall.function.arguments}\n\n`)
-			} else if (event.type === "tool_result") {
-				await onTrace(`# Tool Result: ${event.name}\n\n${event.result}\n\n`)
-			} else if (event.type === "completion") {
-				if (reasoningStarted || contentStarted) {
-					await onTrace("\n\n")
-					reasoningStarted = false
-					contentStarted = false
-				}
-				if (event.finishReason) {
-					await onTrace(`<!-- finish_reason: ${event.finishReason} -->\n`)
-				}
-			}
+			case "tool_call":
+				await writer.toolCall(event.toolCall.function.name, event.toolCall.function.arguments)
+				break
+			case "tool_result":
+				await writer.toolResult(event.name, event.result)
+				break
+			case "completion":
+				await writer.completion(event.finishReason)
+				break
 		}
-	} catch (error) {
-		if (isContextWindowExceededError(error)) {
-			throw new Error(`Context window exceeded. Original error: ${error.message}`, { cause: error })
-		}
-		throw error
 	}
 
 	const lastMessage = result.messages.at(-1)
 	if (lastMessage === undefined) throw new Error("Agent loop returned no messages")
 	if (lastMessage.role !== "assistant") throw new Error(`Expected last message role to be "assistant", got "${lastMessage.role}"`)
-	if (lastMessage.content === null) throw new Error("Agent loop returned null content for the last assistant message")
+	if (!lastMessage.content) throw new Error("Agent loop returned empty or missing content for the last assistant message")
 
 	return lastMessage.content
 }
 
-async function runAgents(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], model: string): Promise<Map<string, string>> {
-	const promises = agents.map(async agent => [agent.name, await runAgent(dependencies, agent, baseCommit, baseCommitContext, diffText, model)] as const)
+async function runAgents(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], model: string, profile: ProviderProfile): Promise<Map<string, string>> {
+	const promises = agents.map(async agent => [agent.name, await runAgent(dependencies, agent, baseCommit, baseCommitContext, diffText, model, profile)] as const)
 	const reviewResults = await Promise.all(promises)
 	return new Map(reviewResults)
 }
@@ -193,11 +156,11 @@ function parseAggregatorOutput(output: string): AiReviewResult {
 	return parsed
 }
 
-export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string,): Promise<AiReviewResult> {
+export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string, profile: ProviderProfile): Promise<AiReviewResult> {
 	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 
-	const agentOutputs = await runAgents(dependencies, baseCommit, baseCommitContext, diffText, agents, model)
-	const finalOutput = await runAgent(dependencies, aggregator, baseCommit, baseCommitContext, diffText, model, agentOutputs)
+	const agentOutputs = await runAgents(dependencies, baseCommit, baseCommitContext, diffText, agents, model, profile)
+	const finalOutput = await runAgent(dependencies, aggregator, baseCommit, baseCommitContext, diffText, model, profile, agentOutputs)
 
 	dependencies.logger.log("Agent analysis complete")
 

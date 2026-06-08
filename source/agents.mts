@@ -10,11 +10,6 @@ export interface Agent {
 	prompt: string
 }
 
-export interface AgentDirectories {
-	userAgentsDirectory: string
-	builtinAgentsDirectory: string
-}
-
 export type AgentReader = (directory: string) => Promise<Agent[]>
 
 export function createReadAgentsFromDisk(): AgentReader {
@@ -47,12 +42,7 @@ function findAggregator(agents: Agent[]): Agent | null {
 	return agents.find(a => a.name.toLowerCase() === "aggregator") ?? null
 }
 
-export interface ResolveResult {
-	agents: Agent[]
-	unresolvedNames: string[]
-}
-
-function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinAgents: Agent[]): ResolveResult {
+function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinAgents: Agent[]): Agent[] {
 	const filteredUserAgents = filterOutAggregator(userAgents)
 	const filteredBuiltinAgents = filterOutAggregator(builtinAgents)
 	const userAgentMap = buildAgentMap(filteredUserAgents)
@@ -87,29 +77,28 @@ function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinA
 		unresolvedNames.push(name)
 	}
 
-	return { agents, unresolvedNames }
+	if (unresolvedNames.length !== 0) throw new Error(`Unresolved agents: ${unresolvedNames.join(", ")}.  Each name must match a markdown file in .ci-agents/ or the built-in agents directory (case-insensitive, without .md extension).`)
+
+	return agents
 }
 
-export async function loadAgents(dependencies: { readAgents: AgentReader }, directories: AgentDirectories, agentNames: AgentNames): Promise<ResolveResult> {
-	const allUserAgents = await dependencies.readAgents(directories.userAgentsDirectory)
-	const allBuiltinAgents = await dependencies.readAgents(directories.builtinAgentsDirectory)
+export async function loadAgents(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, agentNames: AgentNames): Promise<Agent[]> {
+	const allUserAgents = await dependencies.readAgents(userAgentsDirectory)
+	const allBuiltinAgents = await dependencies.readAgents(builtinAgentsDirectory)
 
-	const result = resolveAgents(agentNames, allUserAgents, allBuiltinAgents)
-
-	if (result.unresolvedNames.length !== 0) throw new Error(`Unresolved agents: ${result.unresolvedNames.join(", ")}.  Each name must match a markdown file in .ci-agents/ or the built-in agents directory (case-insensitive, without .md extension).`)
-	return result
+	return resolveAgents(agentNames, allUserAgents, allBuiltinAgents)
 }
 
-export async function loadAggregator(dependencies: { readAgents: AgentReader }, directories: AgentDirectories): Promise<Agent> {
-	const userAgents = await dependencies.readAgents(directories.userAgentsDirectory)
+export async function loadAggregator(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string): Promise<Agent> {
+	const userAgents = await dependencies.readAgents(userAgentsDirectory)
 	const userAggregator = findAggregator(userAgents)
 	if (userAggregator) return userAggregator
 
-	const builtinAgents = await dependencies.readAgents(directories.builtinAgentsDirectory)
+	const builtinAgents = await dependencies.readAgents(builtinAgentsDirectory)
 	const builtinAggregator = findAggregator(builtinAgents)
 	if (builtinAggregator) return builtinAggregator
 
-	throw new Error(`No aggregator agent found in ${directories.userAgentsDirectory} or ${directories.builtinAgentsDirectory}`)
+	throw new Error(`No aggregator agent found in ${userAgentsDirectory} or ${builtinAgentsDirectory}`)
 }
 
 export type PromptMessage =

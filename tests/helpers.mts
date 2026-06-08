@@ -22,7 +22,6 @@ export function makeGitHubConfiguration(overrides: Partial<GitHubConfiguration> 
 	return {
 		token: "test-token",
 		apiUrl: "https://api.github.com",
-		repository: "owner/repo",
 		owner: "owner",
 		repositoryName: "repo",
 		pullRequestNumber: 42,
@@ -72,7 +71,7 @@ export function createMockFetch(sseText: string): SseFetch {
 }
 
 export function buildContentSse(content: string): string {
-	const firstChunk = { choices: [{ delta: { content }, finish_reason: null }] }
+	const firstChunk = { choices: [{ delta: { role: "assistant", content }, finish_reason: null }] }
 	const finalChunk = { choices: [{ delta: {}, finish_reason: "stop" }] }
 	return `data: ${JSON.stringify(firstChunk)}\n\ndata: ${JSON.stringify(finalChunk)}\n\ndata: [DONE]\n\n`
 }
