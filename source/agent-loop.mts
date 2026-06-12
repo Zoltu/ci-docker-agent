@@ -1,8 +1,11 @@
-import { completions, type CompletionsMessage, type CompletionsToolCall, type CompletionDelta, type CompletionUsage, type CompletionResult, type CompletionsRequest } from './completions.mts'
+import { completions, type CompletionDelta, type CompletionResult, type CompletionsMessage, type CompletionsRequest, type CompletionsToolCall, type CompletionUsage } from './completions.mts'
 import type { ProviderProfile } from './provider-profiles.mts'
 import { isArrayOf, isRecord, isString } from './typescript-helpers.mts'
 
 export type Fetch = (signal: AbortSignal, body: string, headers?: Record<string, string>) => Promise<Response>
+
+// Return a string to feed it back to the model as a user turn and continue the loop; return null to terminate.
+export type OutputValidator = (content: string) => Promise<string | null>
 
 export interface Tool {
 	readonly name: string
@@ -83,7 +86,7 @@ function toWireTools(tools: readonly Tool[]): CompletionsRequest['tools'] {
 	})
 }
 
-export async function* agentLoop(dependencies: { fetch: Fetch },  model: string, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, idleTimeoutMilliseconds: number = 300_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
+export async function* agentLoop(dependencies: { fetch: Fetch },  model: string, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, outputValidator?: OutputValidator, idleTimeoutMilliseconds: number = 300_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
 	const toolMap = new Map(tools.map(tool => [tool.name, tool]))
 	const wireTools = toWireTools(tools)
 	const mutableMessages: CompletionsMessage[] = [...messages]
@@ -177,6 +180,12 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 					throw new Error(`Model returned ${MAX_EMPTY_TURNS} consecutive responses with no output tokens. Aborting to prevent an infinite loop.`)
 				}
 			}
+			continue
+		}
+
+		const feedback = await outputValidator?.(message.content)
+		if (feedback) {
+			mutableMessages.push({ role: 'user', content: feedback })
 			continue
 		}
 

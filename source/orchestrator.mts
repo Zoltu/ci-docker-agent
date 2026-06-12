@@ -1,20 +1,21 @@
+import type { Fetch } from "./agent-loop.mts"
 import type { AgentNames, AgentReader } from "./agents.mts"
 import { loadAgents, loadAggregator } from "./agents.mts"
 import { analyze } from "./ai.mts"
-import type { Fetch } from "./agent-loop.mts"
-import type { ProviderProfile } from "./provider-profiles.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
 import type { CommentTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
-import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from "./diff.mts"
-import type { SpawnGit } from "./diff.mts"
 import type { DebugWriter } from "./debug.mts"
-import { fetchPullRequestDiff, fetchPullRequestBaseCommit, submitReview } from "./github.mts"
-import type { GitHubFetch } from "./github.mts"
+import type { SpawnGit } from "./diff.mts"
+import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from "./diff.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
+import type { GitHubFetch } from "./github.mts"
+import { fetchPullRequestBaseCommit, fetchPullRequestDiff, submitReview } from "./github.mts"
 import type { Logger } from "./logger.mts"
+import type { ProviderProfile } from "./provider-profiles.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import { getAgentsFromComment } from "./trigger.mts"
+import type { AggregatorSubmitResult } from "./ai.mts"
 
 type OrchestratorDependencies = {
 	spawnGit: SpawnGit
@@ -25,12 +26,12 @@ type OrchestratorDependencies = {
 	debugWriter: DebugWriter
 }
 
-async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, profile: ProviderProfile): Promise<AiReviewResult> {
+async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
 	const agents = await loadAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, agentNames)
 	const aggregator = await loadAggregator(dependencies, userAgentsDirectory, builtinAgentsDirectory)
 	await ensureCommitAvailable(dependencies, baseCommit)
 	const baseCommitContext = await getBaseCommitContext(dependencies, baseCommit)
-	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model, profile)
+	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model, profile, submit)
 }
 
 async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, profile: ProviderProfile): Promise<void> {
@@ -44,9 +45,16 @@ async function submitPrReview(dependencies: OrchestratorDependencies, agentNames
 		return
 	}
 
-	const aiResult = await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseCommit, model, profile)
-	const reviewPayload = buildReviewPayload(aiResult)
-	await submitReview(dependencies, githubConfiguration, reviewPayload)
+	const submit = async (result: AiReviewResult): Promise<AggregatorSubmitResult> => {
+		const outcome = await submitReview(dependencies, githubConfiguration, buildReviewPayload(result))
+		if (outcome.ok) return { kind: "ok" }
+		if (outcome.status === 422) {
+			dependencies.logger.log(`GitHub rejected aggregator output with ${outcome.status}, sending feedback to aggregator`)
+			return { kind: "retry", feedback: `Your previous output failed on submission to GitHub:\nHTTP Status: ${outcome.status}\n${outcome.body}` }
+		}
+		return { kind: "fatal", message: `Failed to submit review: ${outcome.status} ${outcome.body}` }
+	}
+	await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseCommit, model, profile, submit)
 	dependencies.logger.log("PR review submitted successfully")
 }
 

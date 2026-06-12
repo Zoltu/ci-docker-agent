@@ -20,13 +20,16 @@ const noopDebugWriter: DebugWriter = { writePrompt: async () => {}, writeTrace: 
 
 const noopSpawnGit: SpawnGit = async () => ({ stdout: "", stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult)
 
-function makeFetchWithAggregatorOutput(aggregatorOutput: string): Fetch {
-	let callCount = 0
-	return async (_signal: AbortSignal, _body: string, _headers?: Record<string, string>) => {
-		callCount++
-		const content = callCount <= 1
+function makeFetchWithAggregatorOutput(aggregatorOutputs: readonly string[]): { fetch: Fetch; capturedBodies: () => readonly string[] } {
+	const capturedBodies: string[] = []
+	const fetch: Fetch = async (_signal: AbortSignal, body: string, _headers?: Record<string, string>) => {
+		capturedBodies.push(body)
+		const callIndex = capturedBodies.length - 1
+		const isAgentCall = callIndex === 0
+		const aggregatorIndex = callIndex - 1
+		const content = isAgentCall
 			? JSON.stringify({ body: "Agent result", comments: [] })
-			: aggregatorOutput
+			: aggregatorOutputs[Math.min(aggregatorIndex, aggregatorOutputs.length - 1)]!
 		const encoder = new TextEncoder()
 		const sseText = buildContentSse(content)
 		const stream = new ReadableStream({
@@ -37,6 +40,7 @@ function makeFetchWithAggregatorOutput(aggregatorOutput: string): Fetch {
 		})
 		return new Response(stream, { status: 200 })
 	}
+	return { fetch, capturedBodies: () => capturedBodies }
 }
 
 describe("parseAiConfiguration", () => {
@@ -148,11 +152,13 @@ describe("analyze", () => {
 	})
 
 	describe("aggregator output validation", () => {
+		const validOutput = JSON.stringify({
+			body: "Looks good",
+			comments: [{ path: "src/file.ts", line: 10, side: "RIGHT", body: "Fix this" }],
+		})
+
 		it("returns result when aggregator output is valid with comments", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({
-				body: "Looks good",
-				comments: [{ path: "src/file.ts", line: 10, side: "RIGHT", body: "Fix this" }],
-			}))
+			const { fetch } = makeFetchWithAggregatorOutput([validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
@@ -164,10 +170,10 @@ describe("analyze", () => {
 		})
 
 		it("returns result when aggregator output has empty comments", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({
+			const { fetch } = makeFetchWithAggregatorOutput([JSON.stringify({
 				body: "No issues found",
 				comments: [],
-			}))
+			})])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
@@ -177,104 +183,171 @@ describe("analyze", () => {
 			expect(result.comments).toEqual([])
 		})
 
-		it("throws Error with aggregator output when output is not valid JSON", async () => {
-			const fetch = makeFetchWithAggregatorOutput("not json")
+		it("feeds back the parse error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput(["not json", validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow(/Failed to parse aggregator output as JSON[\s\S]*not json/)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const secondRequest = JSON.parse(capturedBodies()[2]!)
+			const lastUserMessage = secondRequest.messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Your previous output failed JSON parsing and validation:\nJSON Parse error: Unexpected identifier \"not\"")
 		})
 
-		it("throws when aggregator output does not match expected shape", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({ wrong: "shape" }))
+		it("feeds back the shape error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({ wrong: "shape" }), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			const secondRequest = JSON.parse(capturedBodies()[2]!)
+			const lastUserMessage = secondRequest.messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Your previous output failed JSON parsing and validation:\nParsed output does not match expected shape:\n{\"wrong\":\"shape\"}")
 		})
 
-		it("throws when aggregator body is not a string", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({ body: 123, comments: [] }))
+		it("feeds back the body-type error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({ body: 123, comments: [] }), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const lastUserMessage = JSON.parse(capturedBodies()[2]!).messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
 
-		it("throws when aggregator comments is not an array", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({ body: "test", comments: "not array" }))
+		it("feeds back the comments-type error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({ body: "test", comments: "not array" }), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const lastUserMessage = JSON.parse(capturedBodies()[2]!).messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
 
-		it("throws when aggregator comments is missing", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({ body: "test" }))
+		it("feeds back the missing-comments error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({ body: "test" }), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const lastUserMessage = JSON.parse(capturedBodies()[2]!).messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
 
-		it("throws when aggregator body is empty string", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({ body: "", comments: [] }))
+		it("feeds back the empty-body error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({ body: "", comments: [] }), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const lastUserMessage = JSON.parse(capturedBodies()[2]!).messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
 
-		it("throws when aggregator body is missing", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({ comments: [] }))
+		it("feeds back the missing-body error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({ comments: [] }), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const lastUserMessage = JSON.parse(capturedBodies()[2]!).messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
 
-		it("rejects line number zero in aggregator comments", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({
+		it("feeds back the zero-line-number error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({
 				body: "test",
 				comments: [{ path: "src/file.ts", line: 0, side: "RIGHT", body: "comment" }],
-			}))
+			}), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const lastUserMessage = JSON.parse(capturedBodies()[2]!).messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
 
-		it("rejects negative line number in aggregator comments", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({
+		it("feeds back the negative-line-number error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({
 				body: "test",
 				comments: [{ path: "src/file.ts", line: -1, side: "RIGHT", body: "comment" }],
-			}))
+			}), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const lastUserMessage = JSON.parse(capturedBodies()[2]!).messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
 
-		it("rejects non-integer line number in aggregator comments", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({
+		it("feeds back the non-integer-line-number error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({
 				body: "test",
 				comments: [{ path: "src/file.ts", line: 1.5, side: "RIGHT", body: "comment" }],
-			}))
+			}), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const lastUserMessage = JSON.parse(capturedBodies()[2]!).messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
 
-		it("rejects empty comment body in aggregator comments", async () => {
-			const fetch = makeFetchWithAggregatorOutput(JSON.stringify({
+		it("feeds back the empty-comment-body error and accepts the corrected output", async () => {
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({
 				body: "test",
 				comments: [{ path: "src/file.ts", line: 1, side: "RIGHT", body: "" }],
-			}))
+			}), validOutput])
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			expect(analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)).rejects.toThrow("Parsed output does not match expected AiReviewResult shape")
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+
+			expect(result.body).toBe("Looks good")
+			expect(capturedBodies().length).toBe(3)
+			const lastUserMessage = JSON.parse(capturedBodies()[2]!).messages.at(-1)
+			expect(lastUserMessage.role).toBe("user")
+			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
 	})
 })

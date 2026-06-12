@@ -48,15 +48,18 @@ describe("submitReview", () => {
 		const configuration = makeGitHubConfiguration()
 
 		const review: GitHubReviewPayload = { event: "COMMENT", body: "Great work", comments: [] }
-		await submitReview({ githubFetch }, configuration, review)
+		const result = await submitReview({ githubFetch }, configuration, review)
+		expect(result).toEqual({ ok: true })
 	})
 
-	it("throws on non-ok response", async () => {
-		const githubFetch: GitHubFetch = async () => new Response("Error", { status: 422, statusText: "Unprocessable Entity" })
+	it("returns a result with status and body on non-2xx response", async () => {
+		const body = JSON.stringify({ message: "Unprocessable Entity", errors: ["Line could not be resolved"] })
+		const githubFetch: GitHubFetch = async () => new Response(body, { status: 422, statusText: "Unprocessable Entity" })
 		const configuration = makeGitHubConfiguration()
 
 		const review: GitHubReviewPayload = { event: "COMMENT", body: "Great work", comments: [] }
-		expect(submitReview({ githubFetch }, configuration, review)).rejects.toThrow("Failed to submit review")
+		const result = await submitReview({ githubFetch }, configuration, review)
+		expect(result).toEqual({ ok: false, status: 422, body })
 	})
 })
 

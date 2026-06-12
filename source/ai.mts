@@ -1,18 +1,21 @@
+import { agentLoop, type AgentLoopResult, type Fetch, type OutputValidator } from "./agent-loop.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
-import { agentLoop, type Fetch, type AgentLoopResult } from "./agent-loop.mts"
-import type { CompletionsMessage } from "./completions.mts"
-import type { ProviderProfile } from "./provider-profiles.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
-import type { SpawnGit } from "./diff.mts"
+import type { CompletionsMessage } from "./completions.mts"
+import type { TryResult } from "./configuration.mts"
 import type { DebugWriter } from "./debug.mts"
+import type { SpawnGit } from "./diff.mts"
 import type { LineComment } from "./github-types.mts"
 import { SIDES } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
+import type { ProviderProfile } from "./provider-profiles.mts"
 import { readReasoningFromDelta } from "./reasoning.mts"
 import type { AiReviewResult } from "./review.mts"
 import { createTools } from "./tool-executor.mts"
 import { createTraceWriter } from "./trace-writer.mts"
 import { includes, isReadonlyArray, sleepWithSignal } from "./typescript-helpers.mts"
+
+export type AggregatorSubmitResult = { kind: "ok" } | { kind: "retry"; feedback: string } | { kind: "fatal"; message: string }
 
 export interface AiConfiguration {
 	apiUrl: string
@@ -72,7 +75,7 @@ export function createFetch(configuration: AiConfiguration): Fetch {
 	}
 }
 
-async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, profile: ProviderProfile, agentInputs?: Map<string, string>): Promise<string> {
+async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, profile: ProviderProfile, agentInputs?: Map<string, string>, outputValidator?: OutputValidator): Promise<string> {
 	dependencies.logger.log(`Building prompt for ${agent.name}`)
 	const promptMessages = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
 	const debugText = promptMessages.map(m => `--- ${m.role} ---\n${m.content}`).join("\n\n")
@@ -81,9 +84,9 @@ async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger
 
 	const tools = createTools(dependencies, baseCommit)
 	const messages: CompletionsMessage[] = [...promptMessages]
-	const writer = createTraceWriter(dependencies.debugWriter, agent.name)
+	const traceWriter = createTraceWriter(dependencies.debugWriter, agent.name)
 
-	const generator = agentLoop(dependencies, model, messages, tools, profile, undefined)
+	const generator = agentLoop(dependencies, model, messages, tools, profile, undefined, outputValidator)
 
 	let result: AgentLoopResult
 	while (true) {
@@ -96,16 +99,16 @@ async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger
 		const event = iteratorResult.value
 		switch (event.type) {
 			case "delta":
-				await writer.delta(readReasoningFromDelta(event.delta, profile), event.delta.content ?? undefined)
+				await traceWriter.delta(readReasoningFromDelta(event.delta, profile), event.delta.content ?? undefined)
 				break
 			case "tool_call":
-				await writer.toolCall(event.toolCall.function.name, event.toolCall.function.arguments)
+				await traceWriter.toolCall(event.toolCall.function.name, event.toolCall.function.arguments)
 				break
 			case "tool_result":
-				await writer.toolResult(event.name, event.result)
+				await traceWriter.toolResult(event.name, event.result)
 				break
 			case "completion":
-				await writer.completion(event.finishReason)
+				await traceWriter.completion(event.finishReason)
 				break
 		}
 	}
@@ -143,26 +146,39 @@ function isValidAiReviewResult(data: unknown): data is AiReviewResult {
 	return true
 }
 
-function parseAggregatorOutput(output: string): AiReviewResult {
-	const stripped = output.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "")
-	let parsed: unknown
+function tryParseAggregatorOutput(output: string): TryResult<AiReviewResult> {
+	const stripped = output.trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "")
+	let parsed
 	try {
 		parsed = JSON.parse(stripped)
 	} catch (error) {
-		const originalMessage = error instanceof Error ? error.message : String(error)
-		throw new Error(`Failed to parse aggregator output as JSON: ${originalMessage}\nAggregator output:\n${output}`, { cause: error })
+		return { ok: false, reason: error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error) }
 	}
-	if (!isValidAiReviewResult(parsed)) throw new Error(`Parsed output does not match expected AiReviewResult shape: ${output}`)
-	return parsed
+	if (!isValidAiReviewResult(parsed)) return { ok: false, reason: `Parsed output does not match expected shape:\n${output}` }
+	return { ok: true, value: parsed }
 }
 
-export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string, profile: ProviderProfile): Promise<AiReviewResult> {
+async function aggregatorOutputValidator(submit: ((result: AiReviewResult) => Promise<AggregatorSubmitResult>) | undefined, content: string): Promise<string | null> {
+	const parseResult = tryParseAggregatorOutput(content)
+	if (!parseResult.ok) {
+		return `Your previous output failed JSON parsing and validation:\n${parseResult.reason}`
+	}
+	if (submit === undefined) return null
+	const outcome = await submit(parseResult.value)
+	if (outcome.kind === "ok") return null
+	if (outcome.kind === "retry") return outcome.feedback
+	throw new Error(outcome.message)
+}
+
+export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
 	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 
 	const agentOutputs = await runAgents(dependencies, baseCommit, baseCommitContext, diffText, agents, model, profile)
-	const finalOutput = await runAgent(dependencies, aggregator, baseCommit, baseCommitContext, diffText, model, profile, agentOutputs)
+	const finalOutput = await runAgent(dependencies, aggregator, baseCommit, baseCommitContext, diffText, model, profile, agentOutputs, content => aggregatorOutputValidator(submit, content))
 
 	dependencies.logger.log("Agent analysis complete")
 
-	return parseAggregatorOutput(finalOutput)
+	const result = tryParseAggregatorOutput(finalOutput)
+	if (!result.ok) throw new Error(result.reason)
+	return result.value
 }

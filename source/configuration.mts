@@ -23,7 +23,7 @@ export interface LocalDiffConfiguration {
 
 export type Configuration = CommentTriggerConfiguration | PullRequestConfiguration | LocalDiffConfiguration
 
-type TryResult<T> = { ok: true; value: T } | { ok: false; reason: string }
+export type TryResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 
 function tryParseGitHubConfiguration(environment: Record<string, string | undefined>): TryResult<GitHubConfiguration> {
 	const token = environment.GITHUB_TOKEN

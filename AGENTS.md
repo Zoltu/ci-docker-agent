@@ -208,7 +208,7 @@ Examples: `runAnalysis`, `runOnCommentTrigger`, `runOnLocalDiff`.
 
 Pure helper functions contain parsing, validation, formatting, transformation, and decision-making logic. They are directly imported wherever needed and never injected.
 
-Examples: `parseAggregatorOutput`, `buildAgentPrompt`, `formatReviewForConsole`, `isPrFile`.
+Examples: `tryParseAggregatorOutput`, `buildAgentPrompt`, `formatReviewForConsole`, `isPrFile`.
 
 ### Important Rules
 

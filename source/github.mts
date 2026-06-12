@@ -75,7 +75,8 @@ export async function fetchPullRequestDiff(dependencies: { githubFetch: GitHubFe
 	return response.text()
 }
 
-export async function submitReview(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, review: GitHubReviewPayload): Promise<void> {
+export type SubmitReviewResult = { ok: true } | { ok: false, status: number, body: string }
+export async function submitReview(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, review: GitHubReviewPayload): Promise<SubmitReviewResult> {
 	const { apiUrl, token, owner, repositoryName, pullRequestNumber } = configuration
 
 	const response = await dependencies.githubFetch(`${apiUrl}/repos/${owner}/${repositoryName}/pulls/${pullRequestNumber}/reviews`, {
@@ -86,8 +87,9 @@ export async function submitReview(dependencies: { githubFetch: GitHubFetch }, c
 
 	if (!response.ok) {
 		const body = await response.text().catch(() => "")
-		throw new Error(`Failed to submit review: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
+		return { ok: false, status: response.status, body }
 	}
+	return { ok: true }
 }
 
 function isValidPrMetadata(data: unknown): data is { base: { sha: string } } {
