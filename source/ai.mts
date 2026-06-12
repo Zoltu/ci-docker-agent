@@ -2,7 +2,7 @@ import { agentLoop, type AgentLoopResult, type Fetch, type OutputValidator } fro
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
 import type { CompletionsMessage } from "./completions.mts"
-import type { TryResult } from "./configuration.mts"
+import type { TryResult } from "./typescript-helpers.mts"
 import type { DebugWriter } from "./debug.mts"
 import type { SpawnGit } from "./diff.mts"
 import type { LineComment } from "./github-types.mts"

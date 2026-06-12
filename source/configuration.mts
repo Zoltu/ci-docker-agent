@@ -1,5 +1,6 @@
 import type { AgentNames } from "./agents.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
+import type { TryResult } from "./typescript-helpers.mts"
 import { parseCommaSeparatedList } from "./typescript-helpers.mts"
 
 export interface CommentTriggerConfiguration {
@@ -22,8 +23,6 @@ export interface LocalDiffConfiguration {
 }
 
 export type Configuration = CommentTriggerConfiguration | PullRequestConfiguration | LocalDiffConfiguration
-
-export type TryResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 
 function tryParseGitHubConfiguration(environment: Record<string, string | undefined>): TryResult<GitHubConfiguration> {
 	const token = environment.GITHUB_TOKEN
