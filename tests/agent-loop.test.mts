@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { agentLoop, type AgentLoopEvent, type AgentLoopResult, type Fetch, type Tool } from "../source/agent-loop.mts"
+import { agentLoop, type AgentLoopEvent, type AgentLoopResult, type Fetch, type OutputValidator, type Tool } from "../source/agent-loop.mts"
 import type { CompletionsMessage } from "../source/completions.mts"
 import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 
@@ -705,12 +705,12 @@ describe("agentLoop", () => {
 	describe("idle timeout", () => {
 		it("throws when no deltas arrive within idle timeout", async () => {
 			const fetch = createHangingFetchWithSignal()
-			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, 50))).rejects.toThrow("Agent loop timed out due to inactivity")
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop timed out due to inactivity")
 		})
 
 		it("includes timeout duration in error message", async () => {
 			const fetch = createHangingFetchWithSignal()
-			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, 123))).rejects.toThrow("123 milliseconds")
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 123))).rejects.toThrow("123 milliseconds")
 		})
 
 		it("resets idle timer on each delta", async () => {
@@ -736,7 +736,7 @@ describe("agentLoop", () => {
 				})
 				return new Response(stream, { status: 200 })
 			}
-			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, 50))
+			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))
 			expect(result.finishReason).toBe("stop")
 		})
 	})
@@ -1000,6 +1000,117 @@ describe("agentLoop", () => {
 			)
 			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(result.finishReason).toBe("stop")
+		})
+	})
+
+	describe("outputValidator callback", () => {
+		it("terminates normally when callback returns null", async () => {
+			const outputValidator: OutputValidator = async () => null
+			const { fetch } = createFetchWithSignal(() =>
+				buildSse([chunk({ content: "done" }), chunk({}, "stop")]),
+			)
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))
+			expect(result.finishReason).toBe("stop")
+			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "done" })
+		})
+
+		it("continues the loop and feeds back the callback's string as a user turn", async () => {
+			const responses = [
+				buildSse([
+					chunk({ content: "first attempt" }),
+					chunk({}, "stop"),
+				]),
+				buildSse([
+					chunk({ content: "second attempt" }),
+					chunk({}, "stop"),
+				]),
+			]
+			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex]!)
+
+			const observedContents: string[] = []
+			let callCount$ = 0
+			const outputValidator: OutputValidator = async (content) => {
+				observedContents.push(content)
+				callCount$++
+				if (callCount$ === 1) return "your previous output was invalid; please correct it"
+				return null
+			}
+
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))
+
+			expect(observedContents).toEqual(["first attempt", "second attempt"])
+			expect(callCount()).toBe(2)
+			expect(result.finishReason).toBe("stop")
+			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "second attempt" })
+			expect(result.messages.at(-2)).toEqual({ role: "user", content: "your previous output was invalid; please correct it" })
+			expect(result.messages.at(-3)).toEqual({ role: "assistant", content: "first attempt" })
+		})
+
+		it("includes the injected user turn in the next completions request", async () => {
+			const capturedBodies: string[] = []
+			const responses = [
+				buildSse([chunk({ content: "first" }), chunk({}, "stop")]),
+				buildSse([chunk({ content: "second" }), chunk({}, "stop")]),
+			]
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
+				capturedBodies.push(body)
+				const callIndex = capturedBodies.length - 1
+				const sseText = responses[callIndex] ?? responses[responses.length - 1]!
+				return createMockFetchResponse(sseText)
+			}
+
+			let callbackCalls = 0
+			const outputValidator: OutputValidator = async () => {
+				callbackCalls++
+				if (callbackCalls === 1) return "feedback message"
+				return null
+			}
+
+			await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))
+
+			const secondRequest = JSON.parse(capturedBodies[1]!)
+			expect(secondRequest.messages).toEqual([
+				{ role: "user", content: "hi" },
+				{ role: "assistant", content: "first" },
+				{ role: "user", content: "feedback message" },
+			])
+		})
+
+		it("propagates throws from the callback", async () => {
+			const outputValidator: OutputValidator = async () => { throw new Error("validator crashed") }
+			const { fetch } = createFetchWithSignal(() =>
+				buildSse([chunk({ content: "done" }), chunk({}, "stop")]),
+			)
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))).rejects.toThrow("validator crashed")
+		})
+
+		it("skips the callback on tool-call turns, invokes it on content turns", async () => {
+			let callbackCalls = 0
+			const outputValidator: OutputValidator = async () => { callbackCalls++; return null }
+			const responses = [
+				buildSse([
+					chunk({
+						tool_calls: [{
+							index: 0, id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+						}],
+					}, "tool_calls"),
+				]),
+				buildSse([chunk({ content: "final" }), chunk({}, "stop")]),
+			]
+			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex]!)
+
+			await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE, undefined, outputValidator))
+
+			expect(callbackCalls).toBe(1)
+		})
+
+		it("behaves identically to no-callback when callback is omitted", async () => {
+			const { fetch } = createFetchWithSignal(() =>
+				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
+			)
+			const { result } = await collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			expect(result.finishReason).toBe("stop")
+			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "ok" })
 		})
 	})
 })

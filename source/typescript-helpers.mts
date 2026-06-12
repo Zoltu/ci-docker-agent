@@ -29,6 +29,8 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 	return true
 }
 
+export type TryResult<T> = { ok: true; value: T } | { ok: false; reason: string }
+
 export type Guard<T> = (value: unknown) => value is T
 export interface OptionalMarker<T> {
 	__optional: true
