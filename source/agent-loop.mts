@@ -185,6 +185,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 
 		const feedback = await outputValidator?.(message.content)
 		if (feedback) {
+			emptyTurnCount = 0
 			mutableMessages.push({ role: 'user', content: feedback })
 			continue
 		}
