@@ -23,8 +23,10 @@ on:
 permissions:
   pull-requests: write
   contents: read
+  checks: write
 
 jobs:
+  # Magic string: the `ci-agent` job id below must not change as the agent looks for a job with this name to update reviews with result details
   ci-agent:
     # if triggered by an issue_comment, the issue must be a Pull Request comment and the commentor must be semi-trusted (not internet rando)
     if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]'), github.event.comment.author_association))
