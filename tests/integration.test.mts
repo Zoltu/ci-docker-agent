@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import { EXISTING_CHECK_RUN_JOB_NAME } from "../source/orchestrator.mts"
 import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, getWorkspaceDirectory } from "../source/paths.mts"
 
 const PROJECT_ROOT = join(import.meta.dir, "..")
@@ -22,5 +23,12 @@ describe("integration", () => {
 		expect(dockerfile).toContain(`COPY --from=builder /ci-agent/source/ /ci-agent/source/`)
 		expect(dockerfile).toContain(`VOLUME ${DEBUG_DIRECTORY}`)
 		expect(dockerfile).toContain(`WORKDIR ${getWorkspaceDirectory({})}`)
+	})
+
+	it("workflow job id matches the EXISTING_CHECK_RUN_JOB_NAME constant", () => {
+		const workflow = readFileSync(join(PROJECT_ROOT, ".github", "workflows", "ci-agent.yml"), "utf-8")
+		// Match the job id line; the trailing colon disambiguates from comment mentions and the constant name itself.
+		const jobIdPattern = new RegExp(`^\\s*${EXISTING_CHECK_RUN_JOB_NAME}:\\s*$`, "m")
+		expect(workflow).toMatch(jobIdPattern)
 	})
 })
