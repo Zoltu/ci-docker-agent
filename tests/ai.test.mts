@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { analyze, parseAiConfiguration } from "../source/ai.mts"
+import { analyze, createFetch, parseAiConfiguration, type Sleep, type Random, type Now } from "../source/ai.mts"
 import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 import type { Agent } from "../source/agents.mts"
 import type { DebugWriter } from "../source/debug.mts"
@@ -349,5 +349,173 @@ describe("analyze", () => {
 			expect(lastUserMessage.role).toBe("user")
 			expect(lastUserMessage.content).toContain("Parsed output does not match expected shape")
 		})
+	})
+})
+
+describe("createFetch", () => {
+	const BASE_TIME = 1_700_000_000_000
+
+	function response(status: number, headers: Record<string, string> = {}): Response {
+		return new Response(null, { status, headers })
+	}
+
+	function createFakeHttpFetch(responses: readonly Response[]): { httpFetch: Fetch; callCount: () => number } {
+		let i = 0
+		return {
+			httpFetch: async () => responses[Math.min(i++, responses.length - 1)]!,
+			callCount: () => i,
+		}
+	}
+
+	function createFakeSleep(): { sleep: Sleep; delays: number[] } {
+		const delays: number[] = []
+		return {
+			sleep: async (ms) => { delays.push(ms) },
+			delays,
+		}
+	}
+
+	const fixedRandom: Random = () => 1
+	const constantNow = (time: number): Now => () => time
+	function scriptedNow(values: readonly number[]): Now {
+		let i = 0
+		return () => values[Math.min(i++, values.length - 1)]!
+	}
+
+	function buildFetch(responses: readonly Response[], now: Now = constantNow(BASE_TIME)): { fetch: Fetch; callCount: () => number; delays: () => number[] } {
+		const http = createFakeHttpFetch(responses)
+		const sleep = createFakeSleep()
+		const fetch = createFetch({ httpFetch: http.httpFetch, sleep: sleep.sleep, random: fixedRandom, now })
+		return { fetch, callCount: http.callCount, delays: () => sleep.delays }
+	}
+
+	it("returns a success response without retrying", async () => {
+		const { fetch, callCount, delays } = buildFetch([response(200)])
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(200)
+		expect(callCount()).toBe(1)
+		expect(delays()).toEqual([])
+	})
+
+	it("does not retry on a non-retryable 4xx status", async () => {
+		const { fetch, callCount, delays } = buildFetch([response(400)])
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(400)
+		expect(callCount()).toBe(1)
+		expect(delays()).toEqual([])
+	})
+
+	it("retries a 429 with exponential backoff when no headers are present", async () => {
+		const { fetch, callCount, delays } = buildFetch([response(429), response(200)])
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(200)
+		expect(callCount()).toBe(2)
+		expect(delays()).toEqual([1_000])
+	})
+
+	it("retries a 5xx status", async () => {
+		const { fetch, callCount, delays } = buildFetch([response(503), response(200)])
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(200)
+		expect(callCount()).toBe(2)
+		expect(delays()).toEqual([1_000])
+	})
+
+	it("honors the Retry-After header in seconds", async () => {
+		const { fetch, delays } = buildFetch([response(429, { "Retry-After": "5" }), response(200)])
+		await fetch(new AbortController().signal, "body")
+		expect(delays()).toEqual([5_000])
+	})
+
+	it("treats X-RateLimit-Reset below the epoch threshold as seconds-until-reset", async () => {
+		const { fetch, delays } = buildFetch([response(429, { "X-RateLimit-Reset": "30" }), response(200)])
+		await fetch(new AbortController().signal, "body")
+		expect(delays()).toEqual([30_000])
+	})
+
+	it("treats X-RateLimit-Reset at/above the epoch threshold as a Unix timestamp", async () => {
+		const resetEpochSeconds = (BASE_TIME + 10_000) / 1000
+		const { fetch, delays } = buildFetch([response(429, { "X-RateLimit-Reset": String(resetEpochSeconds) }), response(200)])
+		await fetch(new AbortController().signal, "body")
+		expect(delays()).toEqual([10_000])
+	})
+
+	it("clamps a past Unix epoch reset to a zero base wait", async () => {
+		const resetEpochSeconds = (BASE_TIME - 5_000) / 1000
+		const { fetch, delays } = buildFetch([response(429, { "X-RateLimit-Reset": String(resetEpochSeconds) }), response(200)])
+		await fetch(new AbortController().signal, "body")
+		expect(delays()).toEqual([0])
+	})
+
+	it("prefers Retry-After over X-RateLimit-Reset when both are present", async () => {
+		const { fetch, delays } = buildFetch([response(429, { "Retry-After": "2", "X-RateLimit-Reset": "999" }), response(200)])
+		await fetch(new AbortController().signal, "body")
+		expect(delays()).toEqual([2_000])
+	})
+
+	it("applies exponential backoff progression and caps at MAX_BACKOFF, then returns the final 429", async () => {
+		const elevenFailures = Array.from({ length: 11 }, () => response(429))
+		const { fetch, callCount, delays } = buildFetch(elevenFailures)
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(429)
+		expect(callCount()).toBe(11)
+		expect(delays()).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000])
+	})
+
+	it("caps a far-future reset at MAX_SINGLE_WAIT_MILLISECONDS", async () => {
+		const farFutureEpochSeconds = (BASE_TIME + 10 * 60 * 1000) / 1000
+		const { fetch, delays } = buildFetch([response(429, { "X-RateLimit-Reset": String(farFutureEpochSeconds) }), response(200)])
+		await fetch(new AbortController().signal, "body")
+		expect(delays()).toEqual([240_000])
+	})
+
+	it("returns the 429 without sleeping when the deadline is already exhausted after a fetch", async () => {
+		const now = scriptedNow([BASE_TIME, BASE_TIME + 301_000])
+		const { fetch, callCount, delays } = buildFetch([response(429)], now)
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(429)
+		expect(callCount()).toBe(1)
+		expect(delays()).toEqual([])
+	})
+
+	it("caps the wait by the remaining deadline when Retry-After exceeds it", async () => {
+		const now = scriptedNow([BASE_TIME, BASE_TIME, BASE_TIME + 290_000])
+		const { fetch, callCount, delays } = buildFetch([response(429, { "Retry-After": "60" }), response(200)], now)
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(200)
+		expect(callCount()).toBe(2)
+		expect(delays()).toEqual([10_000])
+	})
+
+	it("falls back to exponential backoff when Retry-After is non-numeric", async () => {
+		const { fetch, delays } = buildFetch([response(429, { "Retry-After": "soon" }), response(200)])
+		await fetch(new AbortController().signal, "body")
+		expect(delays()).toEqual([1_000])
+	})
+
+	it("falls back to exponential backoff when X-RateLimit-Reset is non-numeric", async () => {
+		const { fetch, delays } = buildFetch([response(429, { "X-RateLimit-Reset": "soon" }), response(200)])
+		await fetch(new AbortController().signal, "body")
+		expect(delays()).toEqual([1_000])
+	})
+
+	it("falls back to exponential backoff when X-RateLimit-Reset is negative", async () => {
+		const { fetch, delays } = buildFetch([response(429, { "X-RateLimit-Reset": "-5" }), response(200)])
+		await fetch(new AbortController().signal, "body")
+		expect(delays()).toEqual([1_000])
+	})
+
+	it("forwards the caller's abort signal to the in-flight httpFetch so requests can be cancelled mid-flight", async () => {
+		const controller = new AbortController()
+		let observedSignal: AbortSignal | undefined
+		const httpFetch: Fetch = async (signal) => {
+			observedSignal = signal
+			return response(200)
+		}
+		const fetch = createFetch({ httpFetch, sleep: createFakeSleep().sleep, random: fixedRandom, now: constantNow(BASE_TIME) })
+
+		await fetch(controller.signal, "body")
+
+		expect(observedSignal).toBe(controller.signal)
 	})
 })
