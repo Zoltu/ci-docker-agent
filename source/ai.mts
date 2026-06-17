@@ -38,41 +38,131 @@ export function parseAiConfiguration(environment: Record<string, string | undefi
 	return { apiUrl, model, apiKey }
 }
 
-export function createFetch(configuration: AiConfiguration): Fetch {
-	const MAX_RETRIES = 5
-	const INITIAL_BACKOFF_MILLISECONDS = 1_000
-	const MAX_BACKOFF_MILLISECONDS = 30_000
+const INITIAL_BACKOFF_MILLISECONDS = 1_000
+const MAX_BACKOFF_MILLISECONDS = 30_000
 
+// Stays under the agent-loop idle timeout (300s) so a long reset window can't trip the composite abort mid-sleep.
+const MAX_SINGLE_WAIT_MILLISECONDS = 240_000
+
+const RETRY_DEADLINE_MILLISECONDS = 300_000
+
+// Below this, X-RateLimit-Reset is seconds-until-reset; at/above, it's a Unix epoch timestamp.
+const EPOCH_THRESHOLD = 1_000_000_000
+
+const MAX_RETRIES = 10
+
+export type Sleep = (milliseconds: number, signal: AbortSignal) => Promise<void>
+export type Random = () => number
+export type Now = () => number
+
+export interface FetchDependencies {
+	readonly httpFetch: Fetch
+	readonly sleep: Sleep
+	readonly random: Random
+	readonly now: Now
+}
+
+export function createHttpFetch(configuration: AiConfiguration): Fetch {
 	return async (signal, body, headers) => {
 		const url = `${configuration.apiUrl.replace(/\/$/, "")}/chat/completions`
 		const requestHeaders: Record<string, string> = { ...headers }
 		if (configuration.apiKey) requestHeaders["Authorization"] = `Bearer ${configuration.apiKey}`
+		return fetch(url, { method: "POST", headers: requestHeaders, body, signal })
+	}
+}
 
-		let lastResponse: Response | undefined
-		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-			if (attempt > 0) {
-				const backoff = Math.min(INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, attempt - 1), MAX_BACKOFF_MILLISECONDS)
-				const jitter = backoff * (0.5 + Math.random() * 0.5)
-				await sleepWithSignal(jitter, signal)
+export function createSleep(): Sleep {
+	return sleepWithSignal
+}
+
+export function createRandom(): Random {
+	return () => Math.random()
+}
+
+export function createNow(): Now {
+	return () => Date.now()
+}
+
+interface RetryDelayInput {
+	readonly retryAfter: string | null
+	readonly rateLimitReset: string | null
+	readonly attempt: number
+	readonly deadlineRemainingMilliseconds: number
+	readonly now: number
+	readonly random: number
+}
+
+// Precedence: Retry-After > X-RateLimit-Reset (epoch or duration, heuristic) > exponential backoff.
+function computeRetryDelay(input: RetryDelayInput): number | null {
+	if (input.deadlineRemainingMilliseconds <= 0) return null
+
+	let computed: number | undefined
+
+	if (input.retryAfter !== null) {
+		const seconds = Number.parseInt(input.retryAfter, 10)
+		if (Number.isFinite(seconds) && seconds >= 0) computed = seconds * 1000
+	}
+
+	if (computed === undefined && input.rateLimitReset !== null) {
+		const value = Number.parseFloat(input.rateLimitReset)
+		if (Number.isFinite(value) && value >= 0) {
+			const milliseconds = value < EPOCH_THRESHOLD
+				? value * 1000
+				: Math.max(0, value - input.now / 1000) * 1000
+			computed = milliseconds
+		}
+	}
+
+	if (computed === undefined) {
+		const backoff = INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, input.attempt)
+		computed = Math.min(backoff, MAX_BACKOFF_MILLISECONDS)
+	}
+
+	const capped = Math.min(computed, MAX_SINGLE_WAIT_MILLISECONDS, input.deadlineRemainingMilliseconds)
+	return capped * (0.5 + input.random * 0.5)
+}
+
+function isRetryableStatus(status: number): boolean {
+	return status === 429 || (status >= 500 && status <= 599)
+}
+
+async function fetchWithRetries(dependencies: FetchDependencies, signal: AbortSignal, body: string, headers?: Record<string, string>): Promise<Response> {
+	const deadline = dependencies.now() + RETRY_DEADLINE_MILLISECONDS
+	let lastResponse: Response | undefined
+	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+		if (attempt > 0) {
+			const now = dependencies.now()
+			const delay = computeRetryDelay({
+				retryAfter: lastResponse?.headers.get("Retry-After") ?? null,
+				rateLimitReset: lastResponse?.headers.get("X-RateLimit-Reset") ?? null,
+				attempt: attempt - 1,
+				deadlineRemainingMilliseconds: deadline - now,
+				now,
+				random: dependencies.random(),
+			})
+			if (delay === null) {
+				if (lastResponse === undefined) throw new Error("Retry deadline exhausted before any response was received")
+				return lastResponse
 			}
-
-			lastResponse = await fetch(url, { method: "POST", headers: requestHeaders, body, signal })
-
-			if (lastResponse.status === 429 || (lastResponse.status >= 500 && lastResponse.status <= 599)) {
-				if (attempt === MAX_RETRIES) return lastResponse
-				if (lastResponse.status === 429) {
-					const retryAfter = lastResponse.headers.get("Retry-After")
-					const delay = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : Math.min(INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, attempt), MAX_BACKOFF_MILLISECONDS)
-					await sleepWithSignal(delay, signal)
-				}
-				continue
-			}
-
-			return lastResponse
+			await dependencies.sleep(delay, signal)
 		}
 
-		return lastResponse!
+		lastResponse = await dependencies.httpFetch(signal, body, headers)
+
+		if (isRetryableStatus(lastResponse.status)) {
+			if (attempt === MAX_RETRIES) return lastResponse
+			if (dependencies.now() >= deadline) return lastResponse
+			continue
+		}
+
+		return lastResponse
 	}
+
+	throw new Error("createFetch retry loop exited without returning a response")
+}
+
+export function createFetch(dependencies: FetchDependencies): Fetch {
+	return (signal, body, headers) => fetchWithRetries(dependencies, signal, body, headers)
 }
 
 async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, profile: ProviderProfile, agentInputs?: Map<string, string>, outputValidator?: OutputValidator): Promise<string> {

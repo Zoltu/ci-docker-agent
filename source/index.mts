@@ -1,8 +1,8 @@
-import { createFetch, parseAiConfiguration } from "./ai.mts"
 import { createReadAgentsFromDisk } from "./agents.mts"
+import { createFetch, createHttpFetch, createNow, createRandom, createSleep, parseAiConfiguration } from "./ai.mts"
 import { getConfiguration } from "./configuration.mts"
-import { createSpawnGit } from "./diff.mts"
 import { createDebugWriter } from "./debug.mts"
+import { createSpawnGit } from "./diff.mts"
 import { createGithubFetch } from "./github.mts"
 import { createLogger } from "./logger.mts"
 import { runOnCommentTrigger, runOnLocalDiff, runOnPullRequest } from "./orchestrator.mts"
@@ -21,7 +21,7 @@ async function main(): Promise<void> {
 	const readAgents = createReadAgentsFromDisk()
 	const spawnGit = createSpawnGit(workspaceDirectory)
 	const aiConfiguration = parseAiConfiguration(Bun.env)
-	const fetch = createFetch(aiConfiguration)
+	const fetch = createFetch({ httpFetch: createHttpFetch(aiConfiguration), sleep: createSleep(), random: createRandom(), now: createNow() })
 	const githubFetch = createGithubFetch(logger)
 	const profile = selectProviderProfile(aiConfiguration.apiUrl, aiConfiguration.model)
 
