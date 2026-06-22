@@ -1,6 +1,6 @@
 import type { GitHubConfiguration, GitHubReviewPayload } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
-import { guard, isArrayOf, isInteger, isString } from "./typescript-helpers.mts"
+import { guard, isArrayOf, isInteger, isString, normalizeFetchError } from "./typescript-helpers.mts"
 
 const REQUEST_TIMEOUT_MILLISECONDS = 10_000
 const RETRY_DELAY_MILLISECONDS = 30_000
@@ -28,7 +28,7 @@ export function createGithubFetch(logger: Logger): GitHubFetch {
 			const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MILLISECONDS)
 
 			try {
-				const response = await fetch(url, { ...options, signal: controller.signal })
+				const response = await normalizeFetchError(fetch(url, { ...options, signal: controller.signal }))
 				clearTimeout(timeoutId)
 
 				if (response.status === 429) {

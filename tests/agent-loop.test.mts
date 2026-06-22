@@ -703,14 +703,14 @@ describe("agentLoop", () => {
 	})
 
 	describe("idle timeout", () => {
-		it("throws when no deltas arrive within idle timeout", async () => {
+		it("retries the turn when no deltas arrive within idle timeout, then stalls after max retries", async () => {
 			const fetch = createHangingFetchWithSignal()
-			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop timed out due to inactivity")
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop stalled")
 		})
 
-		it("includes timeout duration in error message", async () => {
+		it("includes timeout duration in stall error message", async () => {
 			const fetch = createHangingFetchWithSignal()
-			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 123))).rejects.toThrow("123 milliseconds")
+			expect(collectLoop(agentLoop({ fetch }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 123))).rejects.toThrow("123ms")
 		})
 
 		it("resets idle timer on each delta", async () => {
