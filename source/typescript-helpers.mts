@@ -118,3 +118,17 @@ export function deepMerge<T>(base: T, override: T): T {
 	}
 	return result as T
 }
+
+// DOMException is instanceof Error but Bun's console renders it as a generic object dump, so rethrow error-likes as real Errors.
+export async function normalizeFetchError<T>(promise: Promise<T>): Promise<T> {
+	try {
+		return await promise
+	} catch (error) {
+		if (error instanceof Error && !(error instanceof DOMException)) throw error
+		if (isRecord(error) && isString(error.message)) {
+			const name = isString(error.name) ? error.name : undefined
+			throw new Error(name !== undefined ? `${name}: ${error.message}` : error.message, { cause: error })
+		}
+		throw new Error(String(error), { cause: error })
+	}
+}

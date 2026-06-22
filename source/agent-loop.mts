@@ -51,16 +51,20 @@ export interface AgentLoopResult {
 
 const MAX_EMPTY_TURNS = 5
 
-function createIdleTimer(callback: () => void, timeoutMilliseconds: number) {
+// Idle sentinel: resolves when no delta arrives within the idle window, letting the stream-read loop break and retry the turn without throwing.
+function createIdleTimer(timeoutMilliseconds: number): { reset: () => void; cleanup: () => void; expired: Promise<void> } {
 	let timer: ReturnType<typeof setTimeout> | undefined
+	let resolve: () => void
+	const expired = new Promise<void>(resolveExpired => { resolve = resolveExpired })
 	return {
 		reset() {
 			if (timer !== undefined) clearTimeout(timer)
-			timer = setTimeout(callback, timeoutMilliseconds)
+			timer = setTimeout(resolve, timeoutMilliseconds)
 		},
 		cleanup() {
 			clearTimeout(timer)
 		},
+		expired,
 	}
 }
 
@@ -87,22 +91,25 @@ function toWireTools(tools: readonly Tool[]): CompletionsRequest['tools'] {
 }
 
 export async function* agentLoop(dependencies: { fetch: Fetch },  model: string, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, outputValidator?: OutputValidator, idleTimeoutMilliseconds: number = 300_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
+	// Must stay below BUN_CONFIG_HTTP_IDLE_TIMEOUT in Dockerfile so this non-throwing retry fires before Bun's socket timer throws a DOMException.
 	const toolMap = new Map(tools.map(tool => [tool.name, tool]))
 	const wireTools = toWireTools(tools)
 	const mutableMessages: CompletionsMessage[] = [...messages]
 
 	if (mutableMessages.length === 0) throw new Error('At least one message is required')
 
-	const controller = new AbortController()
-	const signals: AbortSignal[] = [controller.signal]
-	if (signal) signals.push(signal)
-	const compositeSignal = AbortSignal.any(signals)
-	const boundFetch = (body: string, headers?: Record<string, string>) => dependencies.fetch(compositeSignal, body, headers)
+	// `controller` aborts the in-flight fetch when a turn is retried due to idle; `signal` propagates genuine caller abort (e.g. process shutdown).
+	const callerSignals: AbortSignal[] = signal ? [signal] : []
 
 	// This loop is bounded because every tool call and response is appended to `messages`. Eventually the context window of the connected model will be exceeded and the completions() call will fail, so the loop cannot run forever.
 	let emptyTurnCount = 0
+	let idleRetryCount = 0
 	while (true) {
-		const idleTimer = createIdleTimer(() => { controller.abort(new Error(`Agent loop timed out due to inactivity (no delta received for ${idleTimeoutMilliseconds} milliseconds)`)) }, idleTimeoutMilliseconds)
+		const controller = new AbortController()
+		const compositeSignal = AbortSignal.any([...callerSignals, controller.signal])
+		const boundFetch = (body: string, headers?: Record<string, string>) => dependencies.fetch(compositeSignal, body, headers)
+
+		const idleTimer = createIdleTimer(idleTimeoutMilliseconds)
 
 		const baseRequest: CompletionsRequest = {
 			model: model,
@@ -114,11 +121,21 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 		const preparedRequest = profile.prepareRequest(baseRequest)
 		const completionsGenerator = completions({ fetch: boundFetch }, preparedRequest, profile.overwritePaths)
 
-		let completionResult: CompletionResult
+		let completionResult: CompletionResult | undefined
 		try {
 			idleTimer.reset()
 			while (true) {
-				const iteratorResult = await completionsGenerator.next()
+				const raced = await Promise.race([
+					completionsGenerator.next(),
+					idleTimer.expired.then(() => undefined),
+				])
+				if (raced === undefined) {
+					// Idle window elapsed with no delta: abort the in-flight fetch so it doesn't leak, then retry the turn.
+					controller.abort()
+					break
+				}
+				idleRetryCount = 0
+				const iteratorResult = raced
 				if (iteratorResult.done) {
 					completionResult = iteratorResult.value
 					break
@@ -128,6 +145,14 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 			}
 		} finally {
 			idleTimer.cleanup()
+		}
+
+		if (completionResult === undefined) {
+			idleRetryCount++
+			if (idleRetryCount >= MAX_EMPTY_TURNS) {
+				throw new Error(`Agent loop stalled: no delta received within ${idleTimeoutMilliseconds}ms for ${MAX_EMPTY_TURNS} consecutive turns.`)
+			}
+			continue
 		}
 
 		yield { type: 'completion', finishReason: completionResult.finishReason, usage: completionResult.usage }

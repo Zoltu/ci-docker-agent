@@ -13,7 +13,7 @@ import { readReasoningFromDelta } from "./reasoning.mts"
 import type { AiReviewResult } from "./review.mts"
 import { createTools } from "./tool-executor.mts"
 import { createTraceWriter } from "./trace-writer.mts"
-import { includes, isReadonlyArray, sleepWithSignal } from "./typescript-helpers.mts"
+import { includes, isReadonlyArray, normalizeFetchError, sleepWithSignal } from "./typescript-helpers.mts"
 
 export type AggregatorSubmitResult = { kind: "ok" } | { kind: "retry"; feedback: string } | { kind: "fatal"; message: string }
 
@@ -67,7 +67,7 @@ export function createHttpFetch(configuration: AiConfiguration): Fetch {
 		const url = `${configuration.apiUrl.replace(/\/$/, "")}/chat/completions`
 		const requestHeaders: Record<string, string> = { ...headers }
 		if (configuration.apiKey) requestHeaders["Authorization"] = `Bearer ${configuration.apiKey}`
-		return fetch(url, { method: "POST", headers: requestHeaders, body, signal })
+		return normalizeFetchError(fetch(url, { method: "POST", headers: requestHeaders, body, signal }))
 	}
 }
 
