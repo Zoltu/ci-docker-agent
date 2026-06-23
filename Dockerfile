@@ -89,7 +89,5 @@ VOLUME /debug
 
 # disable annoying feature of BUN that makes it so source lines show up in error output
 ENV BUN_DISABLE_SOURCE_CODE_PREVIEW=1
-# byte-level socket idle backstop; kept above the agent-loop idle timer (300s) so the agent-loop's non-throwing retry always fires first on stalled streams
-ENV BUN_CONFIG_HTTP_IDLE_TIMEOUT=600
 
 ENTRYPOINT ["bun", "/ci-agent/source/index.mts"]

@@ -90,8 +90,8 @@ function toWireTools(tools: readonly Tool[]): CompletionsRequest['tools'] {
 	})
 }
 
-export async function* agentLoop(dependencies: { fetch: Fetch },  model: string, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, outputValidator?: OutputValidator, idleTimeoutMilliseconds: number = 300_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
-	// Must stay below BUN_CONFIG_HTTP_IDLE_TIMEOUT in Dockerfile so this non-throwing retry fires before Bun's socket timer throws a DOMException.
+export async function* agentLoop(dependencies: { fetch: Fetch },  model: string, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, outputValidator?: OutputValidator, idleTimeoutMilliseconds: number = 240_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
+	// Must stay below Bun's socket idle timeout (hard-coded 300s on 1.3.12; tunable via BUN_CONFIG_HTTP_IDLE_TIMEOUT in a future Bun) so this non-throwing retry fires first on a stalled stream.
 	const toolMap = new Map(tools.map(tool => [tool.name, tool]))
 	const wireTools = toWireTools(tools)
 	const mutableMessages: CompletionsMessage[] = [...messages]

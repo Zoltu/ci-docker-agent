@@ -466,7 +466,7 @@ describe("createFetch", () => {
 		const farFutureEpochSeconds = (BASE_TIME + 10 * 60 * 1000) / 1000
 		const { fetch, delays } = buildFetch([response(429, { "X-RateLimit-Reset": String(farFutureEpochSeconds) }), response(200)])
 		await fetch(new AbortController().signal, "body")
-		expect(delays()).toEqual([240_000])
+		expect(delays()).toEqual([180_000])
 	})
 
 	it("returns the 429 without sleeping when the deadline is already exhausted after a fetch", async () => {
