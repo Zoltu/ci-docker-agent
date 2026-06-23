@@ -994,7 +994,7 @@ describe("agentLoop", () => {
 	})
 
 	describe("default idle timeout", () => {
-		it("defaults to 300000ms", async () => {
+		it("defaults to 240000ms", async () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
 			)

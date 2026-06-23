@@ -41,8 +41,8 @@ export function parseAiConfiguration(environment: Record<string, string | undefi
 const INITIAL_BACKOFF_MILLISECONDS = 1_000
 const MAX_BACKOFF_MILLISECONDS = 30_000
 
-// Stays under the agent-loop idle timeout (300s) so a long reset window can't trip the composite abort mid-sleep.
-const MAX_SINGLE_WAIT_MILLISECONDS = 240_000
+// Stays under the agent-loop idle timeout (240s) so a long reset window can't trip the composite abort mid-sleep.
+const MAX_SINGLE_WAIT_MILLISECONDS = 180_000
 
 const RETRY_DEADLINE_MILLISECONDS = 300_000
 
