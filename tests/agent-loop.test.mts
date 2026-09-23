@@ -741,6 +741,133 @@ describe("agentLoop", () => {
 		})
 	})
 
+	describe("mid-stream errors", () => {
+		it("retries the turn after a mid-stream error that follows a delta", async () => {
+			let count = 0
+			const fetchWithSignal: Fetch = async () => {
+				const index = count++
+				if (index === 0) {
+					return createMockFetchResponseThenError(`data: ${JSON.stringify(chunk({ content: "partial" }))}\n\n`, new Error("connection reset"))
+				}
+				return createMockFetchResponse(buildSse([chunk({ content: "recovered" }), chunk({}, "stop")]))
+			}
+			const { events, result } = await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			expect(count).toBe(2)
+			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "recovered" })
+			const seenContents = events.flatMap(e => e.type === "delta" ? [e.delta.content ?? ""] : [])
+			expect(seenContents).toContain("partial")
+			expect(seenContents).toContain("recovered")
+		})
+
+		it("retries the turn after a stream error before any delta", async () => {
+			let count = 0
+			const fetchWithSignal: Fetch = async () => {
+				const index = count++
+				if (index === 0) return createMockFetchResponseErrorImmediately(new Error("connection reset"))
+				return createMockFetchResponse(buildSse([chunk({ content: "recovered" }), chunk({}, "stop")]))
+			}
+			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			expect(count).toBe(2)
+			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "recovered" })
+		})
+
+		it("retries the turn after the fetch rejects", async () => {
+			let count = 0
+			const fetchWithSignal: Fetch = async () => {
+				const index = count++
+				if (index === 0) throw new Error("connection refused")
+				return createMockFetchResponse(buildSse([chunk({ content: "recovered" }), chunk({}, "stop")]))
+			}
+			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			expect(count).toBe(2)
+			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "recovered" })
+		})
+
+		it("does not retry when the caller's abort signal fires", async () => {
+			const controller = new AbortController()
+			let count = 0
+			const fetchWithSignal: Fetch = (signal, _body, _headers) => {
+				count++
+				return new Promise<Response>((_resolve, reject) => {
+					const onAbort = () => reject(new Error("aborted by caller"))
+					if (signal.aborted) {
+						onAbort()
+						return
+					}
+					signal.addEventListener("abort", onAbort, { once: true })
+				})
+			}
+			setTimeout(() => controller.abort(), 20)
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))).rejects.toThrow("aborted by caller")
+			expect(count).toBe(1)
+		})
+
+		it("throws a stream-read failure message after MAX_EMPTY_TURNS consecutive errors", async () => {
+			let count = 0
+			const fetchWithSignal: Fetch = async () => {
+				count++
+				return createMockFetchResponseErrorImmediately(new Error("connection reset"))
+			}
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result. Last error: connection reset")
+			expect(count).toBe(5)
+		})
+
+		it("counts idle stalls and stream errors in a single streak", async () => {
+			let count = 0
+			const hangingFetch = createHangingFetchWithSignal()
+			const fetchWithSignal: Fetch = (signal, body, headers) => {
+				const index = count++
+				if (index % 2 === 1) return hangingFetch(signal, body, headers)
+				return Promise.resolve(createMockFetchResponseErrorImmediately(new Error(`failure ${index}`)))
+			}
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result. Last error: failure 4")
+			expect(count).toBe(5)
+		})
+
+		it("mixed failure streak ending in idle reports idle message", async () => {
+			let count = 0
+			const hangingFetch = createHangingFetchWithSignal()
+			const fetchWithSignal: Fetch = (signal, body, headers) => {
+				const index = count++
+				if (index === 0 || index === 2) return Promise.resolve(createMockFetchResponseErrorImmediately(new Error(`failure ${index}`)))
+				return hangingFetch(signal, body, headers)
+			}
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop stalled")
+			expect(count).toBe(5)
+		})
+
+		it("does not retry turn on HTTP status error", async () => {
+			let count = 0
+			const fetchWithSignal: Fetch = async () => {
+				count++
+				return new Response("service unavailable", { status: 503, statusText: "Service Unavailable" })
+			}
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("HTTP 503 Service Unavailable")
+			expect(count).toBe(1)
+		})
+
+		it("does not reset the retry counter when a delta arrives before the error", async () => {
+			let count = 0
+			const fetchWithSignal: Fetch = async () => {
+				count++
+				return createMockFetchResponseThenError(`data: ${JSON.stringify(chunk({ content: "partial" }))}\n\n`, new Error("connection reset"))
+			}
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result")
+			expect(count).toBe(5)
+		})
+
+		it("resets the retry counter after a completed turn between error streaks", async () => {
+			let count = 0
+			const fetchWithSignal: Fetch = async () => {
+				const index = count++
+				if (index === 2) return createMockFetchResponse(buildSse([chunk({ content: "partial" })]))
+				return createMockFetchResponseErrorImmediately(new Error(`failure ${index}`))
+			}
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result. Last error: failure 7")
+			expect(count).toBe(8)
+		})
+	})
+
 	describe("external abort", () => {
 		it("propagates error when external signal is already aborted", async () => {
 			const controller = new AbortController()
@@ -1121,6 +1248,29 @@ function createMockFetchResponse(sseText: string): Response {
 		start(controller) {
 			controller.enqueue(encoder.encode(sseText))
 			controller.close()
+		},
+	})
+	return new Response(stream, { status: 200 })
+}
+
+// Delivers sseText first, then errors on the next read (chunks enqueued before controller.error in start() would be dropped).
+function createMockFetchResponseThenError(sseText: string, error: unknown): Response {
+	const encoder = new TextEncoder()
+	const stream = new ReadableStream({
+		start(controller) {
+			controller.enqueue(encoder.encode(sseText))
+		},
+		pull(controller) {
+			controller.error(error)
+		},
+	})
+	return new Response(stream, { status: 200 })
+}
+
+function createMockFetchResponseErrorImmediately(error: unknown): Response {
+	const stream = new ReadableStream({
+		start(controller) {
+			controller.error(error)
 		},
 	})
 	return new Response(stream, { status: 200 })

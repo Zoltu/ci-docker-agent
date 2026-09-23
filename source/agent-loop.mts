@@ -1,6 +1,7 @@
 import { completions, type CompletionDelta, type CompletionResult, type CompletionsMessage, type CompletionsRequest, type CompletionsToolCall, type CompletionUsage } from './completions.mts'
 import type { ProviderProfile } from './provider-profiles.mts'
-import { isArrayOf, isRecord, isString } from './typescript-helpers.mts'
+import { HttpStatusError } from './sse.mts'
+import { errorMessage, isArrayOf, isRecord, isString } from './typescript-helpers.mts'
 
 export type Fetch = (signal: AbortSignal, body: string, headers?: Record<string, string>) => Promise<Response>
 
@@ -49,6 +50,7 @@ export interface AgentLoopResult {
 	readonly messages: readonly CompletionsMessage[]
 }
 
+// Caps consecutive wasted turns: failed turns (idle stalls and mid-stream stream-read errors) retried by the turn loop, and completed turns that produced zero output tokens.
 const MAX_EMPTY_TURNS = 5
 
 // Idle sentinel: resolves when no delta arrives within the idle window, letting the stream-read loop break and retry the turn without throwing.
@@ -98,12 +100,13 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 
 	if (mutableMessages.length === 0) throw new Error('At least one message is required')
 
-	// `controller` aborts the in-flight fetch when a turn is retried due to idle; `signal` propagates genuine caller abort (e.g. process shutdown).
+	// `controller` aborts the in-flight fetch when a turn is retried after a failed turn (idle stall or stream error); `signal` propagates genuine caller abort (e.g. process shutdown).
 	const callerSignals: AbortSignal[] = signal ? [signal] : []
 
 	// This loop is bounded because every tool call and response is appended to `messages`. Eventually the context window of the connected model will be exceeded and the completions() call will fail, so the loop cannot run forever.
 	let emptyTurnCount = 0
-	let idleRetryCount = 0
+	let turnRetryCount = 0
+	let lastTurnFailure: { readonly kind: 'idle' } | { readonly kind: 'error'; readonly error: unknown } | undefined
 	while (true) {
 		const controller = new AbortController()
 		const compositeSignal = AbortSignal.any([...callerSignals, controller.signal])
@@ -132,9 +135,9 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 				if (raced === undefined) {
 					// Idle window elapsed with no delta: abort the in-flight fetch so it doesn't leak, then retry the turn.
 					controller.abort()
+					lastTurnFailure = { kind: 'idle' }
 					break
 				}
-				idleRetryCount = 0
 				const iteratorResult = raced
 				if (iteratorResult.done) {
 					completionResult = iteratorResult.value
@@ -143,17 +146,29 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 				idleTimer.reset()
 				yield { type: 'delta', delta: iteratorResult.value }
 			}
+		} catch (error) {
+			if (error instanceof HttpStatusError) throw error
+			if (signal?.aborted) throw error
+			controller.abort()
+			lastTurnFailure = { kind: 'error', error }
+			// MUST NOT continue/return: fall through to shared failure-counting block
 		} finally {
 			idleTimer.cleanup()
 		}
 
 		if (completionResult === undefined) {
-			idleRetryCount++
-			if (idleRetryCount >= MAX_EMPTY_TURNS) {
+			turnRetryCount++
+			if (turnRetryCount >= MAX_EMPTY_TURNS) {
+				if (lastTurnFailure !== undefined && lastTurnFailure.kind === 'error') {
+					throw new Error(`Agent loop failed: ${MAX_EMPTY_TURNS} consecutive turns failed without producing a result. Last error: ${errorMessage(lastTurnFailure.error)}`)
+				}
 				throw new Error(`Agent loop stalled: no delta received within ${idleTimeoutMilliseconds}ms for ${MAX_EMPTY_TURNS} consecutive turns.`)
 			}
 			continue
 		}
+
+		turnRetryCount = 0
+		lastTurnFailure = undefined
 
 		yield { type: 'completion', finishReason: completionResult.finishReason, usage: completionResult.usage }
 
@@ -182,7 +197,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 					try {
 						result = await tool.execute(toolCall.function.arguments)
 					} catch (error) {
-						result = `Tool execution error: ${error instanceof Error ? error.message : String(error)}`
+						result = `Tool execution error: ${errorMessage(error)}`
 					}
 				}
 

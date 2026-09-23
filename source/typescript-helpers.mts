@@ -119,6 +119,10 @@ export function deepMerge<T>(base: T, override: T): T {
 	return result as T
 }
 
+export function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
+}
+
 // DOMException is instanceof Error but Bun's console renders it as a generic object dump, so rethrow error-likes as real Errors.
 export async function normalizeFetchError<T>(promise: Promise<T>): Promise<T> {
 	// Native fetch DOMExceptions carry no JS stack and `await` unwinds the caller chain, so capture it here before suspending.

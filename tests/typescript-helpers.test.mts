@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { assertNever, deepMerge, guard, includes, isArray, isArrayOf, isInteger, isLiteral, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
+import { assertNever, deepMerge, errorMessage, guard, includes, isArray, isArrayOf, isInteger, isLiteral, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
 
 describe("includes", () => {
 	it("returns true when needle is in haystack", () => {
@@ -448,4 +448,16 @@ describe("sleepWithSignal", () => {
 		setTimeout(() => controller.abort(), 1)
 		expect(sleepWithSignal(60000, controller.signal)).rejects.toThrow("The operation was aborted.")
 	}, { timeout: 100 })
+})
+
+describe("errorMessage", () => {
+	it("returns the message of an Error", () => {
+		expect(errorMessage(new Error("boom"))).toBe("boom")
+	})
+
+	it("returns String() for non-Error values", () => {
+		expect(errorMessage("plain string")).toBe("plain string")
+		expect(errorMessage(42)).toBe("42")
+		expect(errorMessage(undefined)).toBe("undefined")
+	})
 })

@@ -126,36 +126,59 @@ function isRetryableStatus(status: number): boolean {
 	return status === 429 || (status >= 500 && status <= 599)
 }
 
+type FetchAttemptOutcome =
+	| { readonly kind: "response"; readonly response: Response }
+	| { readonly kind: "error"; readonly error: unknown }
+
+interface RetryHeaders {
+	readonly retryAfter: string | null
+	readonly rateLimitReset: string | null
+}
+
+function toRetryHeaders(outcome: FetchAttemptOutcome | undefined): RetryHeaders {
+	if (outcome === undefined) return { retryAfter: null, rateLimitReset: null }
+	if (outcome.kind === "error") return { retryAfter: null, rateLimitReset: null }
+	return {
+		retryAfter: outcome.response.headers.get("Retry-After"),
+		rateLimitReset: outcome.response.headers.get("X-RateLimit-Reset"),
+	}
+}
+
 async function fetchWithRetries(dependencies: FetchDependencies, signal: AbortSignal, body: string, headers?: Record<string, string>): Promise<Response> {
 	const deadline = dependencies.now() + RETRY_DEADLINE_MILLISECONDS
-	let lastResponse: Response | undefined
+	let lastOutcome: FetchAttemptOutcome | undefined
 	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 		if (attempt > 0) {
 			const now = dependencies.now()
+			const retryHeaders = toRetryHeaders(lastOutcome)
 			const delay = computeRetryDelay({
-				retryAfter: lastResponse?.headers.get("Retry-After") ?? null,
-				rateLimitReset: lastResponse?.headers.get("X-RateLimit-Reset") ?? null,
+				retryAfter: retryHeaders.retryAfter,
+				rateLimitReset: retryHeaders.rateLimitReset,
 				attempt: attempt - 1,
 				deadlineRemainingMilliseconds: deadline - now,
 				now,
 				random: dependencies.random(),
 			})
 			if (delay === null) {
-				if (lastResponse === undefined) throw new Error("Retry deadline exhausted before any response was received")
-				return lastResponse
+				if (lastOutcome === undefined) throw new Error("Retry deadline exhausted before any response was received")
+				if (lastOutcome.kind === "error") throw lastOutcome.error
+				return lastOutcome.response
 			}
 			await dependencies.sleep(delay, signal)
 		}
 
-		lastResponse = await dependencies.httpFetch(signal, body, headers)
-
-		if (isRetryableStatus(lastResponse.status)) {
-			if (attempt === MAX_RETRIES) return lastResponse
-			if (dependencies.now() >= deadline) return lastResponse
-			continue
+		try {
+			const response = await dependencies.httpFetch(signal, body, headers)
+			lastOutcome = { kind: "response", response }
+			if (!isRetryableStatus(response.status)) return response
+			if (attempt === MAX_RETRIES) return response
+			if (dependencies.now() >= deadline) return response
+		} catch (error) {
+			if (signal.aborted) throw error
+			lastOutcome = { kind: "error", error }
+			if (attempt === MAX_RETRIES) throw error
+			if (dependencies.now() >= deadline) throw error
 		}
-
-		return lastResponse
 	}
 
 	throw new Error("createFetch retry loop exited without returning a response")

@@ -7,6 +7,14 @@ export interface SseEvent {
 
 export type Fetch = (body: string, headers?: Record<string, string>) => Promise<Response>
 
+export class HttpStatusError extends Error {
+	readonly status: number
+	constructor(status: number, statusText: string, body: string) {
+		super(`HTTP ${status} ${statusText}${body ? `\n${body}` : ''}`)
+		this.status = status
+	}
+}
+
 // Intentionally does not implement retries as that adds a lot of complexity and isn't necessary for our needs at the moment
 function normalizeLineEndings(buffer: string, isFinalChunk: boolean): string {
 	buffer = buffer.replace(/\r\n/g, '\n')
@@ -22,7 +30,7 @@ export async function* readSseStream(dependencies: { fetch: Fetch }, body: strin
 
 	if (!response.ok) {
 		const responseBody = await response.text().catch(() => '')
-		throw new Error(`HTTP ${response.status} ${response.statusText}${responseBody ? `\n${responseBody}` : ''}`)
+		throw new HttpStatusError(response.status, response.statusText, responseBody)
 	}
 
 	if (!response.body) throw new Error('Response body is null')
