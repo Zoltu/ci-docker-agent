@@ -1,9 +1,11 @@
 import { completions, type CompletionDelta, type CompletionResult, type CompletionsMessage, type CompletionsRequest, type CompletionsToolCall, type CompletionUsage } from './completions.mts'
 import type { ProviderProfile } from './provider-profiles.mts'
-import { HttpStatusError } from './sse.mts'
-import { errorMessage, isArrayOf, isRecord, isString } from './typescript-helpers.mts'
+import { StreamReadError } from './sse.mts'
+import { computeBackoffDelay, errorMessage, isArrayOf, isRecord, isString } from './typescript-helpers.mts'
 
 export type Fetch = (signal: AbortSignal, body: string, headers?: Record<string, string>) => Promise<Response>
+export type Sleep = (milliseconds: number, signal?: AbortSignal) => Promise<void>
+export type Random = () => number
 
 // Return a string to feed it back to the model as a user turn and continue the loop; return null to terminate.
 export type OutputValidator = (content: string) => Promise<string | null>
@@ -53,6 +55,9 @@ export interface AgentLoopResult {
 // Caps consecutive wasted turns: failed turns (idle stalls and mid-stream stream-read errors) retried by the turn loop, and completed turns that produced zero output tokens.
 const MAX_EMPTY_TURNS = 5
 
+const TURN_RETRY_INITIAL_BACKOFF_MILLISECONDS = 1_000
+const TURN_RETRY_MAX_BACKOFF_MILLISECONDS = 30_000
+
 // Idle sentinel: resolves when no delta arrives within the idle window, letting the stream-read loop break and retry the turn without throwing.
 function createIdleTimer(timeoutMilliseconds: number): { reset: () => void; cleanup: () => void; expired: Promise<void> } {
 	let timer: ReturnType<typeof setTimeout> | undefined
@@ -92,7 +97,7 @@ function toWireTools(tools: readonly Tool[]): CompletionsRequest['tools'] {
 	})
 }
 
-export async function* agentLoop(dependencies: { fetch: Fetch },  model: string, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, outputValidator?: OutputValidator, idleTimeoutMilliseconds: number = 240_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
+export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; random: Random },  model: string, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, outputValidator?: OutputValidator, idleTimeoutMilliseconds: number = 240_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
 	// Must stay below Bun's socket idle timeout (hard-coded 300s on 1.3.12; tunable via BUN_CONFIG_HTTP_IDLE_TIMEOUT in a future Bun) so this non-throwing retry fires first on a stalled stream.
 	const toolMap = new Map(tools.map(tool => [tool.name, tool]))
 	const wireTools = toWireTools(tools)
@@ -147,11 +152,11 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 				yield { type: 'delta', delta: iteratorResult.value }
 			}
 		} catch (error) {
-			if (error instanceof HttpStatusError) throw error
+			if (!(error instanceof StreamReadError)) throw error
 			if (signal?.aborted) throw error
 			controller.abort()
 			lastTurnFailure = { kind: 'error', error }
-			// MUST NOT continue/return: fall through to shared failure-counting block
+			// MUST NOT continue/return: fall through to the shared failure-counting block
 		} finally {
 			idleTimer.cleanup()
 		}
@@ -164,6 +169,8 @@ export async function* agentLoop(dependencies: { fetch: Fetch },  model: string,
 				}
 				throw new Error(`Agent loop stalled: no delta received within ${idleTimeoutMilliseconds}ms for ${MAX_EMPTY_TURNS} consecutive turns.`)
 			}
+			const jitteredDelay = computeBackoffDelay(turnRetryCount - 1, TURN_RETRY_INITIAL_BACKOFF_MILLISECONDS, TURN_RETRY_MAX_BACKOFF_MILLISECONDS, dependencies.random())
+			await dependencies.sleep(jitteredDelay, signal)
 			continue
 		}
 

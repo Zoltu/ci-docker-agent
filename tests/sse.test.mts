@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { readSseStream, type SseEvent, type Fetch } from "../source/sse.mts"
+import { readSseStream, StreamReadError, type SseEvent, type Fetch } from "../source/sse.mts"
 import { createMockFetch } from "./helpers.mts"
 
 function createChunkedMockFetch(chunks: string[]): Fetch {
@@ -187,6 +187,55 @@ describe("readSseStream", () => {
 		}
 		expect(events).toEqual([{ event: "message", data: "first" }])
 		expect(cancelled).toBe(true)
+	})
+
+	describe("StreamReadError", () => {
+		it("wraps a reader.read() rejection with name, message, and cause", async () => {
+			const cause = new Error("connection reset")
+			const fetch: Fetch = async () => {
+				const stream = new ReadableStream({
+					start(controller) {
+						controller.error(cause)
+					},
+				})
+				return new Response(stream, { status: 200 })
+			}
+			const error = await collectEvents(readSseStream({ fetch }, "")).then(
+				() => { throw new Error("Expected the stream to reject") },
+				(caught: unknown) => caught,
+			)
+			expect(error).toBeInstanceOf(StreamReadError)
+			if (!(error instanceof Error)) throw new Error("Expected an Error")
+			expect(error.name).toBe("StreamReadError")
+			expect(error.message).toBe("Stream read failed: connection reset")
+			expect(error.cause).toBe(cause)
+		})
+
+		it("cleans up the reader when cancel rejects", async () => {
+			let cancelCalled = false
+			const fetch: Fetch = async () => {
+				const encoder = new TextEncoder()
+				const stream = new ReadableStream({
+					start(controller) {
+						controller.enqueue(encoder.encode("data: first\n\n"))
+					},
+					pull() {},
+					cancel() {
+						cancelCalled = true
+						return Promise.reject(new Error("cancel failed"))
+					},
+				})
+				return new Response(stream, { status: 200 })
+			}
+			const sseStream = readSseStream({ fetch }, "")
+			const events: SseEvent[] = []
+			for await (const event of sseStream) {
+				events.push(event)
+				break
+			}
+			expect(events).toEqual([{ event: "message", data: "first" }])
+			expect(cancelCalled).toBe(true)
+		})
 	})
 
 	describe("line ending variants", () => {

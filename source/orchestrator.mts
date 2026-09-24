@@ -1,4 +1,4 @@
-import type { Fetch } from "./agent-loop.mts"
+import type { Fetch, Random, Sleep } from "./agent-loop.mts"
 import type { AgentNames, AgentReader } from "./agents.mts"
 import { loadAgents, loadAggregator } from "./agents.mts"
 import { analyze } from "./ai.mts"
@@ -24,6 +24,8 @@ type OrchestratorDependencies = {
 	fetch: Fetch
 	logger: Logger
 	debugWriter: DebugWriter
+	sleep: Sleep
+	random: Random
 }
 
 const COMMENT_REVIEW_CHECK_RUN_NAME = "CI Agent Comment Reviewer"

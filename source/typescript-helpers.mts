@@ -78,7 +78,11 @@ export function guard<S extends Record<string, SchemaValue>>(schema: S): Guard<I
 	return (value: unknown): value is InferSchemaType<S> => isObjectOf(value, schema)
 }
 
-export async function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> {
+export async function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+	if (signal === undefined) {
+		await Bun.sleep(ms)
+		return
+	}
 	if (signal.aborted) throw new Error("The operation was aborted.")
 	await Promise.race([
 		Bun.sleep(ms),
@@ -86,6 +90,12 @@ export async function sleepWithSignal(ms: number, signal: AbortSignal): Promise<
 			signal.addEventListener("abort", () => reject(new Error("The operation was aborted.")), { once: true })
 		}),
 	])
+}
+
+export function computeBackoffDelay(attempt: number, initialMs: number, maxMs: number, random: number): number {
+	const backoff = initialMs * Math.pow(2, attempt)
+	const capped = Math.min(backoff, maxMs)
+	return capped * (0.5 + random * 0.5)
 }
 
 export function isObjectOf<S extends Record<string, SchemaValue>>(value: unknown, schema: S): value is InferSchemaType<S> {

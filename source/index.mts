@@ -21,7 +21,9 @@ async function main(): Promise<void> {
 	const readAgents = createReadAgentsFromDisk()
 	const spawnGit = createSpawnGit(workspaceDirectory)
 	const aiConfiguration = parseAiConfiguration(Bun.env)
-	const fetch = createFetch({ httpFetch: createHttpFetch(aiConfiguration), sleep: createSleep(), random: createRandom(), now: createNow() })
+	const sleep = createSleep()
+	const random = createRandom()
+	const fetch = createFetch({ httpFetch: createHttpFetch(aiConfiguration), sleep, random, now: createNow() })
 	const githubFetch = createGithubFetch(logger)
 	const profile = selectProviderProfile(aiConfiguration.apiUrl, aiConfiguration.model)
 
@@ -32,6 +34,8 @@ async function main(): Promise<void> {
 		fetch,
 		logger,
 		debugWriter,
+		sleep,
+		random,
 	}
 
 	switch (configuration.type) {

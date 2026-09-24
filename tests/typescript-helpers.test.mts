@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { assertNever, deepMerge, errorMessage, guard, includes, isArray, isArrayOf, isInteger, isLiteral, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
+import { assertNever, computeBackoffDelay, deepMerge, errorMessage, guard, includes, isArray, isArrayOf, isInteger, isLiteral, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
 
 describe("includes", () => {
 	it("returns true when needle is in haystack", () => {
@@ -437,6 +437,10 @@ describe("sleepWithSignal", () => {
 		await sleepWithSignal(1, AbortSignal.timeout(100))
 	})
 
+	it("resolves without a signal", async () => {
+		await sleepWithSignal(1)
+	})
+
 	it("throws Error when signal is already aborted", () => {
 		const controller = new AbortController()
 		controller.abort()
@@ -448,6 +452,34 @@ describe("sleepWithSignal", () => {
 		setTimeout(() => controller.abort(), 1)
 		expect(sleepWithSignal(60000, controller.signal)).rejects.toThrow("The operation was aborted.")
 	}, { timeout: 100 })
+})
+
+describe("computeBackoffDelay", () => {
+	it("doubles the delay for each attempt", () => {
+		expect(computeBackoffDelay(0, 1_000, 30_000, 1)).toBe(1_000)
+		expect(computeBackoffDelay(1, 1_000, 30_000, 1)).toBe(2_000)
+		expect(computeBackoffDelay(2, 1_000, 30_000, 1)).toBe(4_000)
+		expect(computeBackoffDelay(3, 1_000, 30_000, 1)).toBe(8_000)
+	})
+
+	it("applies jitter between 50% and 100% of the backoff", () => {
+		expect(computeBackoffDelay(1, 1_000, 30_000, 0)).toBe(1_000)
+		expect(computeBackoffDelay(1, 1_000, 30_000, 0.5)).toBe(1_500)
+		expect(computeBackoffDelay(1, 1_000, 30_000, 1)).toBe(2_000)
+	})
+
+	it("caps the backoff at maxMs before jitter", () => {
+		expect(computeBackoffDelay(5, 1_000, 30_000, 1)).toBe(30_000)
+		expect(computeBackoffDelay(5, 1_000, 30_000, 0)).toBe(15_000)
+	})
+
+	it("backoff delays stay within bounds for large attempt numbers", () => {
+		expect(computeBackoffDelay(10, 1_000, 30_000, 1)).toBe(30_000)
+		expect(computeBackoffDelay(10, 1_000, 30_000, 0)).toBe(15_000)
+		expect(computeBackoffDelay(10, 1_000, 30_000, 0.5)).toBe(22_500)
+		expect(computeBackoffDelay(100, 1_000, 30_000, 1)).toBe(30_000)
+		expect(computeBackoffDelay(100, 1_000, 30_000, 0)).toBe(15_000)
+	})
 })
 
 describe("errorMessage", () => {

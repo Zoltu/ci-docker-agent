@@ -1,4 +1,4 @@
-import { assertNever } from "./typescript-helpers.mts"
+import { assertNever, errorMessage } from './typescript-helpers.mts'
 
 export interface SseEvent {
 	event: string
@@ -11,7 +11,15 @@ export class HttpStatusError extends Error {
 	readonly status: number
 	constructor(status: number, statusText: string, body: string) {
 		super(`HTTP ${status} ${statusText}${body ? `\n${body}` : ''}`)
+		this.name = 'HttpStatusError'
 		this.status = status
+	}
+}
+
+export class StreamReadError extends Error {
+	constructor(cause: unknown) {
+		super(`Stream read failed: ${errorMessage(cause)}`, { cause })
+		this.name = 'StreamReadError'
 	}
 }
 
@@ -44,7 +52,13 @@ export async function* readSseStream(dependencies: { fetch: Fetch }, body: strin
 
 	try {
 		while (true) {
-			const { done, value } = await reader.read()
+			let readResult: { done: boolean; value?: Uint8Array }
+			try {
+				readResult = await reader.read()
+			} catch (error) {
+				throw new StreamReadError(error)
+			}
+			const { done, value } = readResult
 			if (done) {
 				if (buffer.length > 0) {
 					buffer = normalizeLineEndings(buffer, true)
@@ -73,7 +87,7 @@ export async function* readSseStream(dependencies: { fetch: Fetch }, body: strin
 			}
 		}
 	} finally {
-		await reader.cancel()
+		await reader.cancel().catch(() => {})
 		reader.releaseLock()
 	}
 
