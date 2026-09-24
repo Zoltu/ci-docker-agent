@@ -13,7 +13,7 @@ import { readReasoningFromDelta } from "./reasoning.mts"
 import type { AiReviewResult } from "./review.mts"
 import { createTools } from "./tool-executor.mts"
 import { createTraceWriter } from "./trace-writer.mts"
-import { errorMessage, includes, isReadonlyArray, normalizeFetchError, sleepWithSignal } from "./typescript-helpers.mts"
+import { applyJitter, computeExponentialBackoff, errorMessage, includes, isReadonlyArray, normalizeFetchError, sleepWithSignal } from "./typescript-helpers.mts"
 
 export class FetchRetriesExhaustedError extends Error {
 	constructor(cause: unknown) {
@@ -44,9 +44,6 @@ export function parseAiConfiguration(environment: Record<string, string | undefi
 	const apiKey = environment.AI_API_KEY
 	return { apiUrl, model, apiKey }
 }
-
-const INITIAL_BACKOFF_MILLISECONDS = 1_000
-const MAX_BACKOFF_MILLISECONDS = 30_000
 
 // Stays under the agent-loop idle timeout (240s) so a long reset window can't trip the composite abort mid-sleep.
 const MAX_SINGLE_WAIT_MILLISECONDS = 180_000
@@ -119,12 +116,11 @@ function computeRetryDelay(input: RetryDelayInput): number | null {
 	}
 
 	if (computed === undefined) {
-		const backoff = INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, input.attempt)
-		computed = Math.min(backoff, MAX_BACKOFF_MILLISECONDS)
+		computed = computeExponentialBackoff(input.attempt)
 	}
 
 	const capped = Math.min(computed, MAX_SINGLE_WAIT_MILLISECONDS, input.deadlineRemainingMilliseconds)
-	return capped * (0.5 + input.random * 0.5)
+	return applyJitter(capped, input.random)
 }
 
 function isRetryableStatus(status: number): boolean {

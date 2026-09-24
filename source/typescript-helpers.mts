@@ -92,10 +92,15 @@ export async function sleepWithSignal(ms: number, signal?: AbortSignal): Promise
 	])
 }
 
-export function computeBackoffDelay(attempt: number, initialMs: number, maxMs: number, random: number): number {
-	const backoff = initialMs * Math.pow(2, attempt)
-	const capped = Math.min(backoff, maxMs)
-	return capped * (0.5 + random * 0.5)
+export const INITIAL_BACKOFF_MILLISECONDS = 1_000
+export const MAX_BACKOFF_MILLISECONDS = 30_000
+
+export function computeExponentialBackoff(attempt: number): number {
+	return Math.min(INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, attempt), MAX_BACKOFF_MILLISECONDS)
+}
+
+export function applyJitter(delay: number, random: number): number {
+	return delay * (0.5 + random * 0.5)
 }
 
 export function isObjectOf<S extends Record<string, SchemaValue>>(value: unknown, schema: S): value is InferSchemaType<S> {

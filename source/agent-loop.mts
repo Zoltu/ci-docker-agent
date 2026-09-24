@@ -1,7 +1,7 @@
 import { completions, type CompletionDelta, type CompletionResult, type CompletionsMessage, type CompletionsRequest, type CompletionsToolCall, type CompletionUsage } from './completions.mts'
 import type { ProviderProfile } from './provider-profiles.mts'
 import { StreamReadError } from './sse.mts'
-import { computeBackoffDelay, errorMessage, isArrayOf, isRecord, isString } from './typescript-helpers.mts'
+import { applyJitter, computeExponentialBackoff, errorMessage, isArrayOf, isRecord, isString } from './typescript-helpers.mts'
 
 export type Fetch = (signal: AbortSignal, body: string, headers?: Record<string, string>) => Promise<Response>
 export type Sleep = (milliseconds: number, signal?: AbortSignal) => Promise<void>
@@ -54,9 +54,6 @@ export interface AgentLoopResult {
 
 // Caps consecutive wasted turns: failed turns (idle stalls and mid-stream stream-read errors) retried by the turn loop, and completed turns that produced zero output tokens.
 const MAX_EMPTY_TURNS = 5
-
-const TURN_RETRY_INITIAL_BACKOFF_MILLISECONDS = 1_000
-const TURN_RETRY_MAX_BACKOFF_MILLISECONDS = 30_000
 
 // Idle sentinel: resolves when no delta arrives within the idle window, letting the stream-read loop break and retry the turn without throwing.
 function createIdleTimer(timeoutMilliseconds: number): { reset: () => void; cleanup: () => void; expired: Promise<void> } {
@@ -169,7 +166,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; ran
 				}
 				throw new Error(`Agent loop stalled: no delta received within ${idleTimeoutMilliseconds}ms for ${MAX_EMPTY_TURNS} consecutive turns.`)
 			}
-			const jitteredDelay = computeBackoffDelay(turnRetryCount - 1, TURN_RETRY_INITIAL_BACKOFF_MILLISECONDS, TURN_RETRY_MAX_BACKOFF_MILLISECONDS, dependencies.random())
+			const jitteredDelay = applyJitter(computeExponentialBackoff(turnRetryCount - 1), dependencies.random())
 			await dependencies.sleep(jitteredDelay, signal)
 			continue
 		}
