@@ -1,4 +1,4 @@
-import { agentLoop, type AgentLoopResult, type Fetch, type OutputValidator } from "./agent-loop.mts"
+import { agentLoop, type AgentLoopResult, type Fetch, type OutputValidator, type Random, type Sleep } from "./agent-loop.mts"
 import { buildAgentPrompt, type Agent } from "./agents.mts"
 import type { BaseCommitContext } from "./base-commit.mts"
 import type { CompletionsMessage } from "./completions.mts"
@@ -13,7 +13,14 @@ import { readReasoningFromDelta } from "./reasoning.mts"
 import type { AiReviewResult } from "./review.mts"
 import { createTools } from "./tool-executor.mts"
 import { createTraceWriter } from "./trace-writer.mts"
-import { includes, isReadonlyArray, normalizeFetchError, sleepWithSignal } from "./typescript-helpers.mts"
+import { applyJitter, computeExponentialBackoff, errorMessage, includes, isReadonlyArray, normalizeFetchError, sleepWithSignal } from "./typescript-helpers.mts"
+
+export class FetchRetriesExhaustedError extends Error {
+	constructor(cause: unknown) {
+		super(`Fetch retries exhausted: ${errorMessage(cause)}`, { cause })
+		this.name = "FetchRetriesExhaustedError"
+	}
+}
 
 export type AggregatorSubmitResult = { kind: "ok" } | { kind: "retry"; feedback: string } | { kind: "fatal"; message: string }
 
@@ -38,9 +45,6 @@ export function parseAiConfiguration(environment: Record<string, string | undefi
 	return { apiUrl, model, apiKey }
 }
 
-const INITIAL_BACKOFF_MILLISECONDS = 1_000
-const MAX_BACKOFF_MILLISECONDS = 30_000
-
 // Stays under the agent-loop idle timeout (240s) so a long reset window can't trip the composite abort mid-sleep.
 const MAX_SINGLE_WAIT_MILLISECONDS = 180_000
 
@@ -51,8 +55,6 @@ const EPOCH_THRESHOLD = 1_000_000_000
 
 const MAX_RETRIES = 10
 
-export type Sleep = (milliseconds: number, signal: AbortSignal) => Promise<void>
-export type Random = () => number
 export type Now = () => number
 
 export interface FetchDependencies {
@@ -114,48 +116,72 @@ function computeRetryDelay(input: RetryDelayInput): number | null {
 	}
 
 	if (computed === undefined) {
-		const backoff = INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, input.attempt)
-		computed = Math.min(backoff, MAX_BACKOFF_MILLISECONDS)
+		computed = computeExponentialBackoff(input.attempt)
 	}
 
 	const capped = Math.min(computed, MAX_SINGLE_WAIT_MILLISECONDS, input.deadlineRemainingMilliseconds)
-	return capped * (0.5 + input.random * 0.5)
+	return applyJitter(capped, input.random)
 }
 
 function isRetryableStatus(status: number): boolean {
 	return status === 429 || (status >= 500 && status <= 599)
 }
 
+type FetchAttemptOutcome =
+	| { readonly kind: "response"; readonly response: Response }
+	| { readonly kind: "error"; readonly error: unknown }
+
+interface RetryHeaders {
+	readonly retryAfter: string | null
+	readonly rateLimitReset: string | null
+}
+
+function toRetryHeaders(outcome: FetchAttemptOutcome | undefined): RetryHeaders {
+	if (outcome === undefined) return { retryAfter: null, rateLimitReset: null }
+	if (outcome.kind === "error") return { retryAfter: null, rateLimitReset: null }
+	return {
+		retryAfter: outcome.response.headers.get("Retry-After"),
+		rateLimitReset: outcome.response.headers.get("X-RateLimit-Reset"),
+	}
+}
+
 async function fetchWithRetries(dependencies: FetchDependencies, signal: AbortSignal, body: string, headers?: Record<string, string>): Promise<Response> {
 	const deadline = dependencies.now() + RETRY_DEADLINE_MILLISECONDS
-	let lastResponse: Response | undefined
+	let lastOutcome: FetchAttemptOutcome | undefined
 	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 		if (attempt > 0) {
 			const now = dependencies.now()
+			const retryHeaders = toRetryHeaders(lastOutcome)
 			const delay = computeRetryDelay({
-				retryAfter: lastResponse?.headers.get("Retry-After") ?? null,
-				rateLimitReset: lastResponse?.headers.get("X-RateLimit-Reset") ?? null,
+				retryAfter: retryHeaders.retryAfter,
+				rateLimitReset: retryHeaders.rateLimitReset,
 				attempt: attempt - 1,
 				deadlineRemainingMilliseconds: deadline - now,
 				now,
 				random: dependencies.random(),
 			})
 			if (delay === null) {
-				if (lastResponse === undefined) throw new Error("Retry deadline exhausted before any response was received")
-				return lastResponse
+				if (lastOutcome === undefined) throw new FetchRetriesExhaustedError(new Error("Retry deadline exhausted before any response was received"))
+				if (lastOutcome.kind === "error") throw new FetchRetriesExhaustedError(lastOutcome.error)
+				return lastOutcome.response
 			}
 			await dependencies.sleep(delay, signal)
 		}
 
-		lastResponse = await dependencies.httpFetch(signal, body, headers)
-
-		if (isRetryableStatus(lastResponse.status)) {
-			if (attempt === MAX_RETRIES) return lastResponse
-			if (dependencies.now() >= deadline) return lastResponse
-			continue
+		try {
+			const response = await dependencies.httpFetch(signal, body, headers)
+			lastOutcome = { kind: "response", response }
+			if (!isRetryableStatus(response.status)) return response
+			if (attempt === MAX_RETRIES) return response
+			if (dependencies.now() >= deadline) return response
+		} catch (error) {
+			if (signal.aborted) throw error
+			// Bun-specific: network failures throw plain Error with a `code` property, while configuration errors throw TypeError and are not retryable.
+			if (error instanceof TypeError) throw error
+			lastOutcome = { kind: "error", error }
+			if (attempt === MAX_RETRIES) throw new FetchRetriesExhaustedError(error)
+			if (dependencies.now() >= deadline) throw new FetchRetriesExhaustedError(error)
 		}
-
-		return lastResponse
 	}
 
 	throw new Error("createFetch retry loop exited without returning a response")
@@ -165,7 +191,7 @@ export function createFetch(dependencies: FetchDependencies): Fetch {
 	return (signal, body, headers) => fetchWithRetries(dependencies, signal, body, headers)
 }
 
-async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, profile: ProviderProfile, agentInputs?: Map<string, string>, outputValidator?: OutputValidator): Promise<string> {
+async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, profile: ProviderProfile, agentInputs?: Map<string, string>, outputValidator?: OutputValidator): Promise<string> {
 	dependencies.logger.log(`Building prompt for ${agent.name}`)
 	const promptMessages = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
 	const debugText = promptMessages.map(m => `--- ${m.role} ---\n${m.content}`).join("\n\n")
@@ -211,7 +237,7 @@ async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger
 	return lastMessage.content
 }
 
-async function runAgents(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], model: string, profile: ProviderProfile): Promise<Map<string, string>> {
+async function runAgents(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], model: string, profile: ProviderProfile): Promise<Map<string, string>> {
 	const promises = agents.map(async agent => [agent.name, await runAgent(dependencies, agent, baseCommit, baseCommitContext, diffText, model, profile)] as const)
 	const reviewResults = await Promise.all(promises)
 	return new Map(reviewResults)
@@ -260,7 +286,7 @@ async function aggregatorOutputValidator(submit: ((result: AiReviewResult) => Pr
 	throw new Error(outcome.message)
 }
 
-export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
+export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
 	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 
 	const agentOutputs = await runAgents(dependencies, baseCommit, baseCommitContext, diffText, agents, model, profile)

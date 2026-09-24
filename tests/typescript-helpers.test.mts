@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { assertNever, deepMerge, guard, includes, isArray, isArrayOf, isInteger, isLiteral, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
+import { assertNever, applyJitter, computeExponentialBackoff, deepMerge, errorMessage, guard, includes, isArray, isArrayOf, isInteger, isLiteral, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
 
 describe("includes", () => {
 	it("returns true when needle is in haystack", () => {
@@ -437,6 +437,10 @@ describe("sleepWithSignal", () => {
 		await sleepWithSignal(1, AbortSignal.timeout(100))
 	})
 
+	it("resolves without a signal", async () => {
+		await sleepWithSignal(1)
+	})
+
 	it("throws Error when signal is already aborted", () => {
 		const controller = new AbortController()
 		controller.abort()
@@ -448,4 +452,43 @@ describe("sleepWithSignal", () => {
 		setTimeout(() => controller.abort(), 1)
 		expect(sleepWithSignal(60000, controller.signal)).rejects.toThrow("The operation was aborted.")
 	}, { timeout: 100 })
+})
+
+describe("computeExponentialBackoff", () => {
+	it("doubles the delay for each attempt", () => {
+		expect(computeExponentialBackoff(0)).toBe(1_000)
+		expect(computeExponentialBackoff(1)).toBe(2_000)
+		expect(computeExponentialBackoff(3)).toBe(8_000)
+	})
+
+	it("caps the delay at the maximum", () => {
+		expect(computeExponentialBackoff(5)).toBe(30_000)
+		expect(computeExponentialBackoff(100)).toBe(30_000)
+	})
+})
+
+describe("applyJitter", () => {
+	it("returns the full delay when random is 1", () => {
+		expect(applyJitter(2_000, 1)).toBe(2_000)
+	})
+
+	it("shrinks the delay by half when random is 0", () => {
+		expect(applyJitter(2_000, 0)).toBe(1_000)
+	})
+
+	it("scales linearly between the bounds", () => {
+		expect(applyJitter(2_000, 0.5)).toBe(1_500)
+	})
+})
+
+describe("errorMessage", () => {
+	it("returns the message of an Error", () => {
+		expect(errorMessage(new Error("boom"))).toBe("boom")
+	})
+
+	it("returns String() for non-Error values", () => {
+		expect(errorMessage("plain string")).toBe("plain string")
+		expect(errorMessage(42)).toBe("42")
+		expect(errorMessage(undefined)).toBe("undefined")
+	})
 })

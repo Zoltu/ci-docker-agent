@@ -78,7 +78,11 @@ export function guard<S extends Record<string, SchemaValue>>(schema: S): Guard<I
 	return (value: unknown): value is InferSchemaType<S> => isObjectOf(value, schema)
 }
 
-export async function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> {
+export async function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+	if (signal === undefined) {
+		await Bun.sleep(ms)
+		return
+	}
 	if (signal.aborted) throw new Error("The operation was aborted.")
 	await Promise.race([
 		Bun.sleep(ms),
@@ -86,6 +90,17 @@ export async function sleepWithSignal(ms: number, signal: AbortSignal): Promise<
 			signal.addEventListener("abort", () => reject(new Error("The operation was aborted.")), { once: true })
 		}),
 	])
+}
+
+export const INITIAL_BACKOFF_MILLISECONDS = 1_000
+export const MAX_BACKOFF_MILLISECONDS = 30_000
+
+export function computeExponentialBackoff(attempt: number): number {
+	return Math.min(INITIAL_BACKOFF_MILLISECONDS * Math.pow(2, attempt), MAX_BACKOFF_MILLISECONDS)
+}
+
+export function applyJitter(delay: number, random: number): number {
+	return delay * (0.5 + random * 0.5)
 }
 
 export function isObjectOf<S extends Record<string, SchemaValue>>(value: unknown, schema: S): value is InferSchemaType<S> {
@@ -117,6 +132,10 @@ export function deepMerge<T>(base: T, override: T): T {
 		}
 	}
 	return result as T
+}
+
+export function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
 }
 
 // DOMException is instanceof Error but Bun's console renders it as a generic object dump, so rethrow error-likes as real Errors.

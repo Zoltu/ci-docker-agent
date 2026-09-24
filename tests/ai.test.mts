@@ -1,9 +1,9 @@
 import { describe, it, expect } from "bun:test"
-import { analyze, createFetch, parseAiConfiguration, type Sleep, type Random, type Now } from "../source/ai.mts"
+import { analyze, createFetch, parseAiConfiguration, FetchRetriesExhaustedError, type Now } from "../source/ai.mts"
+import type { Fetch, Random, Sleep } from "../source/agent-loop.mts"
 import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 import type { Agent } from "../source/agents.mts"
 import type { DebugWriter } from "../source/debug.mts"
-import type { Fetch } from "../source/agent-loop.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import { createMockLogger, createMockAgentFetch, makeBaseCommitContext, buildContentSse } from "./helpers.mts"
 
@@ -19,6 +19,17 @@ const SAMPLE_DIFF = [
 const noopDebugWriter: DebugWriter = { writePrompt: async () => {}, writeTrace: async () => {} }
 
 const noopSpawnGit: SpawnGit = async () => ({ stdout: "", stderr: "", exitCode: 0, signalCode: null } satisfies GitDiffResult)
+
+const fixedRandom: Random = () => 1
+const instantSleep: Sleep = async () => {}
+
+function createFakeSleep(): { sleep: Sleep; delays: number[] } {
+	const delays: number[] = []
+	return {
+		sleep: async (ms) => { delays.push(ms) },
+		delays,
+	}
+}
 
 function makeFetchWithAggregatorOutput(aggregatorOutputs: readonly string[]): { fetch: Fetch; capturedBodies: () => readonly string[] } {
 	const capturedBodies: string[] = []
@@ -101,7 +112,7 @@ describe("analyze", () => {
 		]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 		expect(result.body).toBe("Review complete")
 		expect(result.comments).toEqual([])
@@ -125,7 +136,7 @@ describe("analyze", () => {
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 		expect(result.body).toBe("Result 2")
 	})
@@ -143,7 +154,7 @@ describe("analyze", () => {
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+		await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 		expect(prompts.length).toBe(2)
 		expect(prompts[0]!.agentName).toBe("TestAgent")
@@ -162,7 +173,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(result.comments).toHaveLength(1)
@@ -177,7 +188,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("No issues found")
 			expect(result.comments).toEqual([])
@@ -188,7 +199,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -203,7 +214,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			const secondRequest = JSON.parse(capturedBodies()[2]!)
@@ -217,7 +228,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -231,7 +242,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -245,7 +256,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -259,7 +270,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -273,7 +284,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -290,7 +301,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -307,7 +318,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -324,7 +335,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -341,7 +352,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -367,15 +378,18 @@ describe("createFetch", () => {
 		}
 	}
 
-	function createFakeSleep(): { sleep: Sleep; delays: number[] } {
-		const delays: number[] = []
+	function createFakeHttpFetchOutcomes(outcomes: readonly (Response | Error)[]): { httpFetch: Fetch; callCount: () => number } {
+		let i = 0
 		return {
-			sleep: async (ms) => { delays.push(ms) },
-			delays,
+			httpFetch: async () => {
+				const outcome = outcomes[Math.min(i++, outcomes.length - 1)]!
+				if (outcome instanceof Error) throw outcome
+				return outcome
+			},
+			callCount: () => i,
 		}
 	}
 
-	const fixedRandom: Random = () => 1
 	const constantNow = (time: number): Now => () => time
 	function scriptedNow(values: readonly number[]): Now {
 		let i = 0
@@ -384,6 +398,13 @@ describe("createFetch", () => {
 
 	function buildFetch(responses: readonly Response[], now: Now = constantNow(BASE_TIME)): { fetch: Fetch; callCount: () => number; delays: () => number[] } {
 		const http = createFakeHttpFetch(responses)
+		const sleep = createFakeSleep()
+		const fetch = createFetch({ httpFetch: http.httpFetch, sleep: sleep.sleep, random: fixedRandom, now })
+		return { fetch, callCount: http.callCount, delays: () => sleep.delays }
+	}
+
+	function buildFetchFromOutcomes(outcomes: readonly (Response | Error)[], now: Now = constantNow(BASE_TIME)): { fetch: Fetch; callCount: () => number; delays: () => number[] } {
+		const http = createFakeHttpFetchOutcomes(outcomes)
 		const sleep = createFakeSleep()
 		const fetch = createFetch({ httpFetch: http.httpFetch, sleep: sleep.sleep, random: fixedRandom, now })
 		return { fetch, callCount: http.callCount, delays: () => sleep.delays }
@@ -478,6 +499,15 @@ describe("createFetch", () => {
 		expect(delays()).toEqual([])
 	})
 
+	it("deadline exhausted after a retryable response returns that response", async () => {
+		const now = scriptedNow([BASE_TIME, BASE_TIME, BASE_TIME + 301_000])
+		const { fetch, callCount, delays } = buildFetch([response(429)], now)
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(429)
+		expect(callCount()).toBe(1)
+		expect(delays()).toEqual([])
+	})
+
 	it("caps the wait by the remaining deadline when Retry-After exceeds it", async () => {
 		const now = scriptedNow([BASE_TIME, BASE_TIME, BASE_TIME + 290_000])
 		const { fetch, callCount, delays } = buildFetch([response(429, { "Retry-After": "60" }), response(200)], now)
@@ -517,5 +547,154 @@ describe("createFetch", () => {
 		await fetch(controller.signal, "body")
 
 		expect(observedSignal).toBe(controller.signal)
+	})
+
+	it("retries a thrown network error and then returns the success response", async () => {
+		const { fetch, callCount, delays } = buildFetchFromOutcomes([new Error("network down"), response(200)])
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(200)
+		expect(callCount()).toBe(2)
+		expect(delays()).toEqual([1_000])
+	})
+
+	it("retries two thrown network errors with exponential backoff before succeeding", async () => {
+		const { fetch, callCount, delays } = buildFetchFromOutcomes([new Error("network down"), new Error("network down"), response(200)])
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(200)
+		expect(callCount()).toBe(3)
+		expect(delays()).toEqual([1_000, 2_000])
+	})
+
+	it("throws the final error after exhausting retries on repeated network errors", async () => {
+		const elevenErrors = Array.from({ length: 11 }, () => new Error("network down"))
+		const { fetch, callCount, delays } = buildFetchFromOutcomes(elevenErrors)
+		await expect(fetch(new AbortController().signal, "body")).rejects.toThrow("network down")
+		expect(callCount()).toBe(11)
+		expect(delays()).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000])
+	})
+
+	it("does not leak a 429's Retry-After into the backoff for a later network error", async () => {
+		const { fetch, callCount, delays } = buildFetchFromOutcomes([response(429, { "Retry-After": "5" }), new Error("network down"), response(200)])
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(200)
+		expect(callCount()).toBe(3)
+		expect(delays()).toEqual([5_000, 2_000])
+	})
+
+	it("applies a 429's Retry-After when the 429 follows a network error", async () => {
+		const { fetch, callCount, delays } = buildFetchFromOutcomes([new Error("network down"), response(429, { "Retry-After": "5" }), response(200)])
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(200)
+		expect(callCount()).toBe(3)
+		expect(delays()).toEqual([1_000, 5_000])
+	})
+
+	it("retries through a mix of 5xx status and thrown network error", async () => {
+		const { fetch, callCount, delays } = buildFetchFromOutcomes([response(503), new Error("network down"), response(200)])
+		const result = await fetch(new AbortController().signal, "body")
+		expect(result.status).toBe(200)
+		expect(callCount()).toBe(3)
+		expect(delays()).toEqual([1_000, 2_000])
+	})
+
+	it("does not retry a network error when the abort signal is already aborted", async () => {
+		const controller = new AbortController()
+		controller.abort()
+		const http = createFakeHttpFetchOutcomes([new Error("network down")])
+		const fetch = createFetch({ httpFetch: http.httpFetch, sleep: createFakeSleep().sleep, random: fixedRandom, now: constantNow(BASE_TIME) })
+		await expect(fetch(controller.signal, "body")).rejects.toThrow("network down")
+		expect(http.callCount()).toBe(1)
+	})
+
+	it("does not retry when abort races a thrown network error", async () => {
+		const controller = new AbortController()
+		let count = 0
+		const httpFetch: Fetch = async () => {
+			count++
+			controller.abort()
+			throw new Error("network down")
+		}
+		const fetch = createFetch({ httpFetch, sleep: createFakeSleep().sleep, random: fixedRandom, now: constantNow(BASE_TIME) })
+		await expect(fetch(controller.signal, "body")).rejects.toThrow("network down")
+		expect(count).toBe(1)
+	})
+
+	it("throws the network error when the deadline is exhausted after the failure", async () => {
+		const now = scriptedNow([BASE_TIME, BASE_TIME + 301_000])
+		const { fetch, callCount, delays } = buildFetchFromOutcomes([new Error("network down")], now)
+		const rejection = fetch(new AbortController().signal, "body")
+		await expect(rejection).rejects.toThrow("network down")
+		await expect(rejection).rejects.toThrow(FetchRetriesExhaustedError)
+		expect(callCount()).toBe(1)
+		expect(delays()).toEqual([])
+	})
+
+	it("throws the last network error rather than returning an earlier 429 once the deadline is exhausted", async () => {
+		const now = scriptedNow([BASE_TIME, BASE_TIME + 1_000, BASE_TIME + 2_000, BASE_TIME + 3_000, BASE_TIME + 301_000])
+		const { fetch, callCount } = buildFetchFromOutcomes([response(429), new Error("network down")], now)
+		const rejection = fetch(new AbortController().signal, "body")
+		await expect(rejection).rejects.toThrow("network down")
+		await expect(rejection).rejects.toThrow(FetchRetriesExhaustedError)
+		expect(callCount()).toBe(2)
+	})
+
+	it("stops retrying when the abort signal fires during backoff sleep", async () => {
+		const controller = new AbortController()
+		const http = createFakeHttpFetchOutcomes([new Error("network down"), response(200)])
+		const sleep: Sleep = async () => {
+			controller.abort()
+			throw new Error("The operation was aborted.")
+		}
+		const fetch = createFetch({ httpFetch: http.httpFetch, sleep, random: fixedRandom, now: constantNow(BASE_TIME) })
+		await expect(fetch(controller.signal, "body")).rejects.toThrow("The operation was aborted.")
+		expect(http.callCount()).toBe(1)
+	})
+
+	it("fails fast on TypeError without retrying", async () => {
+		const { fetch, callCount, delays } = buildFetchFromOutcomes([new TypeError("invalid header")])
+		await expect(fetch(new AbortController().signal, "body")).rejects.toThrow(TypeError)
+		expect(callCount()).toBe(1)
+		expect(delays()).toEqual([])
+	})
+
+	it("wraps exhaustion errors in FetchRetriesExhaustedError", async () => {
+		const elevenErrors = Array.from({ length: 11 }, () => new Error("network down"))
+		const { fetch, callCount, delays } = buildFetchFromOutcomes(elevenErrors)
+		await expect(fetch(new AbortController().signal, "body")).rejects.toThrow(FetchRetriesExhaustedError)
+		expect(callCount()).toBe(11)
+		expect(delays()).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000])
+	})
+
+	it("abort error is not wrapped in FetchRetriesExhaustedError", async () => {
+		const controller = new AbortController()
+		controller.abort()
+		const http = createFakeHttpFetchOutcomes([new Error("aborted mid-flight")])
+		const fetch = createFetch({ httpFetch: http.httpFetch, sleep: createFakeSleep().sleep, random: fixedRandom, now: constantNow(BASE_TIME) })
+		const error = await fetch(controller.signal, "body").then(
+			() => { throw new Error("Expected the fetch to reject") },
+			(caught: unknown) => caught,
+		)
+		expect(error).toBeInstanceOf(Error)
+		expect(error).not.toBeInstanceOf(FetchRetriesExhaustedError)
+		expect(http.callCount()).toBe(1)
+	})
+})
+
+describe("FetchRetriesExhaustedError", () => {
+	it("sets the name to FetchRetriesExhaustedError", () => {
+		const error = new FetchRetriesExhaustedError(new Error("network down"))
+		expect(error.name).toBe("FetchRetriesExhaustedError")
+	})
+
+	it("includes the original error message", () => {
+		const cause = new Error("network down")
+		const error = new FetchRetriesExhaustedError(cause)
+		expect(error.message).toContain("network down")
+	})
+
+	it("exposes the original error as cause", () => {
+		const cause = new Error("network down")
+		const error = new FetchRetriesExhaustedError(cause)
+		expect(error.cause).toBe(cause)
 	})
 })
