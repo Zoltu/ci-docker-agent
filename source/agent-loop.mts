@@ -124,7 +124,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; ran
 		}
 
 		const preparedRequest = profile.prepareRequest(baseRequest)
-		const completionsGenerator = completions({ fetch: boundFetch }, preparedRequest, profile.overwritePaths)
+		const completionsGenerator = completions({ fetch: boundFetch }, preparedRequest, profile)
 
 		let completionResult: CompletionResult | undefined
 		try {

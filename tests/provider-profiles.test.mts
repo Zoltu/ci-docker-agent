@@ -127,6 +127,21 @@ describe("composeProfiles", () => {
 		// composeProfiles is private; its behavior is verified through selectProviderProfile
 		// in the 'composeProfiles deep merge' describe block.
 	})
+
+	it("composeProfiles merges preferredReasoningField with second winning", () => {
+		const qwenOnTogether = selectProviderProfile("https://api.together.ai/v1", "Qwen 3.6")
+		expect(QWEN_PROFILE.preferredReasoningField).toBe("reasoning_content")
+		expect(TOGETHER_AI_PROFILE.preferredReasoningField).toBeUndefined()
+		expect(qwenOnTogether.preferredReasoningField).toBe("reasoning_content")
+
+		const glmOnPpq = selectProviderProfile("https://api.ppq.ai", "glm-4")
+		expect(GLM_PROFILE.preferredReasoningField).toBe("reasoning_content")
+		expect(PPQ_AI_PROFILE.preferredReasoningField).toBeUndefined()
+		expect(glmOnPpq.preferredReasoningField).toBe("reasoning_content")
+
+		expect(IDENTITY_PROFILE.preferredReasoningField).toBeUndefined()
+		expect(selectProviderProfile("https://api.unknown.com/v1", "gpt-4").preferredReasoningField).toBeUndefined()
+	})
 })
 
 describe("IDENTITY_PROFILE", () => {
