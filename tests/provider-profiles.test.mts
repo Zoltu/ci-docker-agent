@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { isSubsequence, selectProviderProfile, createReasoningNormalizer, IDENTITY_PROFILE, TOGETHER_AI_PROFILE, PPQ_AI_PROFILE, QWEN_PROFILE, GLM_PROFILE } from "../source/provider-profiles.mts"
+import { isSubsequence, selectProviderProfile, createReasoningNormalizer, DEFAULT_REASONING_PATH, IDENTITY_PROFILE, TOGETHER_AI_PROFILE, PPQ_AI_PROFILE, QWEN_PROFILE, GLM_PROFILE } from "../source/provider-profiles.mts"
 import type { CompletionsRequest } from "../source/completions.mts"
 
 const BASE_REQUEST: CompletionsRequest = {
@@ -263,99 +263,104 @@ describe("PPQ.ai profile", () => {
 })
 
 describe("createReasoningNormalizer", () => {
-	it("prefers reasoning when reasoningField is undefined", () => {
-		const normalize = createReasoningNormalizer(undefined)
+	it("prefers reasoning when the preferred field is reasoning", () => {
+		const normalize = createReasoningNormalizer("reasoning")
 		const message: Record<string, unknown> = { role: "assistant", reasoning: "deep thought", reasoning_content: "deep thought" }
 		normalize(message)
 		expect(message).toEqual({ role: "assistant", reasoning: "deep thought" })
 	})
 
-	it("prefers reasoning_content only for the exact [\"reasoning_content\"] path", () => {
-		const normalize = createReasoningNormalizer(["reasoning_content"])
+	it("prefers reasoning_content when the preferred field is reasoning_content", () => {
+		const normalize = createReasoningNormalizer("reasoning_content")
 		const message: Record<string, unknown> = { role: "assistant", reasoning: "deep thought", reasoning_content: "deep thought" }
 		normalize(message)
 		expect(message).toEqual({ role: "assistant", reasoning_content: "deep thought" })
 	})
 
-	it("prefers reasoning when reasoningField is the explicit default path", () => {
-		const normalize = createReasoningNormalizer(["reasoning"])
-		const message: Record<string, unknown> = { role: "assistant", reasoning: "deep thought", reasoning_content: "deep thought" }
-		normalize(message)
-		expect(message).toEqual({ role: "assistant", reasoning: "deep thought" })
-	})
-
-	it("prefers reasoning when reasoningField is a nested path", () => {
-		const normalize = createReasoningNormalizer(["reasoning_details", "0", "text"])
-		const message: Record<string, unknown> = { role: "assistant", reasoning: "deep thought", reasoning_content: "deep thought" }
-		normalize(message)
-		expect(message).toEqual({ role: "assistant", reasoning: "deep thought" })
-	})
-
-	it("prefers reasoning when reasoningField is a nested path under reasoning_content", () => {
-		const normalize = createReasoningNormalizer(["reasoning_content", "0", "text"])
-		const message: Record<string, unknown> = { role: "assistant", reasoning: "deep thought", reasoning_content: "deep thought" }
-		normalize(message)
-		expect(message).toEqual({ role: "assistant", reasoning: "deep thought" })
-	})
-
 	it("throws when both fields are present with different values", () => {
-		const normalize = createReasoningNormalizer(undefined)
+		const normalize = createReasoningNormalizer("reasoning")
 		const message: Record<string, unknown> = { reasoning: "deep thought", reasoning_content: "surface thought" }
 		expect(() => normalize(message)).toThrow("different values")
 	})
 
 	it("keeps the non-empty field when reasoning_content is an empty string stub", () => {
-		const normalize = createReasoningNormalizer(undefined)
+		const normalize = createReasoningNormalizer("reasoning")
 		const message: Record<string, unknown> = { reasoning: "real", reasoning_content: "" }
 		normalize(message)
 		expect(message).toEqual({ reasoning: "real" })
 	})
 
 	it("keeps the non-empty field when reasoning is an empty string stub", () => {
-		const normalize = createReasoningNormalizer(undefined)
+		const normalize = createReasoningNormalizer("reasoning")
 		const message: Record<string, unknown> = { reasoning: "", reasoning_content: "real" }
 		normalize(message)
 		expect(message).toEqual({ reasoning_content: "real" })
 	})
 
 	it("keeps the non-empty field even when it is not the preferred one", () => {
-		const normalize = createReasoningNormalizer(["reasoning_content"])
+		const normalize = createReasoningNormalizer("reasoning_content")
 		const message: Record<string, unknown> = { reasoning: "real", reasoning_content: "" }
 		normalize(message)
 		expect(message).toEqual({ reasoning: "real" })
 	})
 
 	it("normalizes both empty to reasoning when preferred", () => {
-		const normalize = createReasoningNormalizer(undefined)
+		const normalize = createReasoningNormalizer("reasoning")
 		const message: Record<string, unknown> = { reasoning: "", reasoning_content: "" }
 		normalize(message)
 		expect(message).toEqual({ reasoning: "" })
 	})
 
 	it("normalizes both empty to reasoning_content when preferred", () => {
-		const normalize = createReasoningNormalizer(["reasoning_content"])
+		const normalize = createReasoningNormalizer("reasoning_content")
 		const message: Record<string, unknown> = { reasoning: "", reasoning_content: "" }
 		normalize(message)
 		expect(message).toEqual({ reasoning_content: "" })
 	})
 
 	it("treats null values as empty stubs", () => {
-		const normalize = createReasoningNormalizer(undefined)
+		const normalize = createReasoningNormalizer("reasoning")
 		const message: Record<string, unknown> = { reasoning: null, reasoning_content: "real" }
 		normalize(message)
 		expect(message).toEqual({ reasoning_content: "real" })
 	})
 
 	it("leaves messages with only one reasoning field untouched", () => {
-		const normalize = createReasoningNormalizer(["reasoning_content"])
+		const normalize = createReasoningNormalizer("reasoning_content")
 		const message: Record<string, unknown> = { role: "assistant", reasoning: "only reasoning" }
 		normalize(message)
 		expect(message).toEqual({ role: "assistant", reasoning: "only reasoning" })
 	})
 
 	it("throws for divergent values even when preference is reasoning_content", () => {
-		const normalize = createReasoningNormalizer(["reasoning_content"])
+		const normalize = createReasoningNormalizer("reasoning_content")
 		const message: Record<string, unknown> = { reasoning: "deep thought", reasoning_content: "surface thought" }
 		expect(() => normalize(message)).toThrow("different values")
+	})
+})
+
+describe("profile normalizeMessage", () => {
+	it("default profiles use DEFAULT_REASONING_PATH[0] as preferred field", () => {
+		const normalizeViaPath = createReasoningNormalizer(DEFAULT_REASONING_PATH[0])
+		for (const profile of [IDENTITY_PROFILE, TOGETHER_AI_PROFILE, PPQ_AI_PROFILE]) {
+			const viaProfile: Record<string, unknown> = { reasoning: "deep thought", reasoning_content: "deep thought" }
+			const viaPath: Record<string, unknown> = { reasoning: "deep thought", reasoning_content: "deep thought" }
+			profile.normalizeMessage(viaProfile)
+			normalizeViaPath(viaPath)
+			expect(viaProfile).toEqual(viaPath)
+		}
+	})
+
+	it("QWEN_PROFILE.normalizeMessage prefers reasoning_content", () => {
+		const message: Record<string, unknown> = { reasoning: "deep thought", reasoning_content: "deep thought" }
+		QWEN_PROFILE.normalizeMessage(message)
+		expect(message).toEqual({ reasoning_content: "deep thought" })
+	})
+
+	it("composeProfiles uses second profile's normalizeMessage", () => {
+		const qwenOnTogether = selectProviderProfile("https://api.together.ai/v1", "Qwen 3.6")
+		const message: Record<string, unknown> = { reasoning: "deep thought", reasoning_content: "deep thought" }
+		qwenOnTogether.normalizeMessage(message)
+		expect(message).toEqual({ reasoning: "deep thought" })
 	})
 })

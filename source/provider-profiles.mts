@@ -1,35 +1,21 @@
 import type { CompletionsMessage, CompletionsRequest } from './completions.mts'
 import { deepMerge } from './typescript-helpers.mts'
 
-// Path through an assistant message to the field that carries the model's reasoning. Defaults to DEFAULT_REASONING_PATH in the agent loop.
-// Numeric segments index into arrays (e.g. ["reasoning_details", "0", "text"]); non-numeric segments index into objects.
 export interface ProviderProfile {
 	readonly prepareRequest: (request: CompletionsRequest) => CompletionsRequest
 	readonly overwritePaths: readonly (readonly string[])[]
+	// Path through an assistant message to the field that carries the model's reasoning. Extraction only — does not affect message normalization (see normalizeMessage).
 	readonly reasoningField?: readonly string[]
-}
-
-export const IDENTITY_PROFILE: ProviderProfile = {
-	prepareRequest: request => request,
-	overwritePaths: [],
+	// Normalizes an accumulated assistant message (e.g. resolves reasoning/reasoning_content overlap). Owned by the profile so field-naming policy lives in one place.
+	readonly normalizeMessage: (message: Record<string, unknown>) => void
 }
 
 // Must match the default reasoning field path used when no profile specifies one.
 export const DEFAULT_REASONING_PATH = ["reasoning"] as const
 
-const REASONING_CONTENT_PATH = ["reasoning_content"] as const
-
-function pathEquals(a: readonly string[] | undefined, b: readonly string[]): boolean {
-	if (a === undefined) return false
-	if (a.length !== b.length) return false
-	return a.every((segment, i) => segment === b[i])
-}
-
-// Normalizes the reasoning/reasoning_content pair on an assistant message down to a single field.
-// Preference is "reasoning_content" only for the exact ["reasoning_content"] path;
-// all other paths (including DEFAULT_REASONING_PATH and nested paths) prefer "reasoning".
-export function createReasoningNormalizer(reasoningField?: readonly string[]): (message: Record<string, unknown>) => void {
-	const preferReasoningContent = pathEquals(reasoningField, REASONING_CONTENT_PATH)
+// Normalizes the reasoning/reasoning_content pair on an assistant message down to a single field,
+// keeping preferredField unless it is an empty stub.
+export function createReasoningNormalizer(preferredField: "reasoning" | "reasoning_content"): (message: Record<string, unknown>) => void {
 	return (message) => {
 		if (message.reasoning === undefined || message.reasoning_content === undefined) return
 		const reasoningEmpty = message.reasoning === null || message.reasoning === ""
@@ -37,6 +23,7 @@ export function createReasoningNormalizer(reasoningField?: readonly string[]): (
 		if (!reasoningEmpty && !reasoningContentEmpty && message.reasoning !== message.reasoning_content) {
 			throw new Error(`Assistant message has both reasoning and reasoning_content with different values. reasoning: ${JSON.stringify(message.reasoning)}, reasoning_content: ${JSON.stringify(message.reasoning_content)}`)
 		}
+		const preferReasoningContent = preferredField === "reasoning_content"
 		let keepReasoningContent = preferReasoningContent
 		if (preferReasoningContent && reasoningContentEmpty && !reasoningEmpty) {
 			keepReasoningContent = false
@@ -49,6 +36,12 @@ export function createReasoningNormalizer(reasoningField?: readonly string[]): (
 			delete message.reasoning_content
 		}
 	}
+}
+
+export const IDENTITY_PROFILE: ProviderProfile = {
+	prepareRequest: request => request,
+	overwritePaths: [],
+	normalizeMessage: createReasoningNormalizer(DEFAULT_REASONING_PATH[0]),
 }
 
 function moveReasoningToReasoningContent(messages: readonly CompletionsMessage[]): CompletionsMessage[] {
@@ -67,6 +60,7 @@ export const TOGETHER_AI_PROFILE: ProviderProfile = {
 		['role'],
 		['tool_calls', 'type'],
 	],
+	normalizeMessage: createReasoningNormalizer(DEFAULT_REASONING_PATH[0]),
 }
 
 export const PPQ_AI_PROFILE: ProviderProfile = {
@@ -76,24 +70,28 @@ export const PPQ_AI_PROFILE: ProviderProfile = {
 		['reasoning_details', 'type'],
 		['reasoning_details', 'format'],
 	],
+	normalizeMessage: createReasoningNormalizer(DEFAULT_REASONING_PATH[0]),
 }
 
 export const QWEN_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, chat_template_kwargs: { preserve_thinking: true } }),
 	overwritePaths: [],
 	reasoningField: ["reasoning_content"],
+	normalizeMessage: createReasoningNormalizer("reasoning_content"),
 }
 
 export const KIMI_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, chat_template_kwargs: { preserve_thinking: true } }),
 	overwritePaths: [],
 	reasoningField: ["reasoning_content"],
+	normalizeMessage: createReasoningNormalizer("reasoning_content"),
 }
 
 export const GLM_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, chat_template_kwargs: { clear_thinking: false } }),
 	overwritePaths: [],
 	reasoningField: ["reasoning_content"],
+	normalizeMessage: createReasoningNormalizer("reasoning_content"),
 }
 
 const PROVIDER_HOSTNAMES: Record<string, string> = {
@@ -157,6 +155,7 @@ function composeProfiles(first: ProviderProfile, second: ProviderProfile): Provi
 		},
 		overwritePaths: [...first.overwritePaths, ...second.overwritePaths],
 		reasoningField: second.reasoningField ?? first.reasoningField,
+		normalizeMessage: second.normalizeMessage,
 	}
 }
 

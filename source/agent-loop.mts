@@ -1,5 +1,5 @@
 import { completions, type CompletionDelta, type CompletionResult, type CompletionsMessage, type CompletionsRequest, type CompletionsToolCall, type CompletionUsage } from './completions.mts'
-import { createReasoningNormalizer, type ProviderProfile } from './provider-profiles.mts'
+import type { ProviderProfile } from './provider-profiles.mts'
 import { StreamReadError } from './sse.mts'
 import { applyJitter, computeExponentialBackoff, errorMessage, isArrayOf, isRecord, isString } from './typescript-helpers.mts'
 
@@ -124,7 +124,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; ran
 		}
 
 		const preparedRequest = profile.prepareRequest(baseRequest)
-		const completionsGenerator = completions({ fetch: boundFetch }, preparedRequest, profile.overwritePaths, createReasoningNormalizer(profile.reasoningField))
+		const completionsGenerator = completions({ fetch: boundFetch }, preparedRequest, profile.overwritePaths, profile.normalizeMessage)
 
 		let completionResult: CompletionResult | undefined
 		try {
