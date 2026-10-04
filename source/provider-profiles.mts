@@ -7,7 +7,6 @@ export interface ProviderProfile {
 	readonly prepareRequest: (request: CompletionsRequest) => CompletionsRequest
 	readonly overwritePaths: readonly (readonly string[])[]
 	readonly reasoningField?: readonly string[]
-	readonly preferredReasoningField?: "reasoning" | "reasoning_content"
 }
 
 export const IDENTITY_PROFILE: ProviderProfile = {
@@ -46,21 +45,18 @@ export const QWEN_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, chat_template_kwargs: { preserve_thinking: true } }),
 	overwritePaths: [],
 	reasoningField: ["reasoning_content"],
-	preferredReasoningField: "reasoning_content",
 }
 
 export const KIMI_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, chat_template_kwargs: { preserve_thinking: true } }),
 	overwritePaths: [],
 	reasoningField: ["reasoning_content"],
-	preferredReasoningField: "reasoning_content",
 }
 
 export const GLM_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, chat_template_kwargs: { clear_thinking: false } }),
 	overwritePaths: [],
 	reasoningField: ["reasoning_content"],
-	preferredReasoningField: "reasoning_content",
 }
 
 const PROVIDER_HOSTNAMES: Record<string, string> = {
@@ -124,7 +120,6 @@ function composeProfiles(first: ProviderProfile, second: ProviderProfile): Provi
 		},
 		overwritePaths: [...first.overwritePaths, ...second.overwritePaths],
 		reasoningField: second.reasoningField ?? first.reasoningField,
-		preferredReasoningField: second.preferredReasoningField ?? first.preferredReasoningField,
 	}
 }
 

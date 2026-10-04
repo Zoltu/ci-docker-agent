@@ -1,4 +1,3 @@
-import type { ProviderProfile } from './provider-profiles.mts'
 import { type Fetch, readSseStream } from './sse.mts'
 import { guard, type GuardedType, isArray, isArrayOf, isInteger, isLiteral, isRecord, isString, optional } from './typescript-helpers.mts'
 
@@ -160,7 +159,7 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 }
 
 // Final validation that the accumulated object matches the assistant message contract
-function completeAccumulation(accumulator: Record<string, unknown>, preferredReasoningField?: 'reasoning' | 'reasoning_content'): CompletionsMessage {
+function completeAccumulation(accumulator: Record<string, unknown>, reasoningField?: readonly string[]): CompletionsMessage {
 	// The `index` is a streaming-side routing key used by mergeInto to know which slot each delta belongs to.
 	// Once accumulation is complete the slot is established and the routing is done, so the field is not part of the message.
 	for (const value of Object.values(accumulator)) {
@@ -178,7 +177,7 @@ function completeAccumulation(accumulator: Record<string, unknown>, preferredRea
 			throw new Error(`Assistant message has both reasoning and reasoning_content with different values. reasoning: ${JSON.stringify(accumulator.reasoning)}, reasoning_content: ${JSON.stringify(accumulator.reasoning_content)}`)
 		}
 
-		const preferReasoningContent = preferredReasoningField === 'reasoning_content'
+		const preferReasoningContent = reasoningField?.[0] === 'reasoning_content'
 		let keepReasoningContent = preferReasoningContent
 
 		if (preferReasoningContent && reasoningContentEmpty && !reasoningEmpty) {
@@ -205,8 +204,7 @@ export interface CompletionResult {
 	usage?: CompletionUsage
 }
 
-export async function* completions(dependencies: { fetch: Fetch }, request: CompletionsRequest, profile: ProviderProfile): AsyncGenerator<CompletionDelta, CompletionResult> {
-	const overwritePaths = profile.overwritePaths
+export async function* completions(dependencies: { fetch: Fetch }, request: CompletionsRequest, overwritePaths: readonly (readonly string[])[], reasoningField?: readonly string[]): AsyncGenerator<CompletionDelta, CompletionResult> {
 	const body = JSON.stringify({
 		stream_options: {
 			include_usage: true,
@@ -221,7 +219,7 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 
 	for await (const sseEvent of readSseStream(dependencies, body, { 'Content-Type': 'application/json' })) {
 		if (sseEvent.data === '[DONE]') {
-			return { message: completeAccumulation(accumulator, profile.preferredReasoningField), finishReason, usage }
+			return { message: completeAccumulation(accumulator, reasoningField), finishReason, usage }
 		}
 
 		let parsed: unknown
@@ -248,5 +246,5 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 
 		yield delta
 	}
-	return { message: completeAccumulation(accumulator, profile.preferredReasoningField), finishReason, usage }
+	return { message: completeAccumulation(accumulator, reasoningField), finishReason, usage }
 }
