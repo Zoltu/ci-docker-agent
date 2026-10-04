@@ -357,10 +357,30 @@ describe("profile normalizeMessage", () => {
 		expect(message).toEqual({ reasoning_content: "deep thought" })
 	})
 
-	it("composeProfiles uses second profile's normalizeMessage", () => {
+	it("composeProfiles derives normalizeMessage from merged reasoningField", () => {
 		const qwenOnTogether = selectProviderProfile("https://api.together.ai/v1", "Qwen 3.6")
-		const message: Record<string, unknown> = { reasoning: "deep thought", reasoning_content: "deep thought" }
+		const message = { reasoning: "deep thought", reasoning_content: "deep thought" }
 		qwenOnTogether.normalizeMessage(message)
-		expect(message).toEqual({ reasoning: "deep thought" })
+		// reasoningField is ["reasoning_content"] (from QWEN), so normalizeMessage must prefer reasoning_content
+		if ("reasoning_content" in message) {
+			expect(message.reasoning_content).toBe("deep thought")
+		} else {
+			throw new Error("reasoning_content should be kept")
+		}
+		if ("reasoning" in message) throw new Error("reasoning should be deleted")
+	})
+
+	it("composed profile with model reasoningField but provider without reasoningField keeps them consistent", () => {
+		const qwenOnPpq = selectProviderProfile("https://api.ppq.ai", "Qwen 3.6")
+		expect(qwenOnPpq.reasoningField).toEqual(["reasoning_content"])
+		const message = { reasoning: "deep thought", reasoning_content: "deep thought" }
+		qwenOnPpq.normalizeMessage(message)
+		// reasoningField is ["reasoning_content"] (from QWEN), so normalizeMessage must prefer reasoning_content
+		if ("reasoning_content" in message) {
+			expect(message.reasoning_content).toBe("deep thought")
+		} else {
+			throw new Error("reasoning_content should be kept")
+		}
+		if ("reasoning" in message) throw new Error("reasoning should be deleted")
 	})
 })

@@ -147,6 +147,10 @@ function findLongestMatchingModelProfile(model: string): ProviderProfile | null 
 
 // Each profile transforms the original request independently, then results are deep-merged so nested objects (e.g. chat_template_kwargs) are unioned instead of clobbered. The provider wins on scalar conflicts.
 function composeProfiles(first: ProviderProfile, second: ProviderProfile): ProviderProfile {
+	const mergedReasoningField = second.reasoningField ?? first.reasoningField
+	// Derive normalization preference from the merged reasoningField so the two halves
+	// of the field-naming policy cannot disagree in a composed profile.
+	const preferredField = mergedReasoningField?.[0] === "reasoning_content" ? "reasoning_content" : "reasoning"
 	return {
 		prepareRequest: (request) => {
 			const fromFirst = first.prepareRequest(request)
@@ -154,8 +158,8 @@ function composeProfiles(first: ProviderProfile, second: ProviderProfile): Provi
 			return deepMerge(fromFirst, fromSecond)
 		},
 		overwritePaths: [...first.overwritePaths, ...second.overwritePaths],
-		reasoningField: second.reasoningField ?? first.reasoningField,
-		normalizeMessage: second.normalizeMessage,
+		reasoningField: mergedReasoningField,
+		normalizeMessage: createReasoningNormalizer(preferredField),
 	}
 }
 
