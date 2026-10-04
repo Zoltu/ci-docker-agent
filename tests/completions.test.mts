@@ -398,16 +398,36 @@ describe("completions", () => {
 			if ("reasoning" in result.message) throw new Error("reasoning should not be present")
 		})
 
-		it("throws when both reasoning and reasoning_content are present", async () => {
+		it("prefers reasoning over reasoning_content when both are present", async () => {
 			const sse = buildSseFromChunks([
-				chunk("1", "test-model", { reasoning: "deep thought", reasoning_content: "surface thought" }),
+				chunk("1", "test-model", { reasoning: "deep thought", reasoning_content: "deep thought" }),
 				chunk("1", "test-model", { content: "answer" }),
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow(
-				"Assistant message has both reasoning and reasoning_content; these are mutually exclusive"
-			)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "answer",
+				reasoning: "deep thought",
+			})
+			if ("reasoning_content" in result.message) throw new Error("reasoning_content should not be present")
+		})
+
+		it("keeps reasoning_content when reasoning is absent", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { reasoning_content: "thinking" }),
+				chunk("1", "test-model", { content: "answer" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "answer",
+				reasoning_content: "thinking",
+			})
+			if ("reasoning" in result.message) throw new Error("reasoning should not be present")
 		})
 
 		it("merges fragmented tool call across multiple deltas", async () => {

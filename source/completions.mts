@@ -41,12 +41,7 @@ const isAssistantMessage = (value: unknown): value is CompletionsMessage & { rol
 		reasoning_content: optional(isString),
 		tool_calls: optional(isArrayOf(isAssistantMessageToolCall)),
 	})
-	if (!isValid(value)) return false
-	if (value.reasoning && value.reasoning_content) {
-		// Exception to the Guard contract: a provider sending both fields is a bug that must fail fast rather than be silently ignored.
-		throw new Error('Assistant message has both reasoning and reasoning_content; these are mutually exclusive')
-	}
-	return true
+	return isValid(value)
 }
 
 export type CompletionsMessage =
@@ -173,6 +168,11 @@ function completeAccumulation(accumulator: Record<string, unknown>): Completions
 				if (isRecord(item)) delete item.index
 			}
 		}
+	}
+	// Some providers send both reasoning and reasoning_content for compatibility.
+	// Prefer `reasoning` and drop `reasoning_content` when both are present.
+	if (accumulator.reasoning && accumulator.reasoning_content) {
+		delete accumulator.reasoning_content
 	}
 	if (!isAssistantMessage(accumulator)) {
 		throw new Error(`Invalid accumulated message: ${JSON.stringify(accumulator)}`)
