@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test"
 import { extractAtPath, readReasoningFromDelta } from "../source/reasoning.mts"
 import type { CompletionDelta } from "../source/completions.mts"
-import { createReasoningNormalizer, type ProviderProfile } from "../source/provider-profiles.mts"
+import { createProfile, type ProviderProfile } from "../source/provider-profiles.mts"
 
-const REASONING_CONTENT_PROFILE: ProviderProfile = { prepareRequest: r => r, overwritePaths: [], reasoningField: ["reasoning_content"], normalizeMessage: createReasoningNormalizer("reasoning_content") }
-const NESTED_PROFILE: ProviderProfile = { prepareRequest: r => r, overwritePaths: [], reasoningField: ["reasoning_details", "0", "text"], normalizeMessage: createReasoningNormalizer("reasoning") }
-const IDENTITY: ProviderProfile = { prepareRequest: r => r, overwritePaths: [], normalizeMessage: createReasoningNormalizer("reasoning") }
+const REASONING_CONTENT_PROFILE: ProviderProfile = createProfile({ prepareRequest: r => r, overwritePaths: [], reasoningField: ["reasoning_content"] })
+const NESTED_PROFILE: ProviderProfile = createProfile({ prepareRequest: r => r, overwritePaths: [], reasoningField: ["reasoning_details", "0", "text"] })
+const IDENTITY: ProviderProfile = createProfile({ prepareRequest: r => r, overwritePaths: [] })
 
 function delta(overrides: Partial<CompletionDelta> = {}): CompletionDelta {
 	return { ...overrides }
@@ -86,6 +86,6 @@ describe("readReasoningFromDelta", () => {
 	})
 
 	it("returns undefined for null", () => {
-		expect(readReasoningFromDelta(delta({ reasoning: null as unknown as string }), IDENTITY)).toBeUndefined()
+		expect(readReasoningFromDelta(delta({ reasoning: null }), IDENTITY)).toBeUndefined()
 	})
 })

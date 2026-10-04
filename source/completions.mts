@@ -33,15 +33,16 @@ const isAssistantMessageToolCall = guard({
 	function: guard({ name: isString, arguments: isString }),
 })
 
+const isAssistantMessageGuard = guard({
+	role: isLiteral('assistant'),
+	content: optional(isString),
+	reasoning: optional(isString),
+	reasoning_content: optional(isString),
+	tool_calls: optional(isArrayOf(isAssistantMessageToolCall)),
+})
+
 const isAssistantMessage = (value: unknown): value is CompletionsMessage & { role: 'assistant' } => {
-	const isValid = guard({
-		role: isLiteral('assistant'),
-		content: optional(isString),
-		reasoning: optional(isString),
-		reasoning_content: optional(isString),
-		tool_calls: optional(isArrayOf(isAssistantMessageToolCall)),
-	})
-	return isValid(value)
+	return isAssistantMessageGuard(value)
 }
 
 export type CompletionsMessage =
@@ -124,7 +125,7 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 
 		// Arrays: validate items and merge by index
 		if (isArray(value)) {
-			let arr = isArray(existing) ? existing : [] as unknown[]
+			const arr: unknown[] = isArray(existing) ? existing : []
 			target[key] = arr
 			for (const item of value) {
 				if (!isRecord(item)) throw new Error(`Array item is not an object: ${JSON.stringify(item)}`)
@@ -170,6 +171,9 @@ function completeAccumulation(accumulator: Record<string, unknown>, normalizeMes
 		}
 	}
 	normalizeMessage(accumulator)
+	if (accumulator.reasoning !== undefined && accumulator.reasoning_content !== undefined) {
+		throw new Error('Assistant message has both reasoning and reasoning_content after normalization; normalizeMessage must resolve the pair')
+	}
 	if (!isAssistantMessage(accumulator)) {
 		throw new Error(`Invalid accumulated message: ${JSON.stringify(accumulator)}`)
 	}

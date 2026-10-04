@@ -28,6 +28,7 @@ function nonEmptyString(value: unknown): string | undefined {
 }
 
 export function readReasoningFromDelta(delta: CompletionDelta, profile: ProviderProfile): string | undefined {
-	return nonEmptyString(extractAtPath(delta, profile.reasoningField ?? DEFAULT_REASONING_PATH))
+	const path = profile.reasoningField ?? DEFAULT_REASONING_PATH
+	return nonEmptyString(extractAtPath(delta, path))
 }
 
