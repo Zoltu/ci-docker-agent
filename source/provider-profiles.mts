@@ -1,7 +1,7 @@
 import type { CompletionsMessage, CompletionsRequest } from './completions.mts'
 import { deepMerge } from './typescript-helpers.mts'
 
-// Path through an assistant message to the field that carries the model's reasoning. Defaults to ["reasoning"] in the agent loop.
+// Path through an assistant message to the field that carries the model's reasoning. Defaults to DEFAULT_REASONING_PATH in the agent loop.
 // Numeric segments index into arrays (e.g. ["reasoning_details", "0", "text"]); non-numeric segments index into objects.
 export interface ProviderProfile {
 	readonly prepareRequest: (request: CompletionsRequest) => CompletionsRequest
@@ -12,6 +12,43 @@ export interface ProviderProfile {
 export const IDENTITY_PROFILE: ProviderProfile = {
 	prepareRequest: request => request,
 	overwritePaths: [],
+}
+
+// Must match the default reasoning field path used when no profile specifies one.
+export const DEFAULT_REASONING_PATH = ["reasoning"] as const
+
+const REASONING_CONTENT_PATH = ["reasoning_content"] as const
+
+function pathEquals(a: readonly string[] | undefined, b: readonly string[]): boolean {
+	if (a === undefined) return false
+	if (a.length !== b.length) return false
+	return a.every((segment, i) => segment === b[i])
+}
+
+// Normalizes the reasoning/reasoning_content pair on an assistant message down to a single field.
+// Preference is "reasoning_content" only for the exact ["reasoning_content"] path;
+// all other paths (including DEFAULT_REASONING_PATH and nested paths) prefer "reasoning".
+export function createReasoningNormalizer(reasoningField?: readonly string[]): (message: Record<string, unknown>) => void {
+	const preferReasoningContent = pathEquals(reasoningField, REASONING_CONTENT_PATH)
+	return (message) => {
+		if (message.reasoning === undefined || message.reasoning_content === undefined) return
+		const reasoningEmpty = message.reasoning === null || message.reasoning === ""
+		const reasoningContentEmpty = message.reasoning_content === null || message.reasoning_content === ""
+		if (!reasoningEmpty && !reasoningContentEmpty && message.reasoning !== message.reasoning_content) {
+			throw new Error(`Assistant message has both reasoning and reasoning_content with different values. reasoning: ${JSON.stringify(message.reasoning)}, reasoning_content: ${JSON.stringify(message.reasoning_content)}`)
+		}
+		let keepReasoningContent = preferReasoningContent
+		if (preferReasoningContent && reasoningContentEmpty && !reasoningEmpty) {
+			keepReasoningContent = false
+		} else if (!preferReasoningContent && reasoningEmpty && !reasoningContentEmpty) {
+			keepReasoningContent = true
+		}
+		if (keepReasoningContent) {
+			delete message.reasoning
+		} else {
+			delete message.reasoning_content
+		}
+	}
 }
 
 function moveReasoningToReasoningContent(messages: readonly CompletionsMessage[]): CompletionsMessage[] {
