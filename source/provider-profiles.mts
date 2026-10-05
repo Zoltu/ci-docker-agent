@@ -4,64 +4,17 @@ import { deepMerge } from './typescript-helpers.mts'
 export interface ProviderProfile {
 	readonly prepareRequest: (request: CompletionsRequest) => CompletionsRequest
 	readonly overwritePaths: readonly (readonly string[])[]
-	// Path through an assistant message to the field that carries the model's reasoning. The root field name also drives normalizeMessage's preferred field (see derivePreferredField). Non-empty: omit the field to use DEFAULT_REASONING_PATH instead.
-	readonly reasoningField?: readonly [string, ...string[]]
-	// Normalizes an accumulated assistant message. Must resolve the reasoning/reasoning_content
-	// overlap (keep exactly one) when both are present — completeAccumulation fails fast if both survive.
-	readonly normalizeMessage: (message: Record<string, unknown>) => void
-}
-
-// Must match the default reasoning field path used when no profile specifies one.
-export const DEFAULT_REASONING_PATH = ["reasoning"] as const
-
-// Normalizes the reasoning/reasoning_content pair on an assistant message down to a single field,
-// keeping preferredField unless it is an empty stub.
-function createReasoningNormalizer(preferredField: "reasoning" | "reasoning_content"): (message: Record<string, unknown>) => void {
-	return (message) => {
-		if (message.reasoning === undefined || message.reasoning_content === undefined) return
-		const reasoningEmpty = message.reasoning === null || message.reasoning === ""
-		const reasoningContentEmpty = message.reasoning_content === null || message.reasoning_content === ""
-		if (!reasoningEmpty && !reasoningContentEmpty && message.reasoning !== message.reasoning_content) {
-			throw new Error(`Assistant message has both reasoning and reasoning_content with different values. reasoning: ${JSON.stringify(message.reasoning)}, reasoning_content: ${JSON.stringify(message.reasoning_content)}`)
-		}
-		const preferReasoningContent = preferredField === "reasoning_content"
-		let keepReasoningContent = preferReasoningContent
-		if (preferReasoningContent && reasoningContentEmpty && !reasoningEmpty) {
-			keepReasoningContent = false
-		} else if (!preferReasoningContent && reasoningEmpty && !reasoningContentEmpty) {
-			keepReasoningContent = true
-		}
-		if (keepReasoningContent) {
-			delete message.reasoning
-		} else {
-			delete message.reasoning_content
-		}
-	}
-}
-
-function derivePreferredField(reasoningField?: readonly [string, ...string[]]): "reasoning" | "reasoning_content" {
-	return reasoningField?.[0] === "reasoning_content" ? "reasoning_content" : DEFAULT_REASONING_PATH[0]
-}
-
-interface ProfileConfig {
-	readonly prepareRequest: (request: CompletionsRequest) => CompletionsRequest
-	readonly overwritePaths: readonly (readonly string[])[]
+	// Path through an assistant message to the field that carries the model's reasoning.
+	// Numeric segments index into arrays (e.g. ["reasoning_details", "0", "text"]); non-numeric segments index into objects.
+	// The root segment also determines which of reasoning/reasoning_content normalization prefers:
+	// ["reasoning_content"] prefers reasoning_content; all other paths prefer reasoning.
 	readonly reasoningField?: readonly [string, ...string[]]
 }
 
-export function createProfile(config: ProfileConfig): ProviderProfile {
-	return {
-		prepareRequest: config.prepareRequest,
-		overwritePaths: config.overwritePaths,
-		reasoningField: config.reasoningField,
-		normalizeMessage: createReasoningNormalizer(derivePreferredField(config.reasoningField)),
-	}
-}
-
-export const IDENTITY_PROFILE: ProviderProfile = createProfile({
+export const IDENTITY_PROFILE: ProviderProfile = {
 	prepareRequest: request => request,
 	overwritePaths: [],
-})
+}
 
 function moveReasoningToReasoningContent(messages: readonly CompletionsMessage[]): CompletionsMessage[] {
 	return messages.map(message => {
@@ -73,40 +26,40 @@ function moveReasoningToReasoningContent(messages: readonly CompletionsMessage[]
 	})
 }
 
-export const TOGETHER_AI_PROFILE: ProviderProfile = createProfile({
+export const TOGETHER_AI_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, messages: moveReasoningToReasoningContent(request.messages) }),
 	overwritePaths: [
-		["role"],
-		["tool_calls", "type"],
+		['role'],
+		['tool_calls', 'type'],
 	],
-})
+}
 
-export const PPQ_AI_PROFILE: ProviderProfile = createProfile({
+export const PPQ_AI_PROFILE: ProviderProfile = {
 	prepareRequest: request => request,
 	overwritePaths: [
-		["role"],
-		["reasoning_details", "type"],
-		["reasoning_details", "format"],
+		['role'],
+		['reasoning_details', 'type'],
+		['reasoning_details', 'format'],
 	],
-})
+}
 
-export const QWEN_PROFILE: ProviderProfile = createProfile({
+export const QWEN_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, chat_template_kwargs: { preserve_thinking: true } }),
 	overwritePaths: [],
-	reasoningField: ["reasoning_content"],
-})
+	reasoningField: ['reasoning_content'],
+}
 
-export const KIMI_PROFILE: ProviderProfile = createProfile({
+export const KIMI_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, chat_template_kwargs: { preserve_thinking: true } }),
 	overwritePaths: [],
-	reasoningField: ["reasoning_content"],
-})
+	reasoningField: ['reasoning_content'],
+}
 
-export const GLM_PROFILE: ProviderProfile = createProfile({
+export const GLM_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, chat_template_kwargs: { clear_thinking: false } }),
 	overwritePaths: [],
-	reasoningField: ["reasoning_content"],
-})
+	reasoningField: ['reasoning_content'],
+}
 
 const PROVIDER_HOSTNAMES: Record<string, string> = {
 	'api.together.ai': 'together-ai',
@@ -158,18 +111,15 @@ function findLongestMatchingModelProfile(model: string): ProviderProfile | null 
 
 // Each profile transforms the original request independently, then results are deep-merged so nested objects (e.g. chat_template_kwargs) are unioned instead of clobbered. The provider wins on scalar conflicts.
 function composeProfiles(first: ProviderProfile, second: ProviderProfile): ProviderProfile {
-	const mergedReasoningField: readonly [string, ...string[]] | undefined = second.reasoningField ?? first.reasoningField
-	// createProfile derives normalizeMessage from the merged reasoningField so the two halves
-	// of the field-naming policy cannot disagree in a composed profile.
-	return createProfile({
+	return {
 		prepareRequest: (request) => {
 			const fromFirst = first.prepareRequest(request)
 			const fromSecond = second.prepareRequest(request)
 			return deepMerge(fromFirst, fromSecond)
 		},
 		overwritePaths: [...first.overwritePaths, ...second.overwritePaths],
-		reasoningField: mergedReasoningField,
-	})
+		reasoningField: second.reasoningField ?? first.reasoningField,
+	}
 }
 
 export function selectProviderProfile(apiUrl: string, model: string): ProviderProfile {

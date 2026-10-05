@@ -1,6 +1,9 @@
 import { type Fetch, readSseStream } from './sse.mts'
 import { guard, type GuardedType, isArray, isArrayOf, isInteger, isLiteral, isRecord, isString, optional } from './typescript-helpers.mts'
 
+// Default path through an assistant message/delta to the field that carries the model's reasoning.
+export const DEFAULT_REASONING_PATH = ['reasoning'] as const
+
 const isSseCompletionEvent = guard({
 	choices: isArrayOf(guard({
 		delta: guard({
@@ -159,8 +162,34 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 	}
 }
 
+// Resolves the reasoning/reasoning_content overlap down to a single field, keeping the preferred
+// field (derived from the profile's reasoningField) unless it is an empty stub. Throws when both
+// fields are present with different values.
+function normalizeReasoningFields(message: Record<string, unknown>, reasoningField?: readonly [string, ...string[]]): void {
+	if (message.reasoning === undefined || message.reasoning_content === undefined) return
+	const preferredField = reasoningField?.[0] === 'reasoning_content' ? 'reasoning_content' : DEFAULT_REASONING_PATH[0]
+	// null is unreachable in practice (mergeInto drops nulls) but kept defensively
+	const reasoningEmpty = message.reasoning === null || message.reasoning === ''
+	const reasoningContentEmpty = message.reasoning_content === null || message.reasoning_content === ''
+	if (!reasoningEmpty && !reasoningContentEmpty && message.reasoning !== message.reasoning_content) {
+		throw new Error(`Assistant message has both reasoning and reasoning_content with different values. reasoning: ${JSON.stringify(message.reasoning)}, reasoning_content: ${JSON.stringify(message.reasoning_content)}`)
+	}
+	const preferReasoningContent = preferredField === 'reasoning_content'
+	let keepReasoningContent = preferReasoningContent
+	if (preferReasoningContent && reasoningContentEmpty && !reasoningEmpty) {
+		keepReasoningContent = false
+	} else if (!preferReasoningContent && reasoningEmpty && !reasoningContentEmpty) {
+		keepReasoningContent = true
+	}
+	if (keepReasoningContent) {
+		delete message.reasoning
+	} else {
+		delete message.reasoning_content
+	}
+}
+
 // Final validation that the accumulated object matches the assistant message contract
-function completeAccumulation(accumulator: Record<string, unknown>, normalizeMessage: (message: Record<string, unknown>) => void): CompletionsMessage {
+function completeAccumulation(accumulator: Record<string, unknown>, reasoningField?: readonly [string, ...string[]]): CompletionsMessage {
 	// The `index` is a streaming-side routing key used by mergeInto to know which slot each delta belongs to.
 	// Once accumulation is complete the slot is established and the routing is done, so the field is not part of the message.
 	for (const value of Object.values(accumulator)) {
@@ -170,10 +199,7 @@ function completeAccumulation(accumulator: Record<string, unknown>, normalizeMes
 			}
 		}
 	}
-	normalizeMessage(accumulator)
-	if (accumulator.reasoning !== undefined && accumulator.reasoning_content !== undefined) {
-		throw new Error('Assistant message has both reasoning and reasoning_content after normalization; normalizeMessage must resolve the pair')
-	}
+	normalizeReasoningFields(accumulator, reasoningField)
 	if (!isAssistantMessage(accumulator)) {
 		throw new Error(`Invalid accumulated message: ${JSON.stringify(accumulator)}`)
 	}
@@ -186,7 +212,7 @@ export interface CompletionResult {
 	usage?: CompletionUsage
 }
 
-export async function* completions(dependencies: { fetch: Fetch }, request: CompletionsRequest, overwritePaths: readonly (readonly string[])[], normalizeMessage: (message: Record<string, unknown>) => void): AsyncGenerator<CompletionDelta, CompletionResult> {
+export async function* completions(dependencies: { fetch: Fetch }, request: CompletionsRequest, overwritePaths: readonly (readonly string[])[], reasoningField?: readonly [string, ...string[]]): AsyncGenerator<CompletionDelta, CompletionResult> {
 	const body = JSON.stringify({
 		stream_options: {
 			include_usage: true,
@@ -201,7 +227,7 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 
 	for await (const sseEvent of readSseStream(dependencies, body, { 'Content-Type': 'application/json' })) {
 		if (sseEvent.data === '[DONE]') {
-			return { message: completeAccumulation(accumulator, normalizeMessage), finishReason, usage }
+			return { message: completeAccumulation(accumulator, reasoningField), finishReason, usage }
 		}
 
 		let parsed: unknown
@@ -228,5 +254,5 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 
 		yield delta
 	}
-	return { message: completeAccumulation(accumulator, normalizeMessage), finishReason, usage }
+	return { message: completeAccumulation(accumulator, reasoningField), finishReason, usage }
 }

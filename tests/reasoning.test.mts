@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test"
 import { extractAtPath, readReasoningFromDelta } from "../source/reasoning.mts"
 import type { CompletionDelta } from "../source/completions.mts"
-import { createProfile, type ProviderProfile } from "../source/provider-profiles.mts"
+import type { ProviderProfile } from "../source/provider-profiles.mts"
 
-const REASONING_CONTENT_PROFILE: ProviderProfile = createProfile({ prepareRequest: r => r, overwritePaths: [], reasoningField: ["reasoning_content"] })
-const NESTED_PROFILE: ProviderProfile = createProfile({ prepareRequest: r => r, overwritePaths: [], reasoningField: ["reasoning_details", "0", "text"] })
-const IDENTITY: ProviderProfile = createProfile({ prepareRequest: r => r, overwritePaths: [] })
+const REASONING_CONTENT_PROFILE: ProviderProfile = { prepareRequest: r => r, overwritePaths: [], reasoningField: ["reasoning_content"] }
+const NESTED_PROFILE: ProviderProfile = { prepareRequest: r => r, overwritePaths: [], reasoningField: ["reasoning_details", "0", "text"] }
+const IDENTITY: ProviderProfile = { prepareRequest: r => r, overwritePaths: [] }
 
 function delta(overrides: Partial<CompletionDelta> = {}): CompletionDelta {
 	return { ...overrides }

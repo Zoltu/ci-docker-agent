@@ -1,5 +1,5 @@
-import type { CompletionDelta } from "./completions.mts"
-import { DEFAULT_REASONING_PATH, type ProviderProfile } from "./provider-profiles.mts"
+import { DEFAULT_REASONING_PATH, type CompletionDelta } from "./completions.mts"
+import type { ProviderProfile } from "./provider-profiles.mts"
 import { isRecord } from "./typescript-helpers.mts"
 
 // Walks a path through a value: non-numeric segments index into objects; numeric segments index into arrays.
