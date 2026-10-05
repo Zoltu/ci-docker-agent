@@ -232,6 +232,12 @@ describe("isObjectOf", () => {
 	it("returns true when object has extra properties", () => {
 		expect(isObjectOf({ name: "alice", extra: true }, { name: isString })).toBe(true)
 	})
+	it("returns false for dangerous own keys", () => {
+		expect(isObjectOf(JSON.parse('{"__proto__": {"x": 1}, "name": "a"}'), { name: isString })).toBe(false)
+		expect(isObjectOf(JSON.parse('{"constructor": {"x": 1}, "name": "a"}'), { name: isString })).toBe(false)
+		expect(isObjectOf(JSON.parse('{"prototype": {"x": 1}, "name": "a"}'), { name: isString })).toBe(false)
+		expect(isObjectOf({ name: "a" }, { name: isString })).toBe(true)
+	})
 	it("returns true for empty schema on a plain object", () => {
 		expect(isObjectOf({}, {})).toBe(true)
 	})

@@ -1,12 +1,20 @@
 import { type Fetch, readSseStream } from './sse.mts'
-import { guard, type GuardedType, isArray, isArrayOf, isInteger, isLiteral, isRecord, isString, optional } from './typescript-helpers.mts'
+import { DANGEROUS_KEYS, guard, type GuardedType, isArray, isArrayOf, isInteger, isLiteral, isRecord, isString, optional } from './typescript-helpers.mts'
 
 // Default path through an assistant message/delta to the field that carries the model's reasoning.
 export const DEFAULT_REASONING_PATH = ['reasoning'] as const
 
+const REASONING_FIELD = 'reasoning' as const
+const REASONING_CONTENT_FIELD = 'reasoning_content' as const
+
+// Token counts cannot be negative; isInteger alone accepts negatives.
+function isNonNegativeInteger(value: unknown): value is number {
+	return isInteger(value) && value >= 0
+}
+
 const isSseCompletionEvent = guard({
 	choices: isArrayOf(guard({
-		delta: guard({
+		delta: optional(guard({
 			role: optional(isLiteral('assistant')),
 			content: optional(isString),
 			reasoning: optional(isString),
@@ -20,13 +28,13 @@ const isSseCompletionEvent = guard({
 					arguments: optional(isString),
 				}),
 			}))),
-		}),
+		})),
 		finish_reason: optional(isString),
 	})),
 	usage: optional(guard({
-		prompt_tokens: isInteger,
-		completion_tokens: isInteger,
-		total_tokens: isInteger,
+		prompt_tokens: optional(isNonNegativeInteger),
+		completion_tokens: isNonNegativeInteger,
+		total_tokens: optional(isNonNegativeInteger),
 	})),
 })
 
@@ -44,7 +52,7 @@ const isAssistantMessageGuard = guard({
 	tool_calls: optional(isArrayOf(isAssistantMessageToolCall)),
 })
 
-const isAssistantMessage = (value: unknown): value is CompletionsMessage & { role: 'assistant' } => {
+export const isAssistantMessage = (value: unknown): value is CompletionsMessage & { role: 'assistant' } => {
 	return isAssistantMessageGuard(value)
 }
 
@@ -97,17 +105,58 @@ export interface CompletionsRequest {
 	readonly [extension: string]: unknown
 }
 
-export type CompletionDelta = GuardedType<typeof isSseCompletionEvent>['choices'][number]['delta']
+export type CompletionDelta = NonNullable<GuardedType<typeof isSseCompletionEvent>['choices'][number]['delta']>
 export type CompletionUsage = NonNullable<GuardedType<typeof isSseCompletionEvent>['usage']>
 
 function isOverwritePath(fieldPath: readonly string[], overwritePaths: readonly (readonly string[])[]): boolean {
 	return overwritePaths.some(pattern => pattern.length === fieldPath.length && pattern.every((segment, i) => segment === fieldPath[i]))
 }
 
+// One-shot metadata fields overwrite instead of concatenating: providers repeat these verbatim
+// across deltas (e.g. tool call id/type), so concatenation would corrupt them.
+const ONE_SHOT_KEYS = new Set(['role', 'id', 'type', 'name'])
+
+function isOneShotKey(key: string, currentPath: readonly string[]): boolean {
+	if (!ONE_SHOT_KEYS.has(key)) return false
+	// `function.name` merges below instead: it may arrive as fragments or as a verbatim echo.
+	if (key === 'name' && currentPath[currentPath.length - 1] === 'function') return false
+	return true
+}
+
+// `function.name` streams in fragments on some providers ("read_" + "file") but is echoed verbatim
+// in every delta on others. Distinct values concatenate as fragments; an identical echo carries no
+// new information and must not double.
+function isEchoedFunctionName(key: string, currentPath: readonly string[], existing: string, value: string): boolean {
+	if (key !== 'name') return false
+	if (currentPath[currentPath.length - 1] !== 'function') return false
+	return existing === value
+}
+
+// Cloning copy that strips dangerous keys at every level: structuredClone preserves them, and copying
+// a record that owns `__proto__` would smuggle it past mergeInto's per-key sanitization.
+function sanitizeClone(value: unknown): unknown {
+	if (isArray(value)) return value.map(sanitizeClone)
+	if (isRecord(value)) {
+		const result: Record<string, unknown> = {}
+		for (const [key, item] of Object.entries(value)) {
+			if (DANGEROUS_KEYS.has(key)) continue
+			result[key] = sanitizeClone(item)
+		}
+		return result
+	}
+	return value
+}
+
 function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>, overwritePaths: readonly (readonly string[])[], currentPath: readonly string[] = []): void {
 	for (const [key, value] of Object.entries(source)) {
+		if (DANGEROUS_KEYS.has(key)) continue
 		if (value === undefined) continue
 		if (value === null) continue
+
+		if (isOneShotKey(key, currentPath)) {
+			target[key] = value
+			continue
+		}
 
 		const fieldPath = [...currentPath, key]
 		const existing = target[key]
@@ -119,6 +168,7 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 
 		if (typeof value === 'string') {
 			if (typeof existing === 'string') {
+				if (isEchoedFunctionName(key, currentPath, existing, value)) continue
 				target[key] = existing + value
 				continue
 			}
@@ -126,14 +176,23 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 			continue
 		}
 
-		// Arrays: validate items and merge by index
+		// Arrays whose items are {index: n} records (e.g. tool_calls) merge by index; other arrays overwrite.
 		if (isArray(value)) {
+			const allHaveIndex = value.every(item => isRecord(item) && isInteger(item.index))
+			if (!allHaveIndex) {
+				target[key] = sanitizeClone(value)
+				continue
+			}
 			const arr: unknown[] = isArray(existing) ? existing : []
 			target[key] = arr
+			const seenIndices = new Set<number>()
 			for (const item of value) {
 				if (!isRecord(item)) throw new Error(`Array item is not an object: ${JSON.stringify(item)}`)
 				if (!isInteger(item.index)) throw new Error(`Array item missing integer index: ${JSON.stringify(item)}`)
+				if (item.index < 0 || item.index > 1024) throw new Error(`Array item index out of bounds: ${item.index}`)
 				const index = item.index
+				if (seenIndices.has(index)) throw new Error(`Duplicate array item index within one delta: ${index}`)
+				seenIndices.add(index)
 				if (!isRecord(arr[index])) {
 					arr[index] = {}
 				}
@@ -163,18 +222,17 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 }
 
 // Resolves the reasoning/reasoning_content overlap down to a single field, keeping the preferred
-// field (derived from the profile's reasoningField) unless it is an empty stub. Throws when both
-// fields are present with different values.
-function normalizeReasoningFields(message: Record<string, unknown>, reasoningField?: readonly [string, ...string[]]): void {
-	if (message.reasoning === undefined || message.reasoning_content === undefined) return
-	const preferredField = reasoningField?.[0] === 'reasoning_content' ? 'reasoning_content' : DEFAULT_REASONING_PATH[0]
-	// null is unreachable in practice (mergeInto drops nulls) but kept defensively
-	const reasoningEmpty = message.reasoning === null || message.reasoning === ''
-	const reasoningContentEmpty = message.reasoning_content === null || message.reasoning_content === ''
-	if (!reasoningEmpty && !reasoningContentEmpty && message.reasoning !== message.reasoning_content) {
-		throw new Error(`Assistant message has both reasoning and reasoning_content with different values. reasoning: ${JSON.stringify(message.reasoning)}, reasoning_content: ${JSON.stringify(message.reasoning_content)}`)
-	}
-	const preferReasoningContent = preferredField === 'reasoning_content'
+// field unless it is an empty stub.
+export function resolveReasoningOverlap(message: Record<string, unknown>, preferredField: 'reasoning' | 'reasoning_content'): void {
+	const reasoningValue = message[REASONING_FIELD]
+	const reasoningContentValue = message[REASONING_CONTENT_FIELD]
+	if (reasoningValue === undefined || reasoningContentValue === undefined) return
+	// null is unreachable in practice (mergeInto drops nulls) but kept defensively.
+	// Whitespace-only counts as empty: streaming providers commonly echo a " " stub in the mirrored field.
+	const reasoningEmpty = reasoningValue === null || (isString(reasoningValue) && reasoningValue.trim() === '')
+	const reasoningContentEmpty = reasoningContentValue === null || (isString(reasoningContentValue) && reasoningContentValue.trim() === '')
+	// When both fields have content, the preferred field wins. Values may differ due to per-field concatenation timing; this is not an error.
+	const preferReasoningContent = preferredField === REASONING_CONTENT_FIELD
 	let keepReasoningContent = preferReasoningContent
 	if (preferReasoningContent && reasoningContentEmpty && !reasoningEmpty) {
 		keepReasoningContent = false
@@ -182,24 +240,58 @@ function normalizeReasoningFields(message: Record<string, unknown>, reasoningFie
 		keepReasoningContent = true
 	}
 	if (keepReasoningContent) {
-		delete message.reasoning
+		delete message[REASONING_FIELD]
 	} else {
-		delete message.reasoning_content
+		delete message[REASONING_CONTENT_FIELD]
+	}
+}
+
+// Recursively removes the streaming-side `index` routing key from records inside arrays.
+function stripIndex(value: unknown): void {
+	if (!isRecord(value)) return
+	for (const item of Object.values(value)) {
+		if (isArray(item)) {
+			for (const entry of item) {
+				if (isRecord(entry)) {
+					delete entry.index
+					stripIndex(entry)
+				}
+			}
+		} else if (isRecord(item)) {
+			stripIndex(item)
+		}
+	}
+}
+
+function applyToolCallDefaults(accumulator: Record<string, unknown>): void {
+	const toolCalls = accumulator.tool_calls
+	if (!isArray(toolCalls)) return
+	for (const toolCall of toolCalls) {
+		if (toolCall === undefined || toolCall === null) continue
+		if (!isRecord(toolCall)) continue
+		if (toolCall.type === undefined) toolCall.type = 'function'
+		if (toolCall.id === undefined) toolCall.id = ''
+		const fn = toolCall.function
+		if (isRecord(fn) && fn.arguments === undefined) fn.arguments = ''
 	}
 }
 
 // Final validation that the accumulated object matches the assistant message contract
 function completeAccumulation(accumulator: Record<string, unknown>, reasoningField?: readonly [string, ...string[]]): CompletionsMessage {
+	// Index-merged arrays accumulate sparse slots across deltas; compact every array (not just tool_calls) before finalizing.
+	for (const [key, value] of Object.entries(accumulator)) {
+		if (DANGEROUS_KEYS.has(key)) continue
+		if (!isArray(value)) continue
+		accumulator[key] = value.filter(item => item !== undefined && item !== null)
+	}
 	// The `index` is a streaming-side routing key used by mergeInto to know which slot each delta belongs to.
 	// Once accumulation is complete the slot is established and the routing is done, so the field is not part of the message.
-	for (const value of Object.values(accumulator)) {
-		if (isArray(value)) {
-			for (const item of value) {
-				if (isRecord(item)) delete item.index
-			}
-		}
-	}
-	normalizeReasoningFields(accumulator, reasoningField)
+	stripIndex(accumulator)
+	applyToolCallDefaults(accumulator)
+	const preferredField = reasoningField?.[0] === REASONING_CONTENT_FIELD ? REASONING_CONTENT_FIELD : DEFAULT_REASONING_PATH[0]
+	resolveReasoningOverlap(accumulator, preferredField)
+	// completions() always accumulates an assistant message; a stream that never sends a role delta still produced one.
+	if (accumulator.role === undefined) accumulator.role = 'assistant'
 	if (!isAssistantMessage(accumulator)) {
 		throw new Error(`Invalid accumulated message: ${JSON.stringify(accumulator)}`)
 	}
@@ -214,10 +306,8 @@ export interface CompletionResult {
 
 export async function* completions(dependencies: { fetch: Fetch }, request: CompletionsRequest, overwritePaths: readonly (readonly string[])[], reasoningField?: readonly [string, ...string[]]): AsyncGenerator<CompletionDelta, CompletionResult> {
 	const body = JSON.stringify({
-		stream_options: {
-			include_usage: true,
-		},
 		...request,
+		stream_options: { ...request.stream_options, include_usage: true },
 		stream: true,
 	} satisfies CompletionsRequest)
 
@@ -249,6 +339,9 @@ export async function* completions(dependencies: { fetch: Fetch }, request: Comp
 		const { delta, finish_reason } = choice
 
 		if (finish_reason) finishReason = finish_reason
+
+		if (delta === undefined) continue
+		if (delta === null) continue
 
 		mergeInto(accumulator, delta, overwritePaths)
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { isSubsequence, selectProviderProfile, IDENTITY_PROFILE, TOGETHER_AI_PROFILE, PPQ_AI_PROFILE, QWEN_PROFILE, GLM_PROFILE } from "../source/provider-profiles.mts"
+import { selectProviderProfile, IDENTITY_PROFILE, TOGETHER_AI_PROFILE, PPQ_AI_PROFILE, QWEN_PROFILE, KIMI_PROFILE, GLM_PROFILE } from "../source/provider-profiles.mts"
 import type { CompletionsRequest } from "../source/completions.mts"
 
 const BASE_REQUEST: CompletionsRequest = {
@@ -91,6 +91,48 @@ describe("Together.ai profile prepareRequest", () => {
 		expect(msg.reasoning_content).toBeNull()
 	})
 
+	it("keeps reasoning_content when both fields hold the same value", () => {
+		const message = { role: "assistant" as const, content: "answer", reasoning: "kept", reasoning_content: "kept" }
+		const request: CompletionsRequest = {
+			model: "test",
+			messages: [message],
+		}
+		const result = TOGETHER_AI_PROFILE.prepareRequest(request)
+		const msg = result.messages[0]!
+		if (msg.role !== "assistant") throw new Error("expected assistant")
+		if ("reasoning" in msg && msg.reasoning !== undefined) throw new Error("reasoning should have been moved")
+		if (!("reasoning_content" in msg)) throw new Error("expected reasoning_content")
+		expect(msg.reasoning_content).toBe("kept")
+	})
+
+	it("keeps the non-empty field when the other is an empty stub", () => {
+		const message = { role: "assistant" as const, content: "answer", reasoning: "real", reasoning_content: " " }
+		const request: CompletionsRequest = {
+			model: "test",
+			messages: [message],
+		}
+		const result = TOGETHER_AI_PROFILE.prepareRequest(request)
+		const msg = result.messages[0]!
+		if (msg.role !== "assistant") throw new Error("expected assistant")
+		if ("reasoning" in msg && msg.reasoning !== undefined) throw new Error("reasoning should have been moved")
+		if (!("reasoning_content" in msg)) throw new Error("expected reasoning_content")
+		expect(msg.reasoning_content).toBe("real")
+	})
+
+	it("prefers reasoning_content silently when both fields have different values", () => {
+		const message = { role: "assistant" as const, content: "answer", reasoning: "moved away", reasoning_content: "kept" }
+		const request: CompletionsRequest = {
+			model: "test",
+			messages: [message],
+		}
+		const result = TOGETHER_AI_PROFILE.prepareRequest(request)
+		const msg = result.messages[0]!
+		if (msg.role !== "assistant") throw new Error("expected assistant")
+		if ("reasoning" in msg && msg.reasoning !== undefined) throw new Error("reasoning should have been moved")
+		if (!("reasoning_content" in msg)) throw new Error("expected reasoning_content")
+		expect(msg.reasoning_content).toBe("kept")
+	})
+
 	it("preserves tool_calls when moving reasoning", () => {
 		const request: CompletionsRequest = {
 			model: "test",
@@ -159,52 +201,8 @@ describe("IDENTITY_PROFILE", () => {
 	})
 })
 
-describe("isSubsequence", () => {
-	it("matches non-contiguous characters in order", () => {
-		expect(isSubsequence("qwen36", "QaWbEcNdsomething3something6")).toBe(true)
-	})
-
-	it("matches the listed qwen36 variations", () => {
-		expect(isSubsequence("qwen36", "Qwen 3.6")).toBe(true)
-		expect(isSubsequence("qwen36", "Qwen/Qwen3.6-Plus")).toBe(true)
-		expect(isSubsequence("qwen36", "Qwen/Qwen3.6-35B-A3B-FP8")).toBe(true)
-		expect(isSubsequence("qwen36", "Qwen 3-6")).toBe(true)
-		expect(isSubsequence("qwen36", "Qwen36")).toBe(true)
-	})
-
-	it("does not match Qwen 3.5 (5 != 6)", () => {
-		expect(isSubsequence("qwen36", "Qwen/Qwen3.5-397B-A17B")).toBe(false)
-	})
-
-	it("does not match unrelated models", () => {
-		expect(isSubsequence("qwen36", "gpt-4")).toBe(false)
-		expect(isSubsequence("qwen36", "claude-3-opus")).toBe(false)
-	})
-
-	it("is case-insensitive", () => {
-		expect(isSubsequence("QWEN36", "qwen 3.6")).toBe(true)
-		expect(isSubsequence("qwen36", "QWEN 3.6")).toBe(true)
-	})
-
-	it("returns true for empty query", () => {
-		expect(isSubsequence("", "anything")).toBe(true)
-	})
-
-	it("returns false for empty target with non-empty query", () => {
-		expect(isSubsequence("qwen", "")).toBe(false)
-	})
-
-	it("returns false when query is not a subsequence (wrong order)", () => {
-		expect(isSubsequence("qwen36", "36qwen")).toBe(false)
-	})
-
-	it("returns false when query is longer than target", () => {
-		expect(isSubsequence("qwen36", "qwen3")).toBe(false)
-	})
-})
-
 describe("selectProviderProfile model pattern matching", () => {
-	it("matches qwen36 variations to QWEN_PROFILE", () => {
+	it("matches qwen variations to QWEN_PROFILE", () => {
 		expect(selectProviderProfile("https://api.unknown.com/v1", "Qwen 3.6")).toBe(QWEN_PROFILE)
 		expect(selectProviderProfile("https://api.unknown.com/v1", "Qwen/Qwen3.6-Plus")).toBe(QWEN_PROFILE)
 		expect(selectProviderProfile("https://api.unknown.com/v1", "Qwen/Qwen3.6-35B-A3B-FP8")).toBe(QWEN_PROFILE)
@@ -217,8 +215,31 @@ describe("selectProviderProfile model pattern matching", () => {
 		expect(selectProviderProfile("https://api.unknown.com/v1", "z-ai/glm-5")).toBe(GLM_PROFILE)
 	})
 
+	it("matches kimi to KIMI_PROFILE", () => {
+		expect(selectProviderProfile("https://api.unknown.com/v1", "moonshotai/Kimi-K2")).toBe(KIMI_PROFILE)
+	})
+
+	it("matches patterns case-insensitively", () => {
+		expect(selectProviderProfile("https://api.unknown.com/v1", "GLM-4")).toBe(GLM_PROFILE)
+		expect(selectProviderProfile("https://api.unknown.com/v1", "QWEN 3.6")).toBe(QWEN_PROFILE)
+		expect(selectProviderProfile("https://api.unknown.com/v1", "MoonshotAI/KIMI-K2")).toBe(KIMI_PROFILE)
+	})
+
+	it("does not match when the pattern only appears as a scattered subsequence", () => {
+		expect(selectProviderProfile("https://api.unknown.com/v1", "google/gemma-3-27b-it")).toBe(IDENTITY_PROFILE)
+		expect(selectProviderProfile("https://api.unknown.com/v1", "gemini-latest-mega")).toBe(IDENTITY_PROFILE)
+		expect(selectProviderProfile("https://api.unknown.com/v1", "quixotic-wave-ember-nova")).toBe(IDENTITY_PROFILE)
+	})
+
+	it("does not match unrelated models or an empty model name", () => {
+		expect(selectProviderProfile("https://api.unknown.com/v1", "gpt-4")).toBe(IDENTITY_PROFILE)
+		expect(selectProviderProfile("https://api.unknown.com/v1", "claude-3-opus")).toBe(IDENTITY_PROFILE)
+		expect(selectProviderProfile("https://api.unknown.com/v1", "")).toBe(IDENTITY_PROFILE)
+	})
+
 	it("longest pattern wins when multiple match", () => {
 		expect(selectProviderProfile("https://api.unknown.com/v1", "Qwen 3.6-Plus")).toBe(QWEN_PROFILE)
+		expect(selectProviderProfile("https://api.unknown.com/v1", "glm-qwen")).toBe(QWEN_PROFILE)
 		expect(selectProviderProfile("https://api.unknown.com/v1", "gpt-4")).toBe(IDENTITY_PROFILE)
 	})
 })

@@ -202,6 +202,36 @@ describe("completions", () => {
 			])
 		})
 
+		it("overwrites repeated role deltas instead of concatenating them", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { role: "assistant" }),
+				chunk("1", "test-model", { role: "assistant" }),
+				chunk("1", "test-model", { content: "hi" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "hi",
+			})
+		})
+
+		it("skips choices with a missing or null delta", async () => {
+			const sse = `data: ${JSON.stringify({ choices: [{ finish_reason: "stop" }] })}\n\n`
+				+ `data: ${JSON.stringify({ choices: [{ delta: null }] })}\n\n`
+				+ `data: ${JSON.stringify({ choices: [{ delta: { content: "hi" } }] })}\n\n`
+				+ "data: [DONE]\n\n"
+			const fetch = createMockFetch(sse)
+			const { deltas, result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(deltas).toEqual([{ content: "hi" }])
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "hi",
+			})
+			expect(result.finishReason).toBe("stop")
+		})
+
 		it("yields empty content deltas", async () => {
 			const sse = buildSseFromChunks([
 				chunk("1", "test-model", { content: "" }),
@@ -234,6 +264,49 @@ describe("completions", () => {
 			])
 			const fetch = createMockFetch(sse)
 			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("Unexpected SSE event structure")
+		})
+
+		it("throws when a tool call index is out of bounds", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", {
+					tool_calls: [{ index: 2000, id: "call_1", type: "function", function: { name: "f", arguments: "" } }],
+				}),
+			])
+			const fetch = createMockFetch(sse)
+			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("index out of bounds")
+		})
+
+		it("throws when a tool call index is negative", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", {
+					tool_calls: [{ index: -1, id: "call_1", type: "function", function: { name: "f", arguments: "" } }],
+				}),
+			])
+			const fetch = createMockFetch(sse)
+			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("index out of bounds")
+		})
+
+		it("rejects deltas carrying __proto__ keys instead of polluting Object.prototype", async () => {
+			const delta: Record<string, unknown> = JSON.parse('{"__proto__": {"polluted": "yes"}, "role": "assistant"}')
+			const sse = buildSseFromChunks([chunk("1", "test-model", delta)])
+			const fetch = createMockFetch(sse)
+			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("Unexpected SSE event structure")
+			const probe: Record<string, unknown> = {}
+			expect(probe.polluted).toBeUndefined()
+		})
+
+		it("skips __proto__/constructor/prototype keys nested in unvalidated delta fields", async () => {
+			const nested: Record<string, unknown> = JSON.parse('{"__proto__": {"polluted": "yes"}, "constructor": {"polluted": "yes"}, "prototype": {"polluted": "yes"}, "kept": "yes"}')
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { role: "assistant", custom_field: nested }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			const probe: Record<string, unknown> = {}
+			expect(probe.polluted).toBeUndefined()
+			const obj: Record<string, unknown> = { ...result.message }
+			expect(obj.custom_field).toEqual({ kept: "yes" })
 		})
 
 		it("accepts null usage in SSE event (GLM-5.1 via Together.ai)", async () => {
@@ -454,14 +527,53 @@ describe("completions", () => {
 			if ("reasoning_content" in result.message) throw new Error("reasoning_content should not be present")
 		})
 
-		it("throws when both fields present with different values", async () => {
+		it("prefers reasoning silently when both fields present with different values", async () => {
 			const sse = buildSseFromChunks([
 				chunk("1", "test-model", { reasoning: "deep thought", reasoning_content: "surface thought" }),
 				chunk("1", "test-model", { content: "answer" }),
 				chunk("1", "test-model", {}, "stop"),
 			])
 			const fetch = createMockFetch(sse)
-			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("different values")
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "answer",
+				reasoning: "deep thought",
+			})
+			if ("reasoning_content" in result.message) throw new Error("reasoning_content should not be present")
+		})
+
+		it("prefers reasoning_content silently when the profile prefers it and values differ", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { reasoning: "deep thought", reasoning_content: "surface thought" }),
+				chunk("1", "test-model", { content: "answer" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, [], ["reasoning_content"]))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "answer",
+				reasoning_content: "surface thought",
+			})
+			if ("reasoning" in result.message) throw new Error("reasoning should not be present")
+		})
+
+		it("prefers the designated field when accumulated stubs make the values differ", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { reasoning: "Let me think", reasoning_content: " " }),
+				chunk("1", "test-model", { reasoning_content: " think" }),
+				chunk("1", "test-model", { content: "answer" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "answer",
+				reasoning: "Let me think",
+			})
+			if ("reasoning_content" in result.message) throw new Error("reasoning_content should not be present")
 		})
 
 		it("keeps reasoning_content when reasoning is absent", async () => {
@@ -522,6 +634,34 @@ describe("completions", () => {
 			if ("reasoning_content" in result.message) throw new Error("reasoning_content should not be present")
 		})
 
+		it("treats whitespace-only reasoning_content as an empty stub", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { reasoning: "real thought", reasoning_content: " " }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				reasoning: "real thought",
+			})
+			if ("reasoning_content" in result.message) throw new Error("reasoning_content should not be present")
+		})
+
+		it("treats whitespace-only reasoning as an empty stub", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { reasoning: "\t\n", reasoning_content: "real thought" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				reasoning_content: "real thought",
+			})
+			if ("reasoning" in result.message) throw new Error("reasoning should not be present")
+		})
+
 		it("merges fragmented tool call across multiple deltas", async () => {
 			const sse = buildSseFromChunks([
 				chunk("1", "test-model", {
@@ -541,6 +681,39 @@ describe("completions", () => {
 				id: "call_1",
 				type: "function",
 				function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+			})
+		})
+
+		it("overwrites repeated tool call metadata instead of concatenating it", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", {
+					tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":' } }],
+				}),
+				chunk("1", "test-model", {
+					tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "read_file", arguments: '"a.ts"}' } }],
+				}, "tool_calls"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			if (!("tool_calls" in result.message) || !result.message.tool_calls) throw new Error("expected tool_calls")
+			expect(result.message.tool_calls[0]).toEqual({
+				id: "call_1",
+				type: "function",
+				function: { name: "read_file", arguments: '{"path":"a.ts"}' },
+			})
+		})
+
+		it("fills default tool call fields when deltas omit them", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", {
+					tool_calls: [{ index: 0, function: { name: "read_file" } }],
+				}, "tool_calls"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				tool_calls: [{ id: "", type: "function", function: { name: "read_file", arguments: "" } }],
 			})
 		})
 
@@ -582,6 +755,34 @@ describe("completions", () => {
 			expect(firstDetail).toEqual({ type: "reasoning.text", text: "thinking", format: "unknown" })
 		})
 
+		it("strips routing index recursively from arrays nested inside array items", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", {
+					reasoning_details: [{ index: 0, type: "reasoning.text", parts: [{ index: 0, text: "deep" }, { index: 1, text: "er" }] }],
+				}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			const obj: Record<string, unknown> = { ...result.message }
+			const reasoningDetails = obj.reasoning_details
+			if (!isArray(reasoningDetails)) throw new Error("expected reasoning_details array")
+			const firstDetail = reasoningDetails[0]
+			if (!isRecord(firstDetail)) throw new Error("expected reasoning_details item to be an object")
+			expect(firstDetail).toEqual({ type: "reasoning.text", parts: [{ text: "deep" }, { text: "er" }] })
+		})
+
+		it("overwrites arrays whose items lack integer index instead of merging by index", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { logprobs: { content: [{ token: "Hel", logprob: -0.1 }] } }),
+				chunk("1", "test-model", { logprobs: { content: [{ token: "lo", logprob: -0.2 }] } }, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message.role).toBe("assistant")
+			const obj: Record<string, unknown> = { ...result.message }
+			expect(obj.logprobs).toEqual({ content: [{ token: "lo", logprob: -0.2 }] })
+		})
+
 		it("throws when SSE event has invalid field types", async () => {
 			const sse = buildSseFromChunks([
 				chunk("1", "test-model", { content: 123 }),
@@ -593,6 +794,23 @@ describe("completions", () => {
 
 		it("returns empty assistant message for stream with no content", async () => {
 			const fetch = createMockFetch(`data: ${JSON.stringify({ choices: [{ delta: { role: "assistant" }, finish_reason: null }] })}\n\ndata: [DONE]\n\n`)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+			})
+		})
+
+		it("defaults role to assistant when the stream never sends one", async () => {
+			const fetch = createMockFetch(`data: ${JSON.stringify({ choices: [{ delta: { content: "Hello" }, finish_reason: null }] })}\n\ndata: [DONE]\n\n`)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "Hello",
+			})
+		})
+
+		it("returns an assistant message for a stream that ends at [DONE] with no deltas", async () => {
+			const fetch = createMockFetch(`data: [DONE]\n\n`)
 			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
 			expect(result.message).toEqual({
 				role: "assistant",
@@ -645,6 +863,29 @@ describe("completions", () => {
 			expect(usage.prompt_tokens).toBe(100)
 			expect(usage.completion_tokens).toBe(10)
 			expect(usage.total_tokens).toBe(110)
+		})
+
+		it("accepts usage with only completion_tokens", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { content: "hi" }),
+				usageChunk("1", "test-model", {
+					completion_tokens: 7,
+				}),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.usage).toEqual({ completion_tokens: 7 })
+		})
+
+		it("rejects usage without completion_tokens", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { content: "hi" }),
+				usageChunk("1", "test-model", {
+					prompt_tokens: 1,
+				}),
+			])
+			const fetch = createMockFetch(sse)
+			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow("Unexpected SSE event structure")
 		})
 
 		it("returns undefined usage when no usage chunk received", async () => {

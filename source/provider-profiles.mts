@@ -1,4 +1,4 @@
-import type { CompletionsMessage, CompletionsRequest } from './completions.mts'
+import { isAssistantMessage, resolveReasoningOverlap, type CompletionsMessage, type CompletionsRequest } from './completions.mts'
 import { deepMerge } from './typescript-helpers.mts'
 
 export interface ProviderProfile {
@@ -21,8 +21,14 @@ function moveReasoningToReasoningContent(messages: readonly CompletionsMessage[]
 		if (message.role !== 'assistant') return message
 		if (!('reasoning' in message)) return message
 		if (message.reasoning === undefined) return message
-		const { reasoning, ...rest } = message
-		return { ...rest, reasoning_content: reasoning }
+		const record: Record<string, unknown> = Object.fromEntries(Object.entries(message))
+		resolveReasoningOverlap(record, 'reasoning_content')
+		if (record.reasoning !== undefined && record.reasoning_content === undefined) {
+			record.reasoning_content = record.reasoning
+			delete record.reasoning
+		}
+		if (!isAssistantMessage(record)) throw new Error(`Invalid assistant message: ${JSON.stringify(record)}`)
+		return record
 	})
 }
 
@@ -78,30 +84,19 @@ const MODEL_PATTERNS: ReadonlyArray<{ readonly pattern: string, readonly profile
 	{ pattern: 'glm', profile: GLM_PROFILE },
 ]
 
-const EXACT_PROFILES: Record<string, ProviderProfile> = {}
-
 function getHostname(apiUrl: string): string | null {
 	if (!URL.canParse(apiUrl)) return null
 	return new URL(apiUrl).hostname
 }
 
-// Returns true if every character of `query` appears in `target` in order (case-insensitive, non-contiguous).
-export function isSubsequence(query: string, target: string): boolean {
-	if (query.length === 0) return true
-	const queryLower = query.toLowerCase()
-	const targetLower = target.toLowerCase()
-	let q = 0
-	for (let t = 0; t < targetLower.length; t++) {
-		if (queryLower[q] === targetLower[t]) q++
-		if (q === queryLower.length) return true
-	}
-	return false
+function matchesModelPattern(pattern: string, model: string): boolean {
+	return model.toLowerCase().includes(pattern.toLowerCase())
 }
 
 function findLongestMatchingModelProfile(model: string): ProviderProfile | null {
 	let best: { pattern: string, profile: ProviderProfile } | null = null
 	for (const entry of MODEL_PATTERNS) {
-		if (!isSubsequence(entry.pattern, model)) continue
+		if (!matchesModelPattern(entry.pattern, model)) continue
 		if (best === null || entry.pattern.length > best.pattern.length) {
 			best = entry
 		}
@@ -124,14 +119,9 @@ function composeProfiles(first: ProviderProfile, second: ProviderProfile): Provi
 
 export function selectProviderProfile(apiUrl: string, model: string): ProviderProfile {
 	const hostname = getHostname(apiUrl)
-	const providerKey = hostname !== null ? PROVIDER_HOSTNAMES[hostname] ?? null : null
-
-	if (providerKey !== null) {
-		const exactProfile = EXACT_PROFILES[`${providerKey}:${model}`]
-		if (exactProfile) return exactProfile
-	}
-
-	const providerProfile = providerKey !== null ? PROVIDER_PROFILES[providerKey] ?? null : null
+	// Object.hasOwn keeps lookups off the prototype chain: plain-object indexing would resolve inherited keys like "constructor".
+	const providerKey = hostname !== null && Object.hasOwn(PROVIDER_HOSTNAMES, hostname) ? PROVIDER_HOSTNAMES[hostname] ?? null : null
+	const providerProfile = providerKey !== null && Object.hasOwn(PROVIDER_PROFILES, providerKey) ? PROVIDER_PROFILES[providerKey] ?? null : null
 	const modelProfile = findLongestMatchingModelProfile(model)
 
 	if (providerProfile && modelProfile) return composeProfiles(modelProfile, providerProfile)

@@ -13,6 +13,7 @@ export function extractAtPath(value: unknown, path: readonly string[]): unknown 
 			if (!Number.isInteger(index) || index < 0 || index >= current.length) return undefined
 			current = current[index]
 		} else if (isRecord(current)) {
+			if (!Object.hasOwn(current, segment)) return undefined
 			current = current[segment]
 		} else {
 			return undefined
@@ -23,7 +24,7 @@ export function extractAtPath(value: unknown, path: readonly string[]): unknown 
 
 function nonEmptyString(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined
-	if (value.length === 0) return undefined
+	if (value.trim().length === 0) return undefined
 	return value
 }
 

@@ -103,8 +103,13 @@ export function applyJitter(delay: number, random: number): number {
 	return delay * (0.5 + random * 0.5)
 }
 
+export const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
 export function isObjectOf<S extends Record<string, SchemaValue>>(value: unknown, schema: S): value is InferSchemaType<S> {
 	if (!isRecord(value)) return false
+	for (const key of Object.keys(value)) {
+		if (DANGEROUS_KEYS.has(key)) return false
+	}
 	for (const [key, keyGuardOrOptional] of Object.entries(schema)) {
 		if (isOptionalMarker(keyGuardOrOptional)) {
 			if (!(key in value)) continue
@@ -122,16 +127,18 @@ export function isObjectOf<S extends Record<string, SchemaValue>>(value: unknown
 // Both values must be plain records at the same key to recurse; otherwise the override value is used as-is.
 export function deepMerge<T>(base: T, override: T): T {
 	if (!isRecord(base) || !isRecord(override)) return override
-	const result: Record<string, unknown> = { ...base }
+	const result = { ...base }
+	const writable: Record<string, unknown> = result
 	for (const [key, overrideValue] of Object.entries(override)) {
-		const baseValue = result[key]
+		if (DANGEROUS_KEYS.has(key)) continue
+		const baseValue = writable[key]
 		if (isRecord(baseValue) && isRecord(overrideValue)) {
-			result[key] = deepMerge(baseValue, overrideValue)
+			writable[key] = deepMerge(baseValue, overrideValue)
 		} else {
-			result[key] = overrideValue
+			writable[key] = overrideValue
 		}
 	}
-	return result as T
+	return result
 }
 
 export function errorMessage(error: unknown): string {
