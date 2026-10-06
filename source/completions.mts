@@ -112,8 +112,8 @@ function isOverwritePath(fieldPath: readonly string[], overwritePaths: readonly 
 	return overwritePaths.some(pattern => pattern.length === fieldPath.length && pattern.every((segment, i) => segment === fieldPath[i]))
 }
 
-// One-shot metadata fields overwrite instead of concatenating: providers repeat these verbatim
-// across deltas (e.g. tool call id/type), so concatenation would corrupt them.
+// These keys use overwrite semantics at any path depth (repeated values replace, not concatenate).
+// This supersedes profile-level overwritePaths entries for these keys.
 const ONE_SHOT_KEYS = new Set(['role', 'id', 'type', 'name'])
 
 function isOneShotKey(key: string, currentPath: readonly string[]): boolean {

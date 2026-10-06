@@ -1,4 +1,4 @@
-import { isAssistantMessage, resolveReasoningOverlap, type CompletionsMessage, type CompletionsRequest } from './completions.mts'
+import { resolveReasoningOverlap, type CompletionsMessage, type CompletionsRequest } from './completions.mts'
 import { deepMerge } from './typescript-helpers.mts'
 
 export interface ProviderProfile {
@@ -20,31 +20,23 @@ function moveReasoningToReasoningContent(messages: readonly CompletionsMessage[]
 	return messages.map(message => {
 		if (message.role !== 'assistant') return message
 		if (!('reasoning' in message)) return message
-		if (message.reasoning === undefined) return message
+		const { reasoning, ...rest } = message
+		if (reasoning === undefined) return message
 		const record: Record<string, unknown> = Object.fromEntries(Object.entries(message))
 		resolveReasoningOverlap(record, 'reasoning_content')
-		if (record.reasoning !== undefined && record.reasoning_content === undefined) {
-			record.reasoning_content = record.reasoning
-			delete record.reasoning
-		}
-		if (!isAssistantMessage(record)) throw new Error(`Invalid assistant message: ${JSON.stringify(record)}`)
-		return record
+		if (record.reasoning !== undefined) return { ...rest, reasoning_content: reasoning }
+		return rest
 	})
 }
 
 export const TOGETHER_AI_PROFILE: ProviderProfile = {
 	prepareRequest: request => ({ ...request, messages: moveReasoningToReasoningContent(request.messages) }),
-	overwritePaths: [
-		['role'],
-		['tool_calls', 'type'],
-	],
+	overwritePaths: [],
 }
 
 export const PPQ_AI_PROFILE: ProviderProfile = {
 	prepareRequest: request => request,
 	overwritePaths: [
-		['role'],
-		['reasoning_details', 'type'],
 		['reasoning_details', 'format'],
 	],
 }

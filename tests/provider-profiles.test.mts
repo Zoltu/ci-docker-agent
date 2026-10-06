@@ -152,15 +152,9 @@ describe("Together.ai profile prepareRequest", () => {
 })
 
 describe("Together.ai profile overwritePaths", () => {
-	it("has overwritePaths for role and the tool_calls type repetition", () => {
+	it("has no overwritePaths — role and tool_calls type are subsumed by ONE_SHOT_KEYS at any depth", () => {
 		const paths = TOGETHER_AI_PROFILE.overwritePaths
-		expect(paths).toContainEqual(["role"])
-		expect(paths).toContainEqual(["tool_calls", "type"])
-		// Defensive: token_id/tool_calls.id/tool_calls.function.name are skipped — token_id is always
-		// null (concatenator skips), and tool_calls id/name are one-shot or null-after-first.
-		expect(paths).not.toContainEqual(["token_id"])
-		expect(paths).not.toContainEqual(["tool_calls", "id"])
-		expect(paths).not.toContainEqual(["tool_calls", "function", "name"])
+		expect(paths).toEqual([])
 	})
 })
 
@@ -272,9 +266,10 @@ describe("composeProfiles deep merge", () => {
 	})
 
 	it("unions overwritePaths from both profiles", () => {
-		const profile = selectProviderProfile("https://api.together.ai/v1", "Qwen 3.6")
-		expect(profile.overwritePaths).toContainEqual(["role"])
-		expect(profile.overwritePaths).toContainEqual(["tool_calls", "type"])
+		const qwenOnTogether = selectProviderProfile("https://api.together.ai/v1", "Qwen 3.6")
+		expect(qwenOnTogether.overwritePaths).toEqual([])
+		const glmOnPpq = selectProviderProfile("https://api.ppq.ai", "glm-4")
+		expect(glmOnPpq.overwritePaths).toEqual([["reasoning_details", "format"]])
 	})
 })
 
@@ -284,10 +279,8 @@ describe("PPQ.ai profile", () => {
 		expect(result).toEqual(BASE_REQUEST)
 	})
 
-	it("has overwritePaths for role and reasoning_details type/format repetitions", () => {
+	it("has overwritePaths for reasoning_details format only — role and type are subsumed by ONE_SHOT_KEYS at any depth", () => {
 		const paths = PPQ_AI_PROFILE.overwritePaths
-		expect(paths).toContainEqual(["role"])
-		expect(paths).toContainEqual(["reasoning_details", "type"])
-		expect(paths).toContainEqual(["reasoning_details", "format"])
+		expect(paths).toEqual([["reasoning_details", "format"]])
 	})
 })
