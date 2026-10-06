@@ -19,13 +19,19 @@ export const IDENTITY_PROFILE: ProviderProfile = {
 function moveReasoningToReasoningContent(messages: readonly CompletionsMessage[]): CompletionsMessage[] {
 	return messages.map(message => {
 		if (message.role !== 'assistant') return message
+		// `resolveReasoningOverlap` mutates its argument, so probe it on a scratch copy and keep only its
+		// `winner` verdict: the outgoing message is rebuilt from `message`, not from the scratch.
+		const record: Record<string, unknown> = Object.fromEntries(Object.entries(message))
+		const winner = resolveReasoningOverlap(record, 'reasoning_content')
+		// Nothing to move: without `reasoning`, `reasoning_content` (if any) is already in place.
 		if (!('reasoning' in message)) return message
 		const { reasoning, ...rest } = message
+		// `reasoning_content` won the overlap: drop `reasoning`; the winner already rides along in `rest`.
+		if (winner === 'reasoning_content') return rest
 		if (reasoning === undefined) return message
-		const record: Record<string, unknown> = Object.fromEntries(Object.entries(message))
-		resolveReasoningOverlap(record, 'reasoning_content')
-		if (record.reasoning !== undefined) return { ...rest, reasoning_content: reasoning }
-		return rest
+		// `reasoning` won (or stood alone): carry it under Together's `reasoning_content`, overwriting the
+		// losing stub that `rest` still holds.
+		return { ...rest, reasoning_content: reasoning }
 	})
 }
 

@@ -24,7 +24,7 @@ export function extractAtPath(value: unknown, path: readonly string[]): unknown 
 
 function nonEmptyString(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined
-	if (value.trim().length === 0) return undefined
+	if (value.length === 0) return undefined
 	return value
 }
 

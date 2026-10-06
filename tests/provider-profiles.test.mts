@@ -77,6 +77,17 @@ describe("Together.ai profile prepareRequest", () => {
 		expect(result.messages[0]).toEqual({ role: "assistant", content: "answer" })
 	})
 
+	it("keeps messages that already carry only reasoning_content as-is", () => {
+		const request: CompletionsRequest = {
+			model: "test",
+			messages: [
+				{ role: "assistant", content: "answer", reasoning_content: "already there" },
+			],
+		}
+		const result = TOGETHER_AI_PROFILE.prepareRequest(request)
+		expect(result.messages[0]).toEqual({ role: "assistant", content: "answer", reasoning_content: "already there" })
+	})
+
 	it("moves null reasoning to reasoning_content", () => {
 		const request: CompletionsRequest = {
 			model: "test",

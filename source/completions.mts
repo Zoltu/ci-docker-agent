@@ -222,11 +222,12 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 }
 
 // Resolves the reasoning/reasoning_content overlap down to a single field, keeping the preferred
-// field unless it is an empty stub.
-export function resolveReasoningOverlap(message: Record<string, unknown>, preferredField: 'reasoning' | 'reasoning_content'): void {
+// field unless it is an empty stub. Returns the winning field name, or undefined when only one of
+// the two fields was present (nothing to resolve).
+export function resolveReasoningOverlap(message: Record<string, unknown>, preferredField: 'reasoning' | 'reasoning_content'): 'reasoning' | 'reasoning_content' | undefined {
 	const reasoningValue = message[REASONING_FIELD]
 	const reasoningContentValue = message[REASONING_CONTENT_FIELD]
-	if (reasoningValue === undefined || reasoningContentValue === undefined) return
+	if (reasoningValue === undefined || reasoningContentValue === undefined) return undefined
 	// null is unreachable in practice (mergeInto drops nulls) but kept defensively.
 	// Whitespace-only counts as empty: streaming providers commonly echo a " " stub in the mirrored field.
 	const reasoningEmpty = reasoningValue === null || (isString(reasoningValue) && reasoningValue.trim() === '')
@@ -241,8 +242,10 @@ export function resolveReasoningOverlap(message: Record<string, unknown>, prefer
 	}
 	if (keepReasoningContent) {
 		delete message[REASONING_FIELD]
+		return REASONING_CONTENT_FIELD
 	} else {
 		delete message[REASONING_CONTENT_FIELD]
+		return REASONING_FIELD
 	}
 }
 

@@ -85,6 +85,12 @@ describe("readReasoningFromDelta", () => {
 		expect(readReasoningFromDelta(delta({ reasoning: "" }), IDENTITY)).toBeUndefined()
 	})
 
+	it("returns whitespace-only fragments that streaming providers use as paragraph breaks", () => {
+		expect(readReasoningFromDelta(delta({ reasoning: "\n" }), IDENTITY)).toBe("\n")
+		expect(readReasoningFromDelta(delta({ reasoning: "\n\n" }), IDENTITY)).toBe("\n\n")
+		expect(readReasoningFromDelta(delta({ reasoning: " " }), IDENTITY)).toBe(" ")
+	})
+
 	it("returns undefined for null", () => {
 		expect(readReasoningFromDelta(delta({ reasoning: null }), IDENTITY)).toBeUndefined()
 	})

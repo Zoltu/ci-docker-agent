@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { completions, type CompletionsRequest, type CompletionDelta, type CompletionResult } from "../source/completions.mts"
+import { completions, resolveReasoningOverlap, type CompletionsRequest, type CompletionDelta, type CompletionResult } from "../source/completions.mts"
 import type { Fetch } from "../source/sse.mts"
 import { isArray, isRecord } from "../source/typescript-helpers.mts"
 import { createMockFetch } from "./helpers.mts"
@@ -1110,5 +1110,33 @@ describe("completions", () => {
 			const parsed = JSON.parse(getBody()!)
 			expect("arbitrary_undefined_field" in parsed).toBe(false)
 		})
+	})
+})
+
+describe("resolveReasoningOverlap", () => {
+	it("returns undefined and leaves the message untouched when only one field is present", () => {
+		const onlyReasoning: Record<string, unknown> = { reasoning: "think" }
+		expect(resolveReasoningOverlap(onlyReasoning, "reasoning")).toBeUndefined()
+		expect(onlyReasoning).toEqual({ reasoning: "think" })
+
+		const onlyContent: Record<string, unknown> = { reasoning_content: "think" }
+		expect(resolveReasoningOverlap(onlyContent, "reasoning_content")).toBeUndefined()
+		expect(onlyContent).toEqual({ reasoning_content: "think" })
+	})
+
+	it("returns the preferred field and deletes the other when both hold content", () => {
+		const prefersReasoning: Record<string, unknown> = { reasoning: "a", reasoning_content: "b" }
+		expect(resolveReasoningOverlap(prefersReasoning, "reasoning")).toBe("reasoning")
+		expect(prefersReasoning).toEqual({ reasoning: "a" })
+
+		const prefersContent: Record<string, unknown> = { reasoning: "a", reasoning_content: "b" }
+		expect(resolveReasoningOverlap(prefersContent, "reasoning_content")).toBe("reasoning_content")
+		expect(prefersContent).toEqual({ reasoning_content: "b" })
+	})
+
+	it("returns the non-empty field when the preferred one is an empty stub", () => {
+		const message: Record<string, unknown> = { reasoning: "real", reasoning_content: " " }
+		expect(resolveReasoningOverlap(message, "reasoning_content")).toBe("reasoning")
+		expect(message).toEqual({ reasoning: "real" })
 	})
 })
