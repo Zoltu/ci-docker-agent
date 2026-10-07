@@ -1,4 +1,5 @@
-import { resolveReasoningOverlap, type CompletionsMessage, type CompletionsRequest } from './completions.mts'
+import type { CompletionsMessage, CompletionsRequest } from './completions.mts'
+import { pickReasoningField } from './reasoning.mts'
 import { deepMerge } from './typescript-helpers.mts'
 
 export interface ProviderProfile {
@@ -19,10 +20,7 @@ export const IDENTITY_PROFILE: ProviderProfile = {
 function moveReasoningToReasoningContent(messages: readonly CompletionsMessage[]): CompletionsMessage[] {
 	return messages.map(message => {
 		if (message.role !== 'assistant') return message
-		// `resolveReasoningOverlap` mutates its argument, so probe it on a scratch copy and keep only its
-		// `winner` verdict: the outgoing message is rebuilt from `message`, not from the scratch.
-		const record: Record<string, unknown> = Object.fromEntries(Object.entries(message))
-		const winner = resolveReasoningOverlap(record, 'reasoning_content')
+		const winner = pickReasoningField(message.reasoning, message.reasoning_content, 'reasoning_content')
 		// Nothing to move: without `reasoning`, `reasoning_content` (if any) is already in place.
 		if (!('reasoning' in message)) return message
 		const { reasoning, ...rest } = message

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test"
-import { completions, resolveReasoningOverlap, type CompletionsRequest, type CompletionDelta, type CompletionResult } from "../source/completions.mts"
+import { completions, type CompletionsRequest, type CompletionDelta, type CompletionResult } from "../source/completions.mts"
+import { resolveReasoningOverlap } from "../source/reasoning.mts"
 import type { Fetch } from "../source/sse.mts"
 import { isArray, isRecord } from "../source/typescript-helpers.mts"
 import { createMockFetch } from "./helpers.mts"

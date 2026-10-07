@@ -1,10 +1,7 @@
+import { DEFAULT_REASONING_PATH, resolveReasoningOverlap } from './reasoning.mts'
 import { type Fetch, readSseStream } from './sse.mts'
 import { DANGEROUS_KEYS, guard, type GuardedType, isArray, isArrayOf, isInteger, isLiteral, isRecord, isString, optional } from './typescript-helpers.mts'
 
-// Default path through an assistant message/delta to the field that carries the model's reasoning.
-export const DEFAULT_REASONING_PATH = ['reasoning'] as const
-
-const REASONING_FIELD = 'reasoning' as const
 const REASONING_CONTENT_FIELD = 'reasoning_content' as const
 
 // Token counts cannot be negative; isInteger alone accepts negatives.
@@ -59,8 +56,7 @@ export const isAssistantMessage = (value: unknown): value is CompletionsMessage 
 export type CompletionsMessage =
 	| { readonly role: 'system' | 'developer', readonly content: string }
 	| { readonly role: 'user', readonly content: string }
-	| { readonly role: 'assistant', readonly content?: string | null, readonly reasoning_content?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] }
-	| { readonly role: 'assistant', readonly content?: string | null, readonly reasoning?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] }
+	| { readonly role: 'assistant', readonly content?: string | null, readonly reasoning?: string | null, readonly reasoning_content?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] }
 	| { readonly role: 'tool', readonly content: string, readonly tool_call_id: string }
 
 export interface CompletionsToolCall {
@@ -218,34 +214,6 @@ function mergeInto(target: Record<string, unknown>, source: Record<string, unkno
 
 		// Default: overwrite with latest value
 		target[key] = value
-	}
-}
-
-// Resolves the reasoning/reasoning_content overlap down to a single field, keeping the preferred
-// field unless it is an empty stub. Returns the winning field name, or undefined when only one of
-// the two fields was present (nothing to resolve).
-export function resolveReasoningOverlap(message: Record<string, unknown>, preferredField: 'reasoning' | 'reasoning_content'): 'reasoning' | 'reasoning_content' | undefined {
-	const reasoningValue = message[REASONING_FIELD]
-	const reasoningContentValue = message[REASONING_CONTENT_FIELD]
-	if (reasoningValue === undefined || reasoningContentValue === undefined) return undefined
-	// null is unreachable in practice (mergeInto drops nulls) but kept defensively.
-	// Whitespace-only counts as empty: streaming providers commonly echo a " " stub in the mirrored field.
-	const reasoningEmpty = reasoningValue === null || (isString(reasoningValue) && reasoningValue.trim() === '')
-	const reasoningContentEmpty = reasoningContentValue === null || (isString(reasoningContentValue) && reasoningContentValue.trim() === '')
-	// When both fields have content, the preferred field wins. Values may differ due to per-field concatenation timing; this is not an error.
-	const preferReasoningContent = preferredField === REASONING_CONTENT_FIELD
-	let keepReasoningContent = preferReasoningContent
-	if (preferReasoningContent && reasoningContentEmpty && !reasoningEmpty) {
-		keepReasoningContent = false
-	} else if (!preferReasoningContent && reasoningEmpty && !reasoningContentEmpty) {
-		keepReasoningContent = true
-	}
-	if (keepReasoningContent) {
-		delete message[REASONING_FIELD]
-		return REASONING_CONTENT_FIELD
-	} else {
-		delete message[REASONING_CONTENT_FIELD]
-		return REASONING_FIELD
 	}
 }
 
