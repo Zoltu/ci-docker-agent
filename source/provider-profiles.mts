@@ -1,14 +1,21 @@
 import type { CompletionsMessage, CompletionsRequest } from './completions.mts'
-import { pickReasoningField } from './reasoning.mts'
+import { pickReasoningField } from './reasoning-overlap.mts'
 import { deepMerge } from './typescript-helpers.mts'
 
 export interface ProviderProfile {
 	readonly prepareRequest: (request: CompletionsRequest) => CompletionsRequest
+	// Path-specific merge overrides (exact path match → overwrite instead of concatenate).
+	// Note: ONE_SHOT_KEYS in completions.mts supersedes this for role/id/type/name at any depth.
+	// This field handles remaining cases (e.g. ['reasoning_details', 'format']).
 	readonly overwritePaths: readonly (readonly string[])[]
 	// Path through an assistant message to the field that carries the model's reasoning.
 	// Numeric segments index into arrays (e.g. ["reasoning_details", "0", "text"]); non-numeric segments index into objects.
-	// The root segment also determines which of reasoning/reasoning_content normalization prefers:
-	// ["reasoning_content"] prefers reasoning_content; all other paths prefer reasoning.
+	//
+	// This field also determines which of reasoning/reasoning_content normalization prefers when
+	// both are present in an accumulated message. The rule: if the root segment is "reasoning_content",
+	// prefer that field; all other paths (including nested paths like ["reasoning_details", "0", "text"])
+	// prefer "reasoning". This derivation ensures the extraction path and normalization preference
+	// cannot disagree. A nested-path profile gets the "reasoning" preference as a consequence.
 	readonly reasoningField?: readonly [string, ...string[]]
 }
 

@@ -1,4 +1,4 @@
-import { DEFAULT_REASONING_PATH, resolveReasoningOverlap } from './reasoning.mts'
+import { DEFAULT_REASONING_PATH, resolveReasoningOverlap } from './reasoning-overlap.mts'
 import { type Fetch, readSseStream } from './sse.mts'
 import { DANGEROUS_KEYS, guard, type GuardedType, isArray, isArrayOf, isInteger, isLiteral, isRecord, isString, optional } from './typescript-helpers.mts'
 
@@ -108,8 +108,10 @@ function isOverwritePath(fieldPath: readonly string[], overwritePaths: readonly 
 	return overwritePaths.some(pattern => pattern.length === fieldPath.length && pattern.every((segment, i) => segment === fieldPath[i]))
 }
 
-// These keys use overwrite semantics at any path depth (repeated values replace, not concatenate).
-// This supersedes profile-level overwritePaths entries for these keys.
+// One-shot keys use overwrite semantics at any path depth (repeated values replace, not concatenate).
+// This supersedes profile-level overwritePaths entries for these keys — do NOT add these keys to overwritePaths.
+// Keys NOT in this set follow overwritePaths (path-specific overwrite) or default string concatenation.
+// Exception: function.name has fragment-concat + echo detection (isEchoedFunctionName) due to provider variance.
 const ONE_SHOT_KEYS = new Set(['role', 'id', 'type', 'name'])
 
 function isOneShotKey(key: string, currentPath: readonly string[]): boolean {
