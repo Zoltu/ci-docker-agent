@@ -43,11 +43,7 @@ Fetch a pull request from GitHub and submit a review with AI-generated feedback.
 #### Example
 
 ```bash
-docker run -it \
-  -e GITHUB_TOKEN="your-github-token" \
-  -e PR_NUMBER="123" \
-  -e REPO="owner/repo-name" \
-  ci-agent:latest
+docker container run --rm -it --env="GITHUB_TOKEN=$GITHUB_TOKEN" --env="PR_NUMBER=$PR_NUMBER" --env="REPO=Zoltu/ci-docker-agent" --env="AI_API_URL=https://api.ppq.ai" --env="AI_MODEL=deepseek/deepseek-v4.1-flash" --env="AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxx" ci-agent:latest
 ```
 
 #### Environment Variables

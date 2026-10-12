@@ -398,7 +398,7 @@ describe("completions", () => {
 			if ("reasoning" in result.message) throw new Error("reasoning should not be present")
 		})
 
-		it("throws when both reasoning and reasoning_content are present", async () => {
+		it("throws when both reasoning and reasoning_content have different values", async () => {
 			const sse = buildSseFromChunks([
 				chunk("1", "test-model", { reasoning: "deep thought", reasoning_content: "surface thought" }),
 				chunk("1", "test-model", { content: "answer" }),
@@ -406,8 +406,68 @@ describe("completions", () => {
 			])
 			const fetch = createMockFetch(sse)
 			await expect(collectStream(completions({ fetch }, BASE_REQUEST, []))).rejects.toThrow(
-				"Assistant message has both reasoning and reasoning_content; these are mutually exclusive"
+				"Assistant message has both reasoning and reasoning_content with different values"
 			)
+		})
+
+		it("keeps both fields when reasoning and reasoning_content have identical values", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { reasoning: "deep thought", reasoning_content: "deep thought" }),
+				chunk("1", "test-model", { content: "answer" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "answer",
+				reasoning: "deep thought",
+				reasoning_content: "deep thought",
+			})
+		})
+
+		it("drops an empty reasoning stub and keeps reasoning_content", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { reasoning: "", reasoning_content: "real thinking" }),
+				chunk("1", "test-model", { content: "answer" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "answer",
+				reasoning_content: "real thinking",
+			})
+		})
+
+		it("drops an empty reasoning_content stub and keeps reasoning", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { reasoning: "real thinking", reasoning_content: "" }),
+				chunk("1", "test-model", { content: "answer" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "answer",
+				reasoning: "real thinking",
+			})
+		})
+
+		it("drops both reasoning fields when both are empty", async () => {
+			const sse = buildSseFromChunks([
+				chunk("1", "test-model", { reasoning: "", reasoning_content: "" }),
+				chunk("1", "test-model", { content: "answer" }),
+				chunk("1", "test-model", {}, "stop"),
+			])
+			const fetch = createMockFetch(sse)
+			const { result } = await collectStream(completions({ fetch }, BASE_REQUEST, []))
+			expect(result.message).toEqual({
+				role: "assistant",
+				content: "answer",
+			})
 		})
 
 		it("merges fragmented tool call across multiple deltas", async () => {
