@@ -53,6 +53,20 @@ describe("Together.ai profile prepareRequest", () => {
 		expect(assistantMessage.reasoning_content).toBe("I thought about it")
 	})
 
+	it("collapses both reasoning fields to reasoning_content when both are present", () => {
+		const request: CompletionsRequest = {
+			model: "test",
+			messages: [
+				{ role: "assistant", content: "answer", reasoning: "deep thought", reasoning_content: "deep thought" },
+			],
+		}
+		const result = TOGETHER_AI_PROFILE.prepareRequest(request)
+		const assistantMessage = result.messages[0]!
+		if (assistantMessage.role !== "assistant") throw new Error("expected assistant")
+		if ("reasoning" in assistantMessage) throw new Error("reasoning should have been dropped")
+		expect(assistantMessage.reasoning_content).toBe("deep thought")
+	})
+
 	it("does not affect non-assistant messages", () => {
 		const request: CompletionsRequest = {
 			model: "test",

@@ -33,27 +33,18 @@ const isAssistantMessageToolCall = guard({
 	function: guard({ name: isString, arguments: isString }),
 })
 
-const isAssistantMessage = (value: unknown): value is CompletionsMessage & { role: 'assistant' } => {
-	const isValid = guard({
-		role: isLiteral('assistant'),
-		content: optional(isString),
-		reasoning: optional(isString),
-		reasoning_content: optional(isString),
-		tool_calls: optional(isArrayOf(isAssistantMessageToolCall)),
-	})
-	if (!isValid(value)) return false
-	if (value.reasoning && value.reasoning_content) {
-		// Exception to the Guard contract: a provider sending both fields is a bug that must fail fast rather than be silently ignored.
-		throw new Error('Assistant message has both reasoning and reasoning_content; these are mutually exclusive')
-	}
-	return true
-}
+const isAssistantMessage = guard({
+	role: isLiteral('assistant'),
+	content: optional(isString),
+	reasoning: optional(isString),
+	reasoning_content: optional(isString),
+	tool_calls: optional(isArrayOf(isAssistantMessageToolCall)),
+})
 
 export type CompletionsMessage =
 	| { readonly role: 'system' | 'developer', readonly content: string }
 	| { readonly role: 'user', readonly content: string }
-	| { readonly role: 'assistant', readonly content?: string | null, readonly reasoning_content?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] }
-	| { readonly role: 'assistant', readonly content?: string | null, readonly reasoning?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] }
+	| { readonly role: 'assistant', readonly content?: string | null, readonly reasoning?: string | null, readonly reasoning_content?: string | null, readonly tool_calls?: readonly CompletionsToolCall[] | null }
 	| { readonly role: 'tool', readonly content: string, readonly tool_call_id: string }
 
 export interface CompletionsToolCall {
@@ -174,8 +165,16 @@ function completeAccumulation(accumulator: Record<string, unknown>): Completions
 			}
 		}
 	}
+	// Empty-string reasoning fields carry no meaning (identical to absent).
+	// Drop them at the wire boundary so downstream consumers never see a stub; mergeInto already drops null/undefined.
+	if (accumulator.reasoning === '') delete accumulator.reasoning
+	if (accumulator.reasoning_content === '') delete accumulator.reasoning_content
 	if (!isAssistantMessage(accumulator)) {
 		throw new Error(`Invalid accumulated message: ${JSON.stringify(accumulator)}`)
+	}
+	// Providers may emit both reasoning fields with identical content for compatibility; divergent non-empty values indicate a bug and must fail fast.
+	if (accumulator.reasoning && accumulator.reasoning_content && accumulator.reasoning !== accumulator.reasoning_content) {
+		throw new Error('Assistant message has both reasoning and reasoning_content with different values')
 	}
 	return accumulator
 }
