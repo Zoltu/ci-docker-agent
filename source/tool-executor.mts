@@ -36,23 +36,33 @@ interface SearchMatch {
 
 const MAX_SEARCH_RESULTS = 50
 
-function parseGitGrepOutput(output: string): SearchMatch[] {
+function parseGitGrepOutput(output: string, treeIsh: string): SearchMatch[] {
 	if (output === "") return []
+	const prefix = `${treeIsh}:`
 	const matches: SearchMatch[] = []
-	const lines = output.split("\n")
-	for (const line of lines) {
-		if (line === "") continue
-		const firstColon = line.indexOf(":")
-		if (firstColon === -1) continue
-		const afterFirstColon = firstColon + 1
-		const secondColon = line.indexOf(":", afterFirstColon)
-		if (secondColon === -1) continue
-		const filePath = line.slice(0, firstColon)
-		const lineStr = line.slice(afterFirstColon, secondColon)
-		const content = line.slice(secondColon + 1)
-		const lineNum = Number.parseInt(lineStr, 10)
-		if (!Number.isInteger(lineNum) || lineNum < 1) continue
-		matches.push({ path: filePath, line: lineNum, content })
+	let index = 0
+	while (index < output.length) {
+		const filenameEnd = output.indexOf("\u0000", index)
+		if (filenameEnd === -1) throw new Error(`Unexpected git grep output record (missing line-number separator): ${JSON.stringify(output.slice(index))}`)
+		const filenameField = output.slice(index, filenameEnd)
+
+		const lineEnd = output.indexOf("\u0000", filenameEnd + 1)
+		if (lineEnd === -1) throw new Error(`Unexpected git grep output record (missing content separator): ${JSON.stringify(output.slice(index))}`)
+		const lineField = output.slice(filenameEnd + 1, lineEnd)
+
+		const recordEnd = output.indexOf("\n", lineEnd + 1)
+		const content = recordEnd === -1 ? output.slice(lineEnd + 1) : output.slice(lineEnd + 1, recordEnd)
+
+		if (!filenameField.startsWith(prefix)) throw new Error(`Unexpected git grep output path (missing "${prefix}" prefix): ${JSON.stringify(filenameField)}`)
+		const path = filenameField.slice(prefix.length)
+		if (path === "") throw new Error(`Unexpected git grep output record with empty path: ${JSON.stringify(filenameField)}`)
+		if (content.includes("\u0000")) throw new Error(`Unexpected git grep output content containing NUL: ${JSON.stringify(content)}`)
+		if (!/^[1-9]\d*$/.test(lineField)) throw new Error(`Unexpected git grep output line number: ${JSON.stringify(lineField)}`)
+
+		matches.push({ path, line: Number.parseInt(lineField, 10), content })
+
+		if (recordEnd === -1) break
+		index = recordEnd + 1
 	}
 	return matches
 }
@@ -181,7 +191,7 @@ export function createTools(dependencies: { spawnGit: SpawnGit }, baseCommit: st
 					return `Invalid arguments for search_files. Expected { "pattern": string, "path"?: string }. Got: ${args}`
 				}
 
-				const gitGrepArgs = ["grep", "-n", "-E", "-I", "-e", parsed.pattern, baseCommit]
+				const gitGrepArgs = ["grep", "-n", "-E", "-I", "-z", "--color=never", "-e", parsed.pattern, baseCommit]
 				if (parsed.path) gitGrepArgs.push("--", parsed.path)
 
 				const result = await spawnGit(gitGrepArgs, SEARCH_FILES_TIMEOUT_MILLISECONDS)
@@ -197,7 +207,7 @@ export function createTools(dependencies: { spawnGit: SpawnGit }, baseCommit: st
 					return `Search failed: ${result.stderr.trim() || result.stdout.trim()}`
 				}
 
-				const matches = parseGitGrepOutput(result.stdout)
+				const matches = parseGitGrepOutput(result.stdout, baseCommit)
 				return formatSearchResults(matches)
 			},
 		},

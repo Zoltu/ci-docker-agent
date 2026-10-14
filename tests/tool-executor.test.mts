@@ -3,6 +3,8 @@ import { createTools } from "../source/tool-executor.mts"
 import type { Tool } from "../source/agent-loop.mts"
 import { makeSpawnGit, ok, error } from "./helpers.mts"
 
+const NUL = "\u0000"
+
 function getTool(tools: Tool[], name: string): Tool {
 	const tool = tools.find(t => t.name === name)
 	if (!tool) throw new Error(`Tool ${name} not found`)
@@ -223,7 +225,7 @@ describe("createTools", () => {
 	describe("search_files execute", () => {
 		it("returns matching file paths, line numbers, and content", async () => {
 			const spawnGit = makeSpawnGit(new Map([
-				["grep -n -E -I -e TODO abc123", ok("src/index.ts:10:TODO: fix this\nsrc/util.ts:5:TODO: refactor\n")],
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:src/index.ts${NUL}10${NUL}TODO: fix this\nabc123:src/util.ts${NUL}5${NUL}TODO: refactor\n`)],
 			]))
 			const tools = createTools({ spawnGit }, "abc123")
 			const searchFiles = getTool(tools, "search_files")
@@ -233,7 +235,7 @@ describe("createTools", () => {
 
 		it("returns no matches message when git grep exits with 1", async () => {
 			const spawnGit = makeSpawnGit(new Map([
-				["grep -n -E -I -e nonexistent abc123", error("")],
+				["grep -n -E -I -z --color=never -e nonexistent abc123", error("")],
 			]))
 			const tools = createTools({ spawnGit }, "abc123")
 			const searchFiles = getTool(tools, "search_files")
@@ -243,7 +245,7 @@ describe("createTools", () => {
 
 		it("includes path parameter when provided", async () => {
 			const spawnGit = makeSpawnGit(new Map([
-				["grep -n -E -I -e TODO abc123 -- src/", ok("src/main.ts:1:TODO: implement\n")],
+				["grep -n -E -I -z --color=never -e TODO abc123 -- src/", ok(`abc123:src/main.ts${NUL}1${NUL}TODO: implement\n`)],
 			]))
 			const tools = createTools({ spawnGit }, "abc123")
 			const searchFiles = getTool(tools, "search_files")
@@ -253,7 +255,7 @@ describe("createTools", () => {
 
 		it("omits path parameter when path is empty string", async () => {
 			const spawnGit = makeSpawnGit(new Map([
-				["grep -n -E -I -e TODO abc123", ok("src/main.ts:1:TODO: implement\n")],
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:src/main.ts${NUL}1${NUL}TODO: implement\n`)],
 			]))
 			const tools = createTools({ spawnGit }, "abc123")
 			const searchFiles = getTool(tools, "search_files")
@@ -291,7 +293,7 @@ describe("createTools", () => {
 
 		it("returns search failed message when git grep exits with error", async () => {
 			const spawnGit = makeSpawnGit(new Map([
-				["grep -n -E -I -e [invalid abc123", { stdout: "", stderr: "fatal: invalid regex", exitCode: 128, signalCode: null }],
+				["grep -n -E -I -z --color=never -e [invalid abc123", { stdout: "", stderr: "fatal: invalid regex", exitCode: 128, signalCode: null }],
 			]))
 			const tools = createTools({ spawnGit }, "abc123")
 			const searchFiles = getTool(tools, "search_files")
@@ -300,9 +302,9 @@ describe("createTools", () => {
 		})
 
 		it("truncates results when more than 50 matches", async () => {
-			const lines = Array.from({ length: 60 }, (_, i) => `file.ts:${i + 1}:match content`).join("\n")
+			const lines = Array.from({ length: 60 }, (_, i) => `abc123:file.ts${NUL}${i + 1}${NUL}match content`).join("\n")
 			const spawnGit = makeSpawnGit(new Map([
-				["grep -n -E -I -e match abc123", ok(lines + "\n")],
+				["grep -n -E -I -z --color=never -e match abc123", ok(lines + "\n")],
 			]))
 			const tools = createTools({ spawnGit }, "abc123")
 			const searchFiles = getTool(tools, "search_files")
@@ -312,7 +314,7 @@ describe("createTools", () => {
 
 		it("handles single match", async () => {
 			const spawnGit = makeSpawnGit(new Map([
-				["grep -n -E -I -e unique abc123", ok("config.json:7:unique_value\n")],
+				["grep -n -E -I -z --color=never -e unique abc123", ok(`abc123:config.json${NUL}7${NUL}unique_value\n`)],
 			]))
 			const tools = createTools({ spawnGit }, "abc123")
 			const searchFiles = getTool(tools, "search_files")
@@ -322,12 +324,137 @@ describe("createTools", () => {
 
 		it("handles colons in matched content", async () => {
 			const spawnGit = makeSpawnGit(new Map([
-				["grep -n -E -I -e key abc123", ok("config.ts:3:const key: string = 'value'\n")],
+				["grep -n -E -I -z --color=never -e key abc123", ok(`abc123:config.ts${NUL}3${NUL}const key: string = 'value'\n`)],
 			]))
 			const tools = createTools({ spawnGit }, "abc123")
 			const searchFiles = getTool(tools, "search_files")
 			const result = await searchFiles.execute('{"pattern":"key"}')
 			expect(result).toBe("config.ts:3:const key: string = 'value'")
+		})
+
+		it("strips the tree-ish prefix from git grep output for a full-length base SHA", async () => {
+			const fullSha = "0283c9542b982059b075745b00f8df9e7e55e07b"
+			const spawnGit = makeSpawnGit(new Map([
+				[`grep -n -E -I -z --color=never -e TODO ${fullSha}`, ok(`${fullSha}:src/index.ts${NUL}42${NUL}TODO: real output\n`)],
+			]))
+			const tools = createTools({ spawnGit }, fullSha)
+			const searchFiles = getTool(tools, "search_files")
+			const result = await searchFiles.execute('{"pattern":"TODO"}')
+			expect(result).toBe("src/index.ts:42:TODO: real output")
+		})
+
+		it("strips a non-sha tree-ish prefix such as HEAD", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO HEAD", ok(`HEAD:src/index.ts${NUL}8${NUL}TODO: from HEAD\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "HEAD")
+			const searchFiles = getTool(tools, "search_files")
+			const result = await searchFiles.execute('{"pattern":"TODO"}')
+			expect(result).toBe("src/index.ts:8:TODO: from HEAD")
+		})
+
+		it("returns no matches message for empty stdout with exit code 0", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok("")],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			const result = await searchFiles.execute('{"pattern":"TODO"}')
+			expect(result).toBe("No matches found.")
+		})
+
+		it("handles colons in file paths", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:we:ird.txt${NUL}10${NUL}matched\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			const result = await searchFiles.execute('{"pattern":"TODO"}')
+			expect(result).toBe("we:ird.txt:10:matched")
+		})
+
+		it("handles a file path containing a newline", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:we\nird.txt${NUL}10${NUL}matched\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			const result = await searchFiles.execute('{"pattern":"TODO"}')
+			expect(result).toBe("we\nird.txt:10:matched")
+		})
+
+		it("handles an empty matched line", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:file.ts${NUL}5${NUL}\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			const result = await searchFiles.execute('{"pattern":"TODO"}')
+			expect(result).toBe("file.ts:5:")
+		})
+
+		it("handles multiple records where a later path contains a newline", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:a.txt${NUL}1${NUL}first\nabc123:we\nird.txt${NUL}2${NUL}second\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			const result = await searchFiles.execute('{"pattern":"TODO"}')
+			expect(result).toBe("a.txt:1:first\nwe\nird.txt:2:second")
+		})
+
+		it("throws when a git grep record is missing the tree-ish prefix", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`src/index.ts${NUL}10${NUL}content\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			expect(searchFiles.execute('{"pattern":"TODO"}')).rejects.toThrow('missing "abc123:" prefix')
+		})
+
+		it("throws when a git grep record is missing the content separator", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:src/index.ts${NUL}10\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			expect(searchFiles.execute('{"pattern":"TODO"}')).rejects.toThrow("content separator")
+		})
+
+		it("throws when a git grep record is missing the line-number separator", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:src/index.ts\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			expect(searchFiles.execute('{"pattern":"TODO"}')).rejects.toThrow("line-number separator")
+		})
+
+		it("throws when git grep content contains a NUL", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:file.ts${NUL}5${NUL}a${NUL}b\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			expect(searchFiles.execute('{"pattern":"TODO"}')).rejects.toThrow("NUL")
+		})
+
+		it("throws when a git grep record has a non-integer line number", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:src/index.ts${NUL}abc${NUL}content\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			expect(searchFiles.execute('{"pattern":"TODO"}')).rejects.toThrow("line number")
+		})
+
+		it("throws when a git grep record has an empty path", async () => {
+			const spawnGit = makeSpawnGit(new Map([
+				["grep -n -E -I -z --color=never -e TODO abc123", ok(`abc123:${NUL}10${NUL}content\n`)],
+			]))
+			const tools = createTools({ spawnGit }, "abc123")
+			const searchFiles = getTool(tools, "search_files")
+			expect(searchFiles.execute('{"pattern":"TODO"}')).rejects.toThrow("empty path")
 		})
 	})
 })
