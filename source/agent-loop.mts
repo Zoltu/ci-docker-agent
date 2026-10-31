@@ -177,7 +177,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; ran
 		yield { type: 'completion', finishReason: completionResult.finishReason, usage: completionResult.usage }
 
 		if (completionResult.finishReason === 'length') {
-			throw new Error(`AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: ${maxTokens}). Consider increasing AI_MAX_TOKENS or reducing prompt size.`)
+			throw new Error(`AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: ${maxTokens}). Increase the max tokens limit passed to the agent loop or reduce the prompt size.`)
 		}
 
 		if (completionResult.finishReason === 'content_filter') {

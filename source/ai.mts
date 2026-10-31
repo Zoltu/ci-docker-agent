@@ -31,6 +31,16 @@ export interface AiConfiguration {
 	apiKey?: string
 }
 
+function parseMaxTokens(maxTokensValue: string): number {
+	// Number.parseInt("12.5") is 12, so requiring a digits-only form rejects a malformed value instead of silently truncating it.
+	if (!/^-?\d+$/.test(maxTokensValue)) throw new Error(`AI_MAX_TOKENS must be a whole number, got: ${maxTokensValue}`)
+	const maxTokens = Number.parseInt(maxTokensValue, 10)
+	if (maxTokens < 1) throw new Error(`AI_MAX_TOKENS must be at least 1, got: ${maxTokensValue}`)
+	// A digit string long enough to overflow parses to Infinity, or to a rounded double past MAX_SAFE_INTEGER, which JSON.stringify would send as `null` or as a different number instead of failing here.
+	if (!Number.isSafeInteger(maxTokens)) throw new Error(`AI_MAX_TOKENS must be a safe integer, got: ${maxTokensValue}`)
+	return maxTokens
+}
+
 export function parseAiConfiguration(environment: Record<string, string | undefined>): AiConfiguration {
 	const apiUrl = environment.AI_API_URL
 	if (!apiUrl) throw new Error("AI_API_URL is required")
@@ -43,12 +53,8 @@ export function parseAiConfiguration(environment: Record<string, string | undefi
 	if (!model) throw new Error("AI_MODEL is required")
 
 	// An empty value arrives whenever GitHub Actions forwards an unconfigured `vars` entry, so empty and whitespace-only mean "not set".
-	const maxTokensValue = environment.AI_MAX_TOKENS
-	const maxTokensString = maxTokensValue === undefined ? "" : maxTokensValue.trim()
-	const maxTokens = maxTokensString === "" ? 100_000 : Number.parseInt(maxTokensString, 10)
-	if (maxTokensString !== "" && Number.isNaN(maxTokens)) throw new Error(`AI_MAX_TOKENS must be a valid number, got: ${maxTokensValue}`)
-	// Number.parseInt("12.5") is 12, so the digits-only check rejects a malformed value instead of silently truncating it.
-	if (maxTokensString !== "" && (!/^\d+$/.test(maxTokensString) || maxTokens < 1)) throw new Error(`AI_MAX_TOKENS must be a positive integer, got: ${maxTokensValue}`)
+	const maxTokensValue = environment.AI_MAX_TOKENS?.trim() ?? ""
+	const maxTokens = maxTokensValue === "" ? 100_000 : parseMaxTokens(maxTokensValue)
 
 	const apiKey = environment.AI_API_KEY
 	return { apiUrl, model, maxTokens, apiKey }

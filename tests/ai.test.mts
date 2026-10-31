@@ -127,19 +127,27 @@ describe("parseAiConfiguration", () => {
 	})
 
 	it("throws when AI_MAX_TOKENS is not a number", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "abc" })).toThrow("AI_MAX_TOKENS must be a valid number, got: abc")
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "abc" })).toThrow("AI_MAX_TOKENS must be a whole number, got: abc")
 	})
 
 	it("throws when AI_MAX_TOKENS is not a whole number", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "12.5" })).toThrow("AI_MAX_TOKENS must be a positive integer, got: 12.5")
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "12.5" })).toThrow("AI_MAX_TOKENS must be a whole number, got: 12.5")
 	})
 
 	it("throws when AI_MAX_TOKENS is zero", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "0" })).toThrow("AI_MAX_TOKENS must be a positive integer, got: 0")
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "0" })).toThrow("AI_MAX_TOKENS must be at least 1, got: 0")
 	})
 
 	it("throws when AI_MAX_TOKENS is negative", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "-5" })).toThrow("AI_MAX_TOKENS must be a positive integer, got: -5")
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "-5" })).toThrow("AI_MAX_TOKENS must be at least 1, got: -5")
+	})
+
+	it("throws when AI_MAX_TOKENS overflows to a non-finite number", () => {
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "9".repeat(310) })).toThrow("AI_MAX_TOKENS must be a safe integer")
+	})
+
+	it("throws when AI_MAX_TOKENS exceeds the safe integer range", () => {
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "9007199254740993" })).toThrow("AI_MAX_TOKENS must be a safe integer")
 	})
 
 	it("throws when AI_API_URL is missing", () => {
@@ -201,6 +209,21 @@ describe("analyze", () => {
 		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 		expect(result.body).toBe("Result 2")
+	})
+
+	it("sends the configured max tokens in the agent and aggregator request bodies", async () => {
+		const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({ body: "Looks good", comments: [] })])
+		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
+		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
+
+		await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 250_000, IDENTITY_PROFILE)
+
+		const bodies = capturedBodies()
+		expect(bodies).toHaveLength(2)
+		const [agentBody, aggregatorBody] = bodies
+		if (agentBody === undefined || aggregatorBody === undefined) throw new Error(`Expected two captured request bodies, got ${bodies.length}`)
+		expect(JSON.parse(agentBody).max_tokens).toBe(250_000)
+		expect(JSON.parse(aggregatorBody).max_tokens).toBe(250_000)
 	})
 
 	it("writes prompts and streaming trace via debugWriter", async () => {

@@ -21,9 +21,13 @@ function makeReadAgents(agents: Agent[]): AgentReader {
 	return async (_directory: string) => agents
 }
 
-function makeFetch(body: string): Fetch {
-	const output = JSON.stringify({ body, comments: [] })
-	return createMockAgentFetch(buildContentSse(output))
+function makeFetch(body: string, capturedBodies?: string[]): Fetch {
+	const respond = createMockAgentFetch(buildContentSse(JSON.stringify({ body, comments: [] })))
+	if (capturedBodies === undefined) return respond
+	return async (signal, requestBody, headers) => {
+		capturedBodies.push(requestBody)
+		return respond(signal, requestBody, headers)
+	}
 }
 
 function makeSpawnGitOk(): SpawnGit {
@@ -364,6 +368,37 @@ describe("runOnCommentTrigger", () => {
 		expect(updatedCheckRuns()).toHaveLength(0)
 	})
 
+	it("forwards the configured max tokens to the request bodies", async () => {
+		const capturedBodies: string[] = []
+		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF })
+
+		await runOnCommentTrigger(
+			{
+				spawnGit: makeSpawnGitOk(),
+				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
+				githubFetch,
+				fetch: makeFetch("Good work", capturedBodies),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makeCommentTriggerConfiguration(),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			250_000,
+			IDENTITY_PROFILE,
+		)
+
+		expect(capturedBodies).toHaveLength(2)
+		const [agentBody, aggregatorBody] = capturedBodies
+		if (agentBody === undefined || aggregatorBody === undefined) throw new Error(`Expected two captured request bodies, got ${capturedBodies.length}`)
+		expect(JSON.parse(agentBody).max_tokens).toBe(250_000)
+		expect(JSON.parse(aggregatorBody).max_tokens).toBe(250_000)
+		expect(submittedReviews()).toHaveLength(1)
+	})
+
 	it("retries submit when GitHub returns 422 and accepts the corrected output", async () => {
 		const capturedBodies: string[] = []
 		let fetchCount = 0
@@ -503,6 +538,36 @@ describe("runOnPullRequest", () => {
 
 		expect(submittedReviews()).toHaveLength(1)
 		expect(submittedReviews()[0]!.body).toContain("Great work")
+	})
+
+	it("forwards the configured max tokens to the request bodies", async () => {
+		const capturedBodies: string[] = []
+		const { githubFetch } = makeGithubFetch({ diffText: SAMPLE_DIFF })
+
+		await runOnPullRequest(
+			{
+				spawnGit: makeSpawnGitOk(),
+				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
+				githubFetch,
+				fetch: makeFetch("Great work", capturedBodies),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makePullRequestConfiguration(),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			250_000,
+			IDENTITY_PROFILE,
+		)
+
+		expect(capturedBodies).toHaveLength(2)
+		const [agentBody, aggregatorBody] = capturedBodies
+		if (agentBody === undefined || aggregatorBody === undefined) throw new Error(`Expected two captured request bodies, got ${capturedBodies.length}`)
+		expect(JSON.parse(agentBody).max_tokens).toBe(250_000)
+		expect(JSON.parse(aggregatorBody).max_tokens).toBe(250_000)
 	})
 
 	it("finds the existing 'ci-agent' check run and updates it to success", async () => {
@@ -669,6 +734,36 @@ describe("runOnLocalDiff", () => {
 		)
 
 		expect(result).toContain("Looks good")
+	})
+
+	it("forwards the configured max tokens to the request bodies", async () => {
+		const capturedBodies: string[] = []
+		const result = await runOnLocalDiff(
+			{
+				spawnGit: makeSpawnGitWithDiff(SAMPLE_DIFF),
+				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
+				githubFetch: async () => new Response(),
+				fetch: makeFetch("Looks good", capturedBodies),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makeLocalDiffConfiguration(),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			250_000,
+			"/test/workspace",
+			IDENTITY_PROFILE,
+		)
+
+		expect(capturedBodies).toHaveLength(2)
+		expect(result).toContain("Looks good")
+		const [agentBody, aggregatorBody] = capturedBodies
+		if (agentBody === undefined || aggregatorBody === undefined) throw new Error(`Expected two captured request bodies, got ${capturedBodies.length}`)
+		expect(JSON.parse(agentBody).max_tokens).toBe(250_000)
+		expect(JSON.parse(aggregatorBody).max_tokens).toBe(250_000)
 	})
 
 	it("propagates error when validateGitRepository throws", async () => {
