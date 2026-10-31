@@ -677,7 +677,13 @@ describe("agentLoop", () => {
 					chunk({}, "length"),
 				]),
 			)
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 250_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: 250000). Reduce the prompt size, or raise AI_MAX_TOKENS above that by setting the repository variable in CI (the shipped workflow forwards it; if your copy predates that, add it to the env: block of the Run CI Agent step) or by adding --env=\"AI_MAX_TOKENS=<above 250000>\" to the local docker container run command.")
+			const loop = collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 250_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			await expect(loop).rejects.toThrow("AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: 250000). Reduce the prompt size, or raise the configured output token limit.")
+			await expect(loop).rejects.not.toThrow("AI_MAX_TOKENS")
+			await expect(loop).rejects.not.toThrow("Run CI Agent")
+			await expect(loop).rejects.not.toThrow("env: block")
+			await expect(loop).rejects.not.toThrow("docker container run")
+			await expect(loop).rejects.not.toThrow("--env")
 		})
 
 		it("continues when no finish reason and no content, then gets tool calls", async () => {

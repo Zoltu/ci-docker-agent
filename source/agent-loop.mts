@@ -21,18 +21,15 @@ export interface AgentLoopDeltaEvent {
 	readonly type: 'delta'
 	readonly delta: CompletionDelta
 }
-
 export interface AgentLoopCompletionEvent {
 	readonly type: 'completion'
 	readonly finishReason?: string
 	readonly usage?: CompletionUsage
 }
-
 export interface AgentLoopToolCallEvent {
 	readonly type: 'tool_call'
 	readonly toolCall: CompletionsToolCall
 }
-
 export interface AgentLoopToolResultEvent {
 	readonly type: 'tool_result'
 	readonly toolCallId: string
@@ -177,7 +174,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; ran
 		yield { type: 'completion', finishReason: completionResult.finishReason, usage: completionResult.usage }
 
 		if (completionResult.finishReason === 'length') {
-			throw new Error(`AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: ${maxTokens}). Reduce the prompt size, or raise AI_MAX_TOKENS above that by setting the repository variable in CI (the shipped workflow forwards it; if your copy predates that, add it to the env: block of the Run CI Agent step) or by adding --env="AI_MAX_TOKENS=<above ${maxTokens}>" to the local docker container run command.`)
+			throw new Error(`AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: ${maxTokens}). Reduce the prompt size, or raise the configured output token limit.`)
 		}
 
 		if (completionResult.finishReason === 'content_filter') {
