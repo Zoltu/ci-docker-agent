@@ -144,6 +144,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)
 
@@ -169,6 +170,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)
 
@@ -193,6 +195,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)
 
@@ -219,6 +222,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)
 
@@ -248,6 +252,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("Read failure")
 
@@ -279,6 +284,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("Failed to create check run")
 
@@ -303,6 +309,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("API error")
 	})
@@ -323,6 +330,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("Failed to submit review")
 	})
@@ -348,6 +356,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)
 
@@ -399,6 +408,7 @@ describe("runOnCommentTrigger", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)
 
@@ -434,6 +444,7 @@ describe("runOnCommentTrigger", () => {
 				userAgentsDirectory,
 				builtinAgentsDirectory,
 				"test-model",
+				100_000,
 				IDENTITY_PROFILE,
 			)).rejects.toThrow()
 
@@ -461,6 +472,7 @@ describe("runOnPullRequest", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)
 
@@ -485,6 +497,7 @@ describe("runOnPullRequest", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)
 
@@ -513,6 +526,7 @@ describe("runOnPullRequest", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)
 
@@ -545,6 +559,7 @@ describe("runOnPullRequest", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("Read failure")
 
@@ -576,6 +591,7 @@ describe("runOnPullRequest", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)).rejects.toThrow(`No active check run named "ci-agent" found for head SHA head456`)
 
@@ -600,6 +616,7 @@ describe("runOnPullRequest", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("API error")
 	})
@@ -622,6 +639,7 @@ describe("runOnLocalDiff", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			"/test/workspace",
 			IDENTITY_PROFILE,
 		)
@@ -645,6 +663,7 @@ describe("runOnLocalDiff", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			"/test/workspace",
 			IDENTITY_PROFILE,
 		)
@@ -674,6 +693,7 @@ describe("runOnLocalDiff", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			"/test/workspace",
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("No git repository found")
@@ -701,6 +721,7 @@ describe("runOnLocalDiff", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			"/test/workspace",
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("Failed to get diff")
@@ -740,6 +761,7 @@ describe("runOnLocalDiff", () => {
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
+			100_000,
 			"/test/workspace",
 			IDENTITY_PROFILE,
 		)

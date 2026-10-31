@@ -27,6 +27,7 @@ export type AggregatorSubmitResult = { kind: "ok" } | { kind: "retry"; feedback:
 export interface AiConfiguration {
 	apiUrl: string
 	model: string
+	maxTokens: number
 	apiKey?: string
 }
 
@@ -41,8 +42,16 @@ export function parseAiConfiguration(environment: Record<string, string | undefi
 	const model = environment.AI_MODEL
 	if (!model) throw new Error("AI_MODEL is required")
 
+	// An empty value arrives whenever GitHub Actions forwards an unconfigured `vars` entry, so empty and whitespace-only mean "not set".
+	const maxTokensValue = environment.AI_MAX_TOKENS
+	const maxTokensString = maxTokensValue === undefined ? "" : maxTokensValue.trim()
+	const maxTokens = maxTokensString === "" ? 100_000 : Number.parseInt(maxTokensString, 10)
+	if (maxTokensString !== "" && Number.isNaN(maxTokens)) throw new Error(`AI_MAX_TOKENS must be a valid number, got: ${maxTokensValue}`)
+	// Number.parseInt("12.5") is 12, so the digits-only check rejects a malformed value instead of silently truncating it.
+	if (maxTokensString !== "" && (!/^\d+$/.test(maxTokensString) || maxTokens < 1)) throw new Error(`AI_MAX_TOKENS must be a positive integer, got: ${maxTokensValue}`)
+
 	const apiKey = environment.AI_API_KEY
-	return { apiUrl, model, apiKey }
+	return { apiUrl, model, maxTokens, apiKey }
 }
 
 // Stays under the agent-loop idle timeout (240s) so a long reset window can't trip the composite abort mid-sleep.
@@ -191,7 +200,7 @@ export function createFetch(dependencies: FetchDependencies): Fetch {
 	return (signal, body, headers) => fetchWithRetries(dependencies, signal, body, headers)
 }
 
-async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, profile: ProviderProfile, agentInputs?: Map<string, string>, outputValidator?: OutputValidator): Promise<string> {
+async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, maxTokens: number, profile: ProviderProfile, agentInputs?: Map<string, string>, outputValidator?: OutputValidator): Promise<string> {
 	dependencies.logger.log(`Building prompt for ${agent.name}`)
 	const promptMessages = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
 	const debugText = promptMessages.map(m => `--- ${m.role} ---\n${m.content}`).join("\n\n")
@@ -202,7 +211,7 @@ async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger
 	const messages: CompletionsMessage[] = [...promptMessages]
 	const traceWriter = createTraceWriter(dependencies.debugWriter, agent.name)
 
-	const generator = agentLoop(dependencies, model, messages, tools, profile, undefined, outputValidator)
+	const generator = agentLoop(dependencies, model, maxTokens, messages, tools, profile, undefined, outputValidator)
 
 	let result: AgentLoopResult
 	while (true) {
@@ -237,8 +246,8 @@ async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger
 	return lastMessage.content
 }
 
-async function runAgents(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], model: string, profile: ProviderProfile): Promise<Map<string, string>> {
-	const promises = agents.map(async agent => [agent.name, await runAgent(dependencies, agent, baseCommit, baseCommitContext, diffText, model, profile)] as const)
+async function runAgents(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], model: string, maxTokens: number, profile: ProviderProfile): Promise<Map<string, string>> {
+	const promises = agents.map(async agent => [agent.name, await runAgent(dependencies, agent, baseCommit, baseCommitContext, diffText, model, maxTokens, profile)] as const)
 	const reviewResults = await Promise.all(promises)
 	return new Map(reviewResults)
 }
@@ -286,11 +295,11 @@ async function aggregatorOutputValidator(submit: ((result: AiReviewResult) => Pr
 	throw new Error(outcome.message)
 }
 
-export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
+export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
 	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
 
-	const agentOutputs = await runAgents(dependencies, baseCommit, baseCommitContext, diffText, agents, model, profile)
-	const finalOutput = await runAgent(dependencies, aggregator, baseCommit, baseCommitContext, diffText, model, profile, agentOutputs, content => aggregatorOutputValidator(submit, content))
+	const agentOutputs = await runAgents(dependencies, baseCommit, baseCommitContext, diffText, agents, model, maxTokens, profile)
+	const finalOutput = await runAgent(dependencies, aggregator, baseCommit, baseCommitContext, diffText, model, maxTokens, profile, agentOutputs, content => aggregatorOutputValidator(submit, content))
 
 	dependencies.logger.log("Agent analysis complete")
 

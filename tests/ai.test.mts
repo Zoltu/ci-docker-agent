@@ -64,6 +64,7 @@ describe("parseAiConfiguration", () => {
 		expect(result).toEqual({
 			apiUrl: "https://api.openai.com/v1",
 			model: "gpt-4",
+			maxTokens: 100_000,
 			apiKey: "sk-test-key",
 		})
 	})
@@ -76,8 +77,69 @@ describe("parseAiConfiguration", () => {
 		expect(result).toEqual({
 			apiUrl: "http://localhost:11434/v1",
 			model: "llama3",
+			maxTokens: 100_000,
 			apiKey: undefined,
 		})
+	})
+
+	it("returns the default max tokens when AI_MAX_TOKENS is not set", () => {
+		const result = parseAiConfiguration({
+			AI_API_URL: "https://api.openai.com/v1",
+			AI_MODEL: "gpt-4",
+		})
+		expect(result.maxTokens).toBe(100_000)
+	})
+
+	it("returns the default max tokens when AI_MAX_TOKENS is empty", () => {
+		const result = parseAiConfiguration({
+			AI_API_URL: "https://api.openai.com/v1",
+			AI_MODEL: "gpt-4",
+			AI_MAX_TOKENS: "",
+		})
+		expect(result.maxTokens).toBe(100_000)
+	})
+
+	it("returns the default max tokens when AI_MAX_TOKENS is whitespace only", () => {
+		const result = parseAiConfiguration({
+			AI_API_URL: "https://api.openai.com/v1",
+			AI_MODEL: "gpt-4",
+			AI_MAX_TOKENS: "   ",
+		})
+		expect(result.maxTokens).toBe(100_000)
+	})
+
+	it("uses AI_MAX_TOKENS when provided", () => {
+		const result = parseAiConfiguration({
+			AI_API_URL: "https://api.openai.com/v1",
+			AI_MODEL: "gpt-4",
+			AI_MAX_TOKENS: "500",
+		})
+		expect(result.maxTokens).toBe(500)
+	})
+
+	it("parses AI_MAX_TOKENS after trimming surrounding whitespace", () => {
+		const result = parseAiConfiguration({
+			AI_API_URL: "https://api.openai.com/v1",
+			AI_MODEL: "gpt-4",
+			AI_MAX_TOKENS: " 500 ",
+		})
+		expect(result.maxTokens).toBe(500)
+	})
+
+	it("throws when AI_MAX_TOKENS is not a number", () => {
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "abc" })).toThrow("AI_MAX_TOKENS must be a valid number, got: abc")
+	})
+
+	it("throws when AI_MAX_TOKENS is not a whole number", () => {
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "12.5" })).toThrow("AI_MAX_TOKENS must be a positive integer, got: 12.5")
+	})
+
+	it("throws when AI_MAX_TOKENS is zero", () => {
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "0" })).toThrow("AI_MAX_TOKENS must be a positive integer, got: 0")
+	})
+
+	it("throws when AI_MAX_TOKENS is negative", () => {
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "-5" })).toThrow("AI_MAX_TOKENS must be a positive integer, got: -5")
 	})
 
 	it("throws when AI_API_URL is missing", () => {
@@ -112,7 +174,7 @@ describe("analyze", () => {
 		]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 		expect(result.body).toBe("Review complete")
 		expect(result.comments).toEqual([])
@@ -136,7 +198,7 @@ describe("analyze", () => {
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+		const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 		expect(result.body).toBe("Result 2")
 	})
@@ -154,7 +216,7 @@ describe("analyze", () => {
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-		await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+		await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 		expect(prompts.length).toBe(2)
 		expect(prompts[0]!.agentName).toBe("TestAgent")
@@ -173,7 +235,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(result.comments).toHaveLength(1)
@@ -188,7 +250,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("No issues found")
 			expect(result.comments).toEqual([])
@@ -199,7 +261,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -214,7 +276,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			const secondRequest = JSON.parse(capturedBodies()[2]!)
@@ -228,7 +290,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -242,7 +304,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -256,7 +318,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -270,7 +332,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -284,7 +346,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -301,7 +363,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -318,7 +380,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -335,7 +397,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)
@@ -352,7 +414,7 @@ describe("analyze", () => {
 			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
 
-			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", IDENTITY_PROFILE)
+			const result = await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
 
 			expect(result.body).toBe("Looks good")
 			expect(capturedBodies().length).toBe(3)

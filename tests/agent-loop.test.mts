@@ -112,7 +112,7 @@ describe("agentLoop", () => {
 					chunk({}, "stop"),
 				]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(result.messages.at(-1)).toEqual({
 				role: "assistant",
 				content: "Hello world",
@@ -128,7 +128,7 @@ describe("agentLoop", () => {
 					usageChunk({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }),
 				]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(result.usage).toEqual({
 				prompt_tokens: 10,
 				completion_tokens: 5,
@@ -143,7 +143,7 @@ describe("agentLoop", () => {
 					chunk({}, "stop"),
 				]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [
 				{ role: "system", content: "You are helpful" },
 				{ role: "user", content: "hi" },
 			], [], IDENTITY_PROFILE))
@@ -175,7 +175,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "review" }], TOOLS, IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "review" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.messages.at(-1)).toEqual({
@@ -210,7 +210,7 @@ describe("agentLoop", () => {
 				])
 			})
 
-			await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
+			await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 		})
 
 		it("handles multiple tool calls in one round", async () => {
@@ -230,7 +230,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events, result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "review" }], TOOLS, IDENTITY_PROFILE))
+			const { events, result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "review" }], TOOLS, IDENTITY_PROFILE))
 
 			const toolCallEvents = events.filter(e => e.type === "tool_call")
 			const toolResultEvents = events.filter(e => e.type === "tool_result")
@@ -266,7 +266,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "review" }], TOOLS, IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "review" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(3)
 			expect(result.messages.at(-1)).toEqual({
@@ -291,7 +291,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(result.messages).toEqual([
 				{ role: "user", content: "hi" },
@@ -311,7 +311,7 @@ describe("agentLoop", () => {
 					chunk({}, "stop"),
 				]),
 			)
-			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			const deltaEvents = events.filter(e => e.type === "delta")
 			expect(deltaEvents).toHaveLength(3)
 			if (deltaEvents[0]!.type === "delta") {
@@ -333,7 +333,7 @@ describe("agentLoop", () => {
 					usageChunk({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }),
 				]),
 			)
-			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			const completionEvents = events.filter(e => e.type === "completion")
 			expect(completionEvents).toHaveLength(1)
 			if (completionEvents[0]!.type === "completion") {
@@ -362,7 +362,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
+			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const toolCallEvent = events.find(e => e.type === "tool_call")
 			expect(toolCallEvent).toBeDefined()
@@ -389,7 +389,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
+			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const toolResultEvent = events.find(e => e.type === "tool_result")
 			expect(toolResultEvent).toBeDefined()
@@ -417,7 +417,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
+			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const eventTypes = events.map(e => e.type)
 			expect(eventTypes).toEqual([
@@ -446,7 +446,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.finishReason).toBe("stop")
@@ -465,7 +465,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			const completionEvents = events.filter(e => e.type === "completion")
 			expect(completionEvents).toHaveLength(2)
@@ -491,7 +491,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.finishReason).toBe("stop")
@@ -512,7 +512,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.finishReason).toBe("stop")
@@ -527,7 +527,7 @@ describe("agentLoop", () => {
 				]),
 			)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(1)
 			expect(result.finishReason).toBe("stop")
@@ -557,7 +557,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(4)
 			expect(result.finishReason).toBe("stop")
@@ -571,7 +571,7 @@ describe("agentLoop", () => {
 					chunk({}, "stop"),
 				]),
 			)
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Provider did not return token usage in streaming response")
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Provider did not return token usage in streaming response")
 		})
 
 		it("throws after MAX_EMPTY_TURNS consecutive responses with zero completion tokens", async () => {
@@ -584,7 +584,7 @@ describe("agentLoop", () => {
 			)
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("5 consecutive responses with no output tokens")
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("5 consecutive responses with no output tokens")
 			expect(callCount()).toBe(5)
 		})
 
@@ -612,7 +612,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(4)
 			expect(result.finishReason).toBe("stop")
@@ -639,7 +639,7 @@ describe("agentLoop", () => {
 				return createMockFetchResponse(sseText)
 			}
 
-			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 
 			const secondRequest = JSON.parse(capturedBodies[1]!)
 			expect(secondRequest.messages).toEqual([
@@ -664,7 +664,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(2)
 			expect(result.finishReason).toBe("stop")
@@ -677,7 +677,7 @@ describe("agentLoop", () => {
 					chunk({}, "length"),
 				]),
 			)
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("AI response truncated")
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: 100000). Consider increasing AI_MAX_TOKENS or reducing prompt size.")
 		})
 
 		it("continues when no finish reason and no content, then gets tool calls", async () => {
@@ -699,7 +699,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch, callCount } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			expect(callCount()).toBe(3)
 			expect(result.finishReason).toBe("stop")
@@ -709,12 +709,12 @@ describe("agentLoop", () => {
 	describe("idle timeout", () => {
 		it("retries the turn when no deltas arrive within idle timeout, then stalls after max retries", async () => {
 			const fetch = createHangingFetchWithSignal()
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop stalled")
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop stalled")
 		})
 
 		it("includes timeout duration in stall error message", async () => {
 			const fetch = createHangingFetchWithSignal()
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 123))).rejects.toThrow("123ms")
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 123))).rejects.toThrow("123ms")
 		})
 
 		it("resets idle timer on each delta", async () => {
@@ -740,7 +740,7 @@ describe("agentLoop", () => {
 				})
 				return new Response(stream, { status: 200 })
 			}
-			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))
+			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))
 			expect(result.finishReason).toBe("stop")
 		})
 	})
@@ -755,7 +755,7 @@ describe("agentLoop", () => {
 				}
 				return createMockFetchResponse(buildSse([chunk({ content: "recovered" }), chunk({}, "stop")]))
 			}
-			const { events, result } = await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { events, result } = await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(count).toBe(2)
 			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "recovered" })
 			const seenContents = events.flatMap(e => e.type === "delta" ? [e.delta.content ?? ""] : [])
@@ -770,7 +770,7 @@ describe("agentLoop", () => {
 				if (index === 0) return createMockFetchResponseErrorImmediately(new Error("connection reset"))
 				return createMockFetchResponse(buildSse([chunk({ content: "recovered" }), chunk({}, "stop")]))
 			}
-			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(count).toBe(2)
 			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "recovered" })
 		})
@@ -782,7 +782,7 @@ describe("agentLoop", () => {
 				if (index === 0) throw new Error("connection refused")
 				return createMockFetchResponse(buildSse([chunk({ content: "recovered" }), chunk({}, "stop")]))
 			}
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("connection refused")
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("connection refused")
 			expect(count).toBe(1)
 		})
 
@@ -801,7 +801,7 @@ describe("agentLoop", () => {
 				})
 			}
 			setTimeout(() => controller.abort(), 20)
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))).rejects.toThrow("aborted by caller")
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))).rejects.toThrow("aborted by caller")
 			expect(count).toBe(1)
 		})
 
@@ -811,7 +811,7 @@ describe("agentLoop", () => {
 				count++
 				return createMockFetchResponseErrorImmediately(new Error("connection reset"))
 			}
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result. Last error: Stream read failed: connection reset")
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result. Last error: Stream read failed: connection reset")
 			expect(count).toBe(5)
 		})
 
@@ -823,7 +823,7 @@ describe("agentLoop", () => {
 				if (index % 2 === 1) return hangingFetch(signal, body, headers)
 				return Promise.resolve(createMockFetchResponseErrorImmediately(new Error(`failure ${index}`)))
 			}
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result. Last error: Stream read failed: failure 4")
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result. Last error: Stream read failed: failure 4")
 			expect(count).toBe(5)
 		})
 
@@ -835,7 +835,7 @@ describe("agentLoop", () => {
 				if (index === 0 || index === 2) return Promise.resolve(createMockFetchResponseErrorImmediately(new Error(`failure ${index}`)))
 				return hangingFetch(signal, body, headers)
 			}
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop stalled")
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, undefined, 50))).rejects.toThrow("Agent loop stalled")
 			expect(count).toBe(5)
 		})
 
@@ -845,7 +845,7 @@ describe("agentLoop", () => {
 				count++
 				return new Response("service unavailable", { status: 503, statusText: "Service Unavailable" })
 			}
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("HTTP 503 Service Unavailable")
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("HTTP 503 Service Unavailable")
 			expect(count).toBe(1)
 		})
 
@@ -855,7 +855,7 @@ describe("agentLoop", () => {
 				count++
 				throw new FetchRetriesExhaustedError(new Error("network down"))
 			}
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow(FetchRetriesExhaustedError)
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow(FetchRetriesExhaustedError)
 			expect(count).toBe(1)
 		})
 
@@ -865,7 +865,7 @@ describe("agentLoop", () => {
 				count++
 				return createMockFetchResponse("data: {not json\n\n")
 			}
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Failed to parse SSE data as JSON")
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Failed to parse SSE data as JSON")
 			expect(count).toBe(1)
 		})
 
@@ -878,7 +878,7 @@ describe("agentLoop", () => {
 				if (index < 2) return createMockFetchResponseErrorImmediately(new Error(`failure ${index}`))
 				return createMockFetchResponse(buildSse([chunk({ content: "recovered" }), chunk({}, "stop")]))
 			}
-			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: recordingSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, new AbortController().signal))
+			const { result } = await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: recordingSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, new AbortController().signal))
 			expect(delays.length).toBeGreaterThan(0)
 			for (let i = 1; i < delays.length; i++) {
 				expect(delays[i]!).toBeGreaterThan(delays[i - 1]!)
@@ -895,7 +895,7 @@ describe("agentLoop", () => {
 				if (index < 4) return createMockFetchResponseErrorImmediately(new Error(`failure ${index}`))
 				return createMockFetchResponse(buildSse([chunk({ content: "recovered" }), chunk({}, "stop")]))
 			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: recordingSleep, random: () => 1 }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, new AbortController().signal))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: recordingSleep, random: () => 1 }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, new AbortController().signal))
 			expect(delays.length).toBeGreaterThan(0)
 			for (const delay of delays) {
 				expect(delay).toBeLessThanOrEqual(30_000 * 1.0)
@@ -908,7 +908,7 @@ describe("agentLoop", () => {
 				count++
 				return createMockFetchResponseThenError(`data: ${JSON.stringify(chunk({ content: "partial" }))}\n\n`, new Error("connection reset"))
 			}
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result")
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result")
 			expect(count).toBe(5)
 		})
 
@@ -919,7 +919,7 @@ describe("agentLoop", () => {
 				if (index === 2) return createMockFetchResponse(buildSse([chunk({ content: "partial" })]))
 				return createMockFetchResponseErrorImmediately(new Error(`failure ${index}`))
 			}
-			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result. Last error: Stream read failed: failure 7")
+			await expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("Agent loop failed: 5 consecutive turns failed without producing a result. Last error: Stream read failed: failure 7")
 			expect(count).toBe(8)
 		})
 	})
@@ -936,7 +936,7 @@ describe("agentLoop", () => {
 					}
 				})
 			}
-			expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))).rejects.toThrow()
+			expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))).rejects.toThrow()
 		})
 
 		it("aborts in-progress request when signal fires", async () => {
@@ -955,7 +955,7 @@ describe("agentLoop", () => {
 				})
 			}
 			setTimeout(() => controller.abort(), 30)
-			expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))).rejects.toThrow()
+			expect(collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))).rejects.toThrow()
 		})
 	})
 
@@ -976,7 +976,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events, result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
+			const { events, result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const toolResultEvent = events.find(e => e.type === "tool_result")
 			if (toolResultEvent && toolResultEvent.type === "tool_result") {
@@ -1006,7 +1006,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events, result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [failingTool], IDENTITY_PROFILE))
+			const { events, result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [failingTool], IDENTITY_PROFILE))
 
 			const toolResultEvent = events.find(e => e.type === "tool_result")
 			if (toolResultEvent && toolResultEvent.type === "tool_result") {
@@ -1037,7 +1037,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex] ?? responses[responses.length - 1]!)
 
-			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [stringThrowTool], IDENTITY_PROFILE))
+			const { events } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [stringThrowTool], IDENTITY_PROFILE))
 
 			const toolResultEvent = events.find(e => e.type === "tool_result")
 			if (toolResultEvent && toolResultEvent.type === "tool_result") {
@@ -1057,7 +1057,7 @@ describe("agentLoop", () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
 			)
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [tool], IDENTITY_PROFILE))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [tool], IDENTITY_PROFILE))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
 		})
 
 		it("throws when tool parameters has wrong type value", async () => {
@@ -1070,7 +1070,7 @@ describe("agentLoop", () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
 			)
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [tool], IDENTITY_PROFILE))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [tool], IDENTITY_PROFILE))).rejects.toThrow('Tool "bad_tool" parameters must be a JSON Schema object with type "object"')
 		})
 	})
 
@@ -1081,9 +1081,20 @@ describe("agentLoop", () => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "my-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "my-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			const parsed = JSON.parse(capturedBody!)
 			expect(parsed.model).toBe("my-model")
+		})
+
+		it("passes max tokens to completions request", async () => {
+			let capturedBody: string | undefined
+			const fetchWithSignal: Fetch = async (_signal, body, _headers) => {
+				capturedBody = body
+				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
+			}
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 250_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const parsed = JSON.parse(capturedBody!)
+			expect(parsed.max_tokens).toBe(250_000)
 		})
 
 		it("converts tools to wire format", async () => {
@@ -1092,7 +1103,7 @@ describe("agentLoop", () => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [TOOLS[0]!], IDENTITY_PROFILE))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [TOOLS[0]!], IDENTITY_PROFILE))
 			const parsed = JSON.parse(capturedBody!)
 			expect(parsed.tools).toEqual([{
 				type: "function",
@@ -1110,7 +1121,7 @@ describe("agentLoop", () => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			const parsed = JSON.parse(capturedBody!)
 			expect(parsed.tools).toBeUndefined()
 		})
@@ -1121,7 +1132,7 @@ describe("agentLoop", () => {
 				capturedBody = body
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
-			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [{ name: "bare_tool", execute: async () => "" }], IDENTITY_PROFILE))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [{ name: "bare_tool", execute: async () => "" }], IDENTITY_PROFILE))
 			const parsed = JSON.parse(capturedBody!)
 			expect(parsed.tools).toEqual([{
 				type: "function",
@@ -1151,7 +1162,7 @@ describe("agentLoop", () => {
 				return createMockFetchResponse(sseText)
 			}
 
-			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE))
 
 			const secondRequest = JSON.parse(capturedBodies[1]!)
 			expect(secondRequest.messages).toEqual([
@@ -1170,7 +1181,7 @@ describe("agentLoop", () => {
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
 			const controller = new AbortController()
-			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, controller.signal))
 			expect(capturedSignal).toBeDefined()
 			expect(capturedSignal!.aborted).toBe(false)
 		})
@@ -1181,7 +1192,7 @@ describe("agentLoop", () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(result.finishReason).toBe("stop")
 		})
 	})
@@ -1192,7 +1203,7 @@ describe("agentLoop", () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "done" }), chunk({}, "stop")]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))
 			expect(result.finishReason).toBe("stop")
 			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "done" })
 		})
@@ -1219,7 +1230,7 @@ describe("agentLoop", () => {
 				return null
 			}
 
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))
 
 			expect(observedContents).toEqual(["first attempt", "second attempt"])
 			expect(callCount()).toBe(2)
@@ -1249,7 +1260,7 @@ describe("agentLoop", () => {
 				return null
 			}
 
-			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))
+			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))
 
 			const secondRequest = JSON.parse(capturedBodies[1]!)
 			expect(secondRequest.messages).toEqual([
@@ -1264,7 +1275,7 @@ describe("agentLoop", () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "done" }), chunk({}, "stop")]),
 			)
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))).rejects.toThrow("validator crashed")
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE, undefined, outputValidator))).rejects.toThrow("validator crashed")
 		})
 
 		it("skips the callback on tool-call turns, invokes it on content turns", async () => {
@@ -1282,7 +1293,7 @@ describe("agentLoop", () => {
 			]
 			const { fetch } = createFetchWithSignal(({ callIndex }) => responses[callIndex]!)
 
-			await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE, undefined, outputValidator))
+			await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], TOOLS, IDENTITY_PROFILE, undefined, outputValidator))
 
 			expect(callbackCalls).toBe(1)
 		})
@@ -1291,7 +1302,7 @@ describe("agentLoop", () => {
 			const { fetch } = createFetchWithSignal(() =>
 				buildSse([chunk({ content: "ok" }), chunk({}, "stop")]),
 			)
-			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
+			const { result } = await collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 100_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
 			expect(result.finishReason).toBe("stop")
 			expect(result.messages.at(-1)).toEqual({ role: "assistant", content: "ok" })
 		})

@@ -30,6 +30,7 @@ docker container run --rm -it --mount="type=bind,source=$(pwd),target=/workspace
 - `AI_API_URL` - Base URL of the OpenAI-compatible API (required, e.g. `https://api.openai.com/v1`)
 - `AI_MODEL` - Model name to use (required, e.g. `gpt-4`)
 - `AI_API_KEY` - API key for authentication (optional, omit for local models that don't require auth)
+- `AI_MAX_TOKENS` - Maximum number of output tokens to request from the model per response (optional, defaults to `100000`; raise for large or complex repositories and long reasoning runs)
 - `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 
 ### Mode 2: GitHub PR Review
@@ -53,6 +54,7 @@ docker container run --rm -it --env="GITHUB_TOKEN=$GITHUB_TOKEN" --env="PR_NUMBE
 - `AI_API_URL` - Base URL of the OpenAI-compatible API (required, e.g. `https://api.openai.com/v1`)
 - `AI_MODEL` - Model name to use (required, e.g. `gpt-4`)
 - `AI_API_KEY` - API key for authentication (optional, omit for local models that don't require auth)
+- `AI_MAX_TOKENS` - Maximum number of output tokens to request from the model per response (optional, defaults to `100000`; raise for large or complex repositories and long reasoning runs)
 - `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 - `GITHUB_API_URL` - Custom GitHub API URL (optional, defaults to `https://api.github.com`)
 
@@ -67,6 +69,19 @@ Setup a GitHub repository/organization secret for `AI_API_KEY`.
 Setup a GitHub repository/organization variable for `AI_API_URL` and `AI_MODEL`.
 
 Everything else should "just work".
+
+#### Output Token Limit
+
+`AI_MAX_TOKENS` can be set as a GitHub repository/organization variable, like `AI_API_URL` and `AI_MODEL`.
+Add it to the `env:` block of the step that runs the agent:
+
+```yaml
+        env:
+          AI_MAX_TOKENS: ${{ vars.AI_MAX_TOKENS }}
+```
+
+An unset variable arrives as an empty string, which the agent treats as unset, so the default of `100000` still applies.
+For a one-off longer local run, add `--env="AI_MAX_TOKENS=250000"` to the `docker container run` command.
 
 ### Trigger Commands (GitHub Mode)
 

@@ -40,13 +40,13 @@ async function main(): Promise<void> {
 
 	switch (configuration.type) {
 		case "comment-trigger": {
-			return runOnCommentTrigger(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, profile)
+			return runOnCommentTrigger(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, aiConfiguration.maxTokens, profile)
 		}
 		case "pull-request": {
-			return runOnPullRequest(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, profile)
+			return runOnPullRequest(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, aiConfiguration.maxTokens, profile)
 		}
 		case "local-diff": {
-			const result = await runOnLocalDiff(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, workspaceDirectory, profile)
+			const result = await runOnLocalDiff(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, aiConfiguration.maxTokens, workspaceDirectory, profile)
 			logger.log(result)
 			return
 		}

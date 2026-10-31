@@ -70,15 +70,15 @@ async function runWithCheckRun(dependencies: OrchestratorDependencies, githubCon
 	})
 }
 
-async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
+async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
 	const agents = await loadAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, agentNames)
 	const aggregator = await loadAggregator(dependencies, userAgentsDirectory, builtinAgentsDirectory)
 	await ensureCommitAvailable(dependencies, baseCommit)
 	const baseCommitContext = await getBaseCommitContext(dependencies, baseCommit)
-	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model, profile, submit)
+	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model, maxTokens, profile, submit)
 }
 
-async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, profile: ProviderProfile): Promise<void> {
+async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const [diffText, baseCommit] = await Promise.all([
 		fetchPullRequestDiff(dependencies, githubConfiguration),
 		fetchPullRequestBaseCommit(dependencies, githubConfiguration),
@@ -98,11 +98,11 @@ async function submitPrReview(dependencies: OrchestratorDependencies, agentNames
 		}
 		return { kind: "fatal", message: `Failed to submit review: ${outcome.status} ${outcome.body}` }
 	}
-	await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseCommit, model, profile, submit)
+	await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseCommit, model, maxTokens, profile, submit)
 	dependencies.logger.log("PR review submitted successfully")
 }
 
-export async function runOnCommentTrigger(dependencies: OrchestratorDependencies, configuration: CommentTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, profile: ProviderProfile): Promise<void> {
+export async function runOnCommentTrigger(dependencies: OrchestratorDependencies, configuration: CommentTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const triggerResult = getAgentsFromComment(configuration.commentBody)
 
 	if (triggerResult === "no review triggered") {
@@ -118,11 +118,11 @@ export async function runOnCommentTrigger(dependencies: OrchestratorDependencies
 			title: COMMENT_REVIEW_CHECK_RUN_NAME,
 			summary: "Review is in progress.",
 		}),
-		() => submitPrReview(dependencies, triggerResult, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, profile),
+		() => submitPrReview(dependencies, triggerResult, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile),
 	)
 }
 
-export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, profile: ProviderProfile): Promise<void> {
+export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	await runWithCheckRun(
 		dependencies,
 		configuration.github,
@@ -134,17 +134,17 @@ export async function runOnPullRequest(dependencies: OrchestratorDependencies, c
 			}
 			return existingId
 		},
-		() => submitPrReview(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, profile),
+		() => submitPrReview(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile),
 	)
 }
 
-export async function runOnLocalDiff(dependencies: OrchestratorDependencies, configuration: LocalDiffConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, workspaceDirectory: string, profile: ProviderProfile): Promise<string> {
+export async function runOnLocalDiff(dependencies: OrchestratorDependencies, configuration: LocalDiffConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, workspaceDirectory: string, profile: ProviderProfile): Promise<string> {
 	await validateGitEnvironment(dependencies, configuration.baseCommit, configuration.headCommit, workspaceDirectory)
 
 	const diffText = await generateLocalDiff(dependencies, configuration.baseCommit, configuration.headCommit)
 
 	if (diffText.trim() === "") return "No files changed, nothing to review"
 
-	const aiResult = await runAnalysis(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, profile)
+	const aiResult = await runAnalysis(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, maxTokens, profile)
 	return formatReviewForConsole(aiResult)
 }
