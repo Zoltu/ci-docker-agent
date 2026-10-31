@@ -33,6 +33,8 @@ docker container run --rm -it --mount="type=bind,source=$(pwd),target=/workspace
 - `AI_MAX_TOKENS` - Maximum number of output tokens to request from the model per response (optional, defaults to `100000`; raise for large or complex repositories and long reasoning runs)
 - `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 
+For a one-off longer local run, add `--env="AI_MAX_TOKENS=250000"` to the `docker container run` command.
+
 ### Mode 2: GitHub PR Review
 
 Fetch a pull request from GitHub and submit a review with AI-generated feedback.
@@ -81,7 +83,6 @@ Add it to the `env:` block of the step that runs the agent:
 ```
 
 An unset variable arrives as an empty string, which the agent treats as unset, so the default of `100000` still applies.
-For a one-off longer local run, add `--env="AI_MAX_TOKENS=250000"` to the `docker container run` command.
 
 ### Trigger Commands (GitHub Mode)
 

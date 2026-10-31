@@ -99,15 +99,6 @@ describe("parseAiConfiguration", () => {
 		expect(result.maxTokens).toBe(100_000)
 	})
 
-	it("returns the default max tokens when AI_MAX_TOKENS is whitespace only", () => {
-		const result = parseAiConfiguration({
-			AI_API_URL: "https://api.openai.com/v1",
-			AI_MODEL: "gpt-4",
-			AI_MAX_TOKENS: "   ",
-		})
-		expect(result.maxTokens).toBe(100_000)
-	})
-
 	it("uses AI_MAX_TOKENS when provided", () => {
 		const result = parseAiConfiguration({
 			AI_API_URL: "https://api.openai.com/v1",
@@ -117,7 +108,7 @@ describe("parseAiConfiguration", () => {
 		expect(result.maxTokens).toBe(500)
 	})
 
-	it("parses AI_MAX_TOKENS after trimming surrounding whitespace", () => {
+	it("accepts whitespace around AI_MAX_TOKENS", () => {
 		const result = parseAiConfiguration({
 			AI_API_URL: "https://api.openai.com/v1",
 			AI_MODEL: "gpt-4",
@@ -126,28 +117,36 @@ describe("parseAiConfiguration", () => {
 		expect(result.maxTokens).toBe(500)
 	})
 
-	it("throws when AI_MAX_TOKENS is not a number", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "abc" })).toThrow("AI_MAX_TOKENS must be a whole number, got: abc")
+	it("throws when AI_MAX_TOKENS is not numeric", () => {
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "abc" })).toThrow("AI_MAX_TOKENS must be a valid number, got: abc")
 	})
 
-	it("throws when AI_MAX_TOKENS is not a whole number", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "12.5" })).toThrow("AI_MAX_TOKENS must be a whole number, got: 12.5")
+	it("throws when AI_MAX_TOKENS is whitespace only", () => {
+		const whitespaceOnly = "   "
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: whitespaceOnly })).toThrow(`AI_MAX_TOKENS must be a valid number, got: ${whitespaceOnly}`)
+	})
+
+	it("truncates AI_MAX_TOKENS at the decimal point", () => {
+		const result = parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "12.5" })
+		expect(result.maxTokens).toBe(12)
+	})
+
+	it("loses precision when AI_MAX_TOKENS exceeds the safe-integer range", () => {
+		const result = parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "9007199254740993" })
+		expect(result.maxTokens).toBe(9_007_199_254_740_992)
 	})
 
 	it("throws when AI_MAX_TOKENS is zero", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "0" })).toThrow("AI_MAX_TOKENS must be at least 1, got: 0")
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "0" })).toThrow("AI_MAX_TOKENS must be a positive integer, got: 0")
 	})
 
 	it("throws when AI_MAX_TOKENS is negative", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "-5" })).toThrow("AI_MAX_TOKENS must be at least 1, got: -5")
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "-5" })).toThrow("AI_MAX_TOKENS must be a positive integer, got: -5")
 	})
 
-	it("throws when AI_MAX_TOKENS overflows to a non-finite number", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "9".repeat(310) })).toThrow("AI_MAX_TOKENS must be a safe integer")
-	})
-
-	it("throws when AI_MAX_TOKENS exceeds the safe integer range", () => {
-		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: "9007199254740993" })).toThrow("AI_MAX_TOKENS must be a safe integer")
+	it("throws when AI_MAX_TOKENS overflows to Infinity", () => {
+		const overflowing = "9".repeat(310)
+		expect(() => parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: overflowing })).toThrow(`AI_MAX_TOKENS must be a positive integer, got: ${overflowing}`)
 	})
 
 	it("throws when AI_API_URL is missing", () => {
@@ -211,7 +210,7 @@ describe("analyze", () => {
 		expect(result.body).toBe("Result 2")
 	})
 
-	it("sends the configured max tokens in the agent and aggregator request bodies", async () => {
+	it("forwards the configured max tokens in the agent and aggregator request bodies", async () => {
 		const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({ body: "Looks good", comments: [] })])
 		const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
 		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
@@ -220,10 +219,8 @@ describe("analyze", () => {
 
 		const bodies = capturedBodies()
 		expect(bodies).toHaveLength(2)
-		const [agentBody, aggregatorBody] = bodies
-		if (agentBody === undefined || aggregatorBody === undefined) throw new Error(`Expected two captured request bodies, got ${bodies.length}`)
-		expect(JSON.parse(agentBody).max_tokens).toBe(250_000)
-		expect(JSON.parse(aggregatorBody).max_tokens).toBe(250_000)
+		expect(JSON.parse(bodies[0]!).max_tokens).toBe(250_000)
+		expect(JSON.parse(bodies[1]!).max_tokens).toBe(250_000)
 	})
 
 	it("writes prompts and streaming trace via debugWriter", async () => {

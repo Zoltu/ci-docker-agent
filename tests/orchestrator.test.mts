@@ -392,10 +392,8 @@ describe("runOnCommentTrigger", () => {
 		)
 
 		expect(capturedBodies).toHaveLength(2)
-		const [agentBody, aggregatorBody] = capturedBodies
-		if (agentBody === undefined || aggregatorBody === undefined) throw new Error(`Expected two captured request bodies, got ${capturedBodies.length}`)
-		expect(JSON.parse(agentBody).max_tokens).toBe(250_000)
-		expect(JSON.parse(aggregatorBody).max_tokens).toBe(250_000)
+		expect(JSON.parse(capturedBodies[0]!).max_tokens).toBe(250_000)
+		expect(JSON.parse(capturedBodies[1]!).max_tokens).toBe(250_000)
 		expect(submittedReviews()).toHaveLength(1)
 	})
 
@@ -564,10 +562,8 @@ describe("runOnPullRequest", () => {
 		)
 
 		expect(capturedBodies).toHaveLength(2)
-		const [agentBody, aggregatorBody] = capturedBodies
-		if (agentBody === undefined || aggregatorBody === undefined) throw new Error(`Expected two captured request bodies, got ${capturedBodies.length}`)
-		expect(JSON.parse(agentBody).max_tokens).toBe(250_000)
-		expect(JSON.parse(aggregatorBody).max_tokens).toBe(250_000)
+		expect(JSON.parse(capturedBodies[0]!).max_tokens).toBe(250_000)
+		expect(JSON.parse(capturedBodies[1]!).max_tokens).toBe(250_000)
 	})
 
 	it("finds the existing 'ci-agent' check run and updates it to success", async () => {
@@ -760,10 +756,8 @@ describe("runOnLocalDiff", () => {
 
 		expect(capturedBodies).toHaveLength(2)
 		expect(result).toContain("Looks good")
-		const [agentBody, aggregatorBody] = capturedBodies
-		if (agentBody === undefined || aggregatorBody === undefined) throw new Error(`Expected two captured request bodies, got ${capturedBodies.length}`)
-		expect(JSON.parse(agentBody).max_tokens).toBe(250_000)
-		expect(JSON.parse(aggregatorBody).max_tokens).toBe(250_000)
+		expect(JSON.parse(capturedBodies[0]!).max_tokens).toBe(250_000)
+		expect(JSON.parse(capturedBodies[1]!).max_tokens).toBe(250_000)
 	})
 
 	it("propagates error when validateGitRepository throws", async () => {

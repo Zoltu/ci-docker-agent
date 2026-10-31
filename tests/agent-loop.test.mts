@@ -677,7 +677,7 @@ describe("agentLoop", () => {
 					chunk({}, "length"),
 				]),
 			)
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 250_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: 250000). Increase the max tokens limit passed to the agent loop or reduce the prompt size.")
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 250_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: 250000). Reduce the prompt size or raise the output token limit.")
 		})
 
 		it("continues when no finish reason and no content, then gets tool calls", async () => {
@@ -1093,8 +1093,7 @@ describe("agentLoop", () => {
 				return createMockFetchResponse(buildSse([chunk({ content: "ok" }), chunk({}, "stop")]))
 			}
 			await collectLoop(agentLoop({ fetch: fetchWithSignal, sleep: instantSleep, random: fixedRandom }, "test-model", 250_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))
-			if (capturedBody === undefined) throw new Error("Expected a captured request body")
-			const parsed = JSON.parse(capturedBody)
+			const parsed = JSON.parse(capturedBody!)
 			expect(parsed.max_tokens).toBe(250_000)
 		})
 
