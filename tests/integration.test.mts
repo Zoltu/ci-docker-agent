@@ -31,4 +31,19 @@ describe("integration", () => {
 		const jobIdPattern = new RegExp(`^\\s*${EXISTING_CHECK_RUN_JOB_NAME}:\\s*$`, "m")
 		expect(workflow).toMatch(jobIdPattern)
 	})
+
+	it("workflow passes AI_MAX_TOKENS through to the agent", () => {
+		const workflow = readFileSync(join(PROJECT_ROOT, ".github", "workflows", "ci-agent.yml"), "utf-8")
+		// A bare substring check would still pass on a moved or mis-indented line, so bind the assertion to the Run CI Agent step's env: block and its exact indentation.
+		const stepStart = workflow.indexOf("      - name: Run CI Agent\n")
+		expect(stepStart).toBeGreaterThan(-1)
+		const nextStepStart = workflow.indexOf("\n      - name: ", stepStart)
+		const stepBlock = workflow.slice(stepStart, nextStepStart === -1 ? undefined : nextStepStart)
+		const envStart = stepBlock.indexOf("        env:\n")
+		expect(envStart).toBeGreaterThan(-1)
+		const envBlock = stepBlock.slice(envStart)
+		expect(envBlock).toContain("\n          AI_MAX_TOKENS: ${{ vars.AI_MAX_TOKENS }}\n")
+		const readme = readFileSync(join(PROJECT_ROOT, "README.md"), "utf-8")
+		expect(readme).toContain("\n          AI_MAX_TOKENS: ${{ vars.AI_MAX_TOKENS }}\n")
+	})
 })

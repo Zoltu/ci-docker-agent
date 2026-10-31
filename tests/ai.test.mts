@@ -263,6 +263,22 @@ describe("analyze", () => {
 		expect(JSON.parse(bodies[1]!).max_tokens).toBe(9_007_199_254_740_991)
 	})
 
+	it("sends the default max tokens in the request body when AI_MAX_TOKENS is unset or empty", async () => {
+		for (const raw of [undefined, ""]) {
+			const { maxTokens } = parseAiConfiguration({ AI_API_URL: "https://api.openai.com/v1", AI_MODEL: "gpt-4", AI_MAX_TOKENS: raw })
+			const { fetch, capturedBodies } = makeFetchWithAggregatorOutput([JSON.stringify({ body: "Looks good", comments: [] })])
+			const agents: Agent[] = [{ name: "TestAgent", prompt: "Test" }]
+			const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
+
+			await analyze({ fetch, spawnGit: noopSpawnGit, logger: createMockLogger(), debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", maxTokens, IDENTITY_PROFILE)
+
+			const bodies = capturedBodies()
+			expect(bodies).toHaveLength(2)
+			expect(JSON.parse(bodies[0]!).max_tokens).toBe(100_000)
+			expect(JSON.parse(bodies[1]!).max_tokens).toBe(100_000)
+		}
+	})
+
 	it("writes prompts and streaming trace via debugWriter", async () => {
 		const prompts: Array<{ agentName: string; prompt: string }> = []
 		const trace: Array<{ agentName: string; chunk: string }> = []

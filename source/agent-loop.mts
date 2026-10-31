@@ -177,7 +177,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; ran
 		yield { type: 'completion', finishReason: completionResult.finishReason, usage: completionResult.usage }
 
 		if (completionResult.finishReason === 'length') {
-			throw new Error(`AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: ${maxTokens}). Reduce the prompt size or raise the output token limit.`)
+			throw new Error(`AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: ${maxTokens}). Reduce the prompt size, or raise AI_MAX_TOKENS above that by setting the repository variable in CI (the shipped workflow forwards it; if your copy predates that, add it to the env: block of the Run CI Agent step) or by adding --env="AI_MAX_TOKENS=<above ${maxTokens}>" to the local docker container run command.`)
 		}
 
 		if (completionResult.finishReason === 'content_filter') {

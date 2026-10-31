@@ -677,7 +677,7 @@ describe("agentLoop", () => {
 					chunk({}, "length"),
 				]),
 			)
-			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 250_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: 250000). Reduce the prompt size or raise the output token limit.")
+			expect(collectLoop(agentLoop({ fetch, sleep: instantSleep, random: fixedRandom }, "test-model", 250_000, [{ role: "user", content: "hi" }], [], IDENTITY_PROFILE))).rejects.toThrow("AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: 250000). Reduce the prompt size, or raise AI_MAX_TOKENS above that by setting the repository variable in CI (the shipped workflow forwards it; if your copy predates that, add it to the env: block of the Run CI Agent step) or by adding --env=\"AI_MAX_TOKENS=<above 250000>\" to the local docker container run command.")
 		})
 
 		it("continues when no finish reason and no content, then gets tool calls", async () => {
