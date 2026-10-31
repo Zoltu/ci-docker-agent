@@ -684,6 +684,8 @@ describe("agentLoop", () => {
 			await expect(loop).rejects.not.toThrow("env: block")
 			await expect(loop).rejects.not.toThrow("docker container run")
 			await expect(loop).rejects.not.toThrow("--env")
+			await expect(loop).rejects.not.toThrow("repository variable")
+			await expect(loop).rejects.not.toThrow("README")
 		})
 
 		it("continues when no finish reason and no content, then gets tool calls", async () => {
