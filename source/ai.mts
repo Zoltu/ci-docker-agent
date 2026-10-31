@@ -31,6 +31,27 @@ export interface AiConfiguration {
 	apiKey?: string
 }
 
+const DEFAULT_MAX_TOKENS = 100_000
+
+const MAX_REFLECTED_VALUE_LENGTH = 32
+
+// Quote and bound the reflected value so an embedded newline or control character cannot forge log lines.
+function reflectEnvironmentValue(value: string): string {
+	return JSON.stringify(value.slice(0, MAX_REFLECTED_VALUE_LENGTH))
+}
+
+// parseInt accepts junk like "12.5" (12), "1e3" (1) and "100abc" (100), so require digits only before converting.
+function parseMaxTokens(raw: string | undefined): number {
+	// GitHub Actions forwards an unconfigured `vars` entry as an empty string, so empty means "not set".
+	if (!raw) return DEFAULT_MAX_TOKENS
+	const trimmed = raw.trim()
+	if (!/^\d+$/.test(trimmed)) throw new Error(`AI_MAX_TOKENS must be a decimal integer, got: ${reflectEnvironmentValue(raw)}`)
+	const maxTokens = Number(trimmed)
+	if (!Number.isSafeInteger(maxTokens)) throw new Error(`AI_MAX_TOKENS must be at most ${Number.MAX_SAFE_INTEGER}, got: ${reflectEnvironmentValue(raw)}`)
+	if (maxTokens < 1) throw new Error(`AI_MAX_TOKENS must be a positive integer, got: ${reflectEnvironmentValue(raw)}`)
+	return maxTokens
+}
+
 export function parseAiConfiguration(environment: Record<string, string | undefined>): AiConfiguration {
 	const apiUrl = environment.AI_API_URL
 	if (!apiUrl) throw new Error("AI_API_URL is required")
@@ -42,11 +63,7 @@ export function parseAiConfiguration(environment: Record<string, string | undefi
 	const model = environment.AI_MODEL
 	if (!model) throw new Error("AI_MODEL is required")
 
-	// GitHub Actions forwards an unconfigured `vars` entry as an empty string, so empty means "not set".
-	const maxTokensString = environment.AI_MAX_TOKENS
-	const maxTokens = !maxTokensString ? 100_000 : Number.parseInt(maxTokensString, 10)
-	if (Number.isNaN(maxTokens)) throw new Error(`AI_MAX_TOKENS must be a valid number, got: ${maxTokensString}`)
-	if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error(`AI_MAX_TOKENS must be a positive integer, got: ${maxTokensString}`)
+	const maxTokens = parseMaxTokens(environment.AI_MAX_TOKENS)
 
 	const apiKey = environment.AI_API_KEY
 	return { apiUrl, model, maxTokens, apiKey }
