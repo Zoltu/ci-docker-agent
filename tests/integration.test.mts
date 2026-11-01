@@ -6,6 +6,20 @@ import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, getWorkspaceDirectory } from
 
 const PROJECT_ROOT = join(import.meta.dir, "..")
 
+// COMMENT_BODY arrives from the triggering comment event through the workflow's env: block, so it is never set by whoever runs the container and README does not present it as configuration.
+const WORKFLOW_INJECTED_ENVIRONMENT_VARIABLES: ReadonlySet<string> = new Set(["COMMENT_BODY"])
+
+function readConfigurationEnvironmentVariableNames(): ReadonlySet<string> {
+	const configurationSource = readFileSync(join(PROJECT_ROOT, "source", "configuration.mts"), "utf-8")
+	const names = new Set<string>()
+	for (const reference of configurationSource.matchAll(/environment\.([A-Z][A-Z0-9_]*)/g)) {
+		const name = reference[1]
+		if (name === undefined) continue
+		names.add(name)
+	}
+	return names
+}
+
 // Intentional divergence from AGENTS.md: integration tests are discouraged because they are slow and exercise glue that should be kept thin.
 // These tests are the only place we tolerate that cost, and they are intentionally kept minimalistic.
 describe("integration", () => {
@@ -32,6 +46,14 @@ describe("integration", () => {
 		expect(workflow).toMatch(jobIdPattern)
 	})
 
+	it("documents every environment variable source/configuration.mts reads", () => {
+		const readme = readFileSync(join(PROJECT_ROOT, "README.md"), "utf-8")
+		const undocumented = [...readConfigurationEnvironmentVariableNames()]
+			.filter(name => !WORKFLOW_INJECTED_ENVIRONMENT_VARIABLES.has(name))
+			.filter(name => !readme.includes(`- \`${name}\` - `))
+		expect(undocumented).toEqual([])
+	})
+
 	it("workflow passes AI_MAX_TOKENS through to the agent", () => {
 		const workflow = readFileSync(join(PROJECT_ROOT, ".github", "workflows", "ci-agent.yml"), "utf-8")
 		// A bare substring check would still pass on a moved or mis-indented line, so bind the assertion to the Run CI Agent step's env: block and its exact indentation.
@@ -43,7 +65,5 @@ describe("integration", () => {
 		expect(envStart).toBeGreaterThan(-1)
 		const envBlock = stepBlock.slice(envStart)
 		expect(envBlock).toContain("\n          AI_MAX_TOKENS: ${{ vars.AI_MAX_TOKENS }}\n")
-		const readme = readFileSync(join(PROJECT_ROOT, "README.md"), "utf-8")
-		expect(readme).toContain("\n          AI_MAX_TOKENS: ${{ vars.AI_MAX_TOKENS }}\n")
 	})
 })

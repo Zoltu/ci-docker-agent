@@ -33,8 +33,6 @@ docker container run --rm -it --mount="type=bind,source=$(pwd),target=/workspace
 - `AI_MAX_TOKENS` - Maximum number of output tokens to request from the model per response as a plain positive integer with no commas or units, e.g. `250000` rather than `250,000` or `250k` (optional, defaults to `100000`; raise for large or complex repositories and long reasoning runs)
 - `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 
-For a one-off longer local run, add `--env="AI_MAX_TOKENS=250000"` to the `docker container run` command.
-
 ### Mode 2: GitHub PR Review
 
 Fetch a pull request from GitHub and submit a review with AI-generated feedback.
@@ -58,8 +56,7 @@ docker container run --rm -it --env="GITHUB_TOKEN=$GITHUB_TOKEN" --env="PR_NUMBE
 - `AI_API_KEY` - API key for authentication (optional, omit for local models that don't require auth)
 - `AI_MAX_TOKENS` - Maximum number of output tokens to request from the model per response as a plain positive integer with no commas or units, e.g. `250000` rather than `250,000` or `250k` (optional, defaults to `100000`; raise for large or complex repositories and long reasoning runs)
 - `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
-
-For a one-off longer run, add `--env="AI_MAX_TOKENS=250000"` to the `docker container run` command.
+- `GITHUB_API_URL` - Custom GitHub API URL (optional, defaults to `https://api.github.com`)
 
 ### Mode 3: GitHub Action
 
@@ -72,23 +69,6 @@ Setup a GitHub repository/organization secret for `AI_API_KEY`.
 Setup a GitHub repository/organization variable for `AI_API_URL`, `AI_MODEL`, and optionally `AI_MAX_TOKENS`.
 
 Everything else should "just work".
-
-#### Output Token Limit
-
-`AI_MAX_TOKENS` can be set as a GitHub repository/organization variable, like `AI_API_URL` and `AI_MODEL`, under Settings → Secrets and variables → Actions → Variables.
-Set it as a plain positive integer: digits only, no commas or units, e.g. `250000` rather than `250,000` or `250k`.
-The shipped `Run CI Agent` step already forwards it into the container, so setting the variable is all CI needs.
-Readers whose copy does not already forward it add the line themselves, at the end of the existing `env:` block, indented to match the entries already there; keep the entries already in that block, because they carry `GITHUB_TOKEN`, `REPO`, and the other required values:
-
-```yaml
-          AI_MAX_TOKENS: ${{ vars.AI_MAX_TOKENS }}
-```
-
-To give a single workflow its own value, put the number literally in that workflow's `env:` block, e.g. `AI_MAX_TOKENS: 250000`, instead of using the `vars.` expression.
-
-An unset variable arrives as an empty string, which the agent treats as unset, so the default of `100000` still applies.
-If a response is truncated, the error message names the `max_tokens` value actually in force, so an outdated number there means the setting did not reach the container or the running image predates support for `AI_MAX_TOKENS`.
-In the second case, re-pull or update the image to a build that includes that support, or follow [Building](#building) to build your own image, publish it to a registry your workflow can pull from, and point your workflow's `container.image` at it.
 
 ### Trigger Commands (GitHub Mode)
 
@@ -175,6 +155,5 @@ See `.github/workflows/ci-agent.yml` for the workflow configuration.
 
 The workflow triggers on:
 - `pull_request_target` events
-- `issue_comment` events (when trigger commands are detected)
-- `workflow_dispatch`
-
+- `issue_comment` events (when trigger commands are detected in comments)
+- `workflow_dispatch` event (manual trigger of the workflow)
