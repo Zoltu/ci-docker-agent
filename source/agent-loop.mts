@@ -21,18 +21,15 @@ export interface AgentLoopDeltaEvent {
 	readonly type: 'delta'
 	readonly delta: CompletionDelta
 }
-
 export interface AgentLoopCompletionEvent {
 	readonly type: 'completion'
 	readonly finishReason?: string
 	readonly usage?: CompletionUsage
 }
-
 export interface AgentLoopToolCallEvent {
 	readonly type: 'tool_call'
 	readonly toolCall: CompletionsToolCall
 }
-
 export interface AgentLoopToolResultEvent {
 	readonly type: 'tool_result'
 	readonly toolCallId: string
@@ -94,7 +91,7 @@ function toWireTools(tools: readonly Tool[]): CompletionsRequest['tools'] {
 	})
 }
 
-export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; random: Random },  model: string, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, outputValidator?: OutputValidator, idleTimeoutMilliseconds: number = 240_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
+export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; random: Random }, model: string, maxTokens: number, messages: readonly CompletionsMessage[], tools: readonly Tool[], profile: ProviderProfile, signal?: AbortSignal, outputValidator?: OutputValidator, idleTimeoutMilliseconds: number = 240_000): AsyncGenerator<AgentLoopEvent, AgentLoopResult> {
 	// Must stay below Bun's socket idle timeout (hard-coded 300s on 1.3.12; tunable via BUN_CONFIG_HTTP_IDLE_TIMEOUT in a future Bun) so this non-throwing retry fires first on a stalled stream.
 	const toolMap = new Map(tools.map(tool => [tool.name, tool]))
 	const wireTools = toWireTools(tools)
@@ -119,7 +116,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; ran
 		const baseRequest: CompletionsRequest = {
 			model: model,
 			messages: mutableMessages,
-			max_tokens: 100_000,
+			max_tokens: maxTokens,
 			...(wireTools && { tools: wireTools }),
 		}
 
@@ -177,7 +174,7 @@ export async function* agentLoop(dependencies: { fetch: Fetch; sleep: Sleep; ran
 		yield { type: 'completion', finishReason: completionResult.finishReason, usage: completionResult.usage }
 
 		if (completionResult.finishReason === 'length') {
-			throw new Error('AI response truncated: model reached maximum output token limit (finishReason: length). Consider increasing max_tokens or reducing prompt size.')
+			throw new Error(`AI response truncated: model reached maximum output token limit (finishReason: length, max_tokens: ${maxTokens}). Reduce the prompt size, or raise the configured output token limit.`)
 		}
 
 		if (completionResult.finishReason === 'content_filter') {

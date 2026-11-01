@@ -35,6 +35,12 @@ describe("Together.ai profile prepareRequest", () => {
 		expect(result).toEqual(BASE_REQUEST)
 	})
 
+	it("preserves max_tokens", () => {
+		const request: CompletionsRequest = { ...BASE_REQUEST, max_tokens: 250_000 }
+		const result = TOGETHER_AI_PROFILE.prepareRequest(request)
+		expect(result.max_tokens).toBe(250_000)
+	})
+
 	it("moves reasoning to reasoning_content on assistant messages", () => {
 		const request: CompletionsRequest = {
 			model: "test",

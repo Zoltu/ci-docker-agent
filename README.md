@@ -30,6 +30,7 @@ docker container run --rm -it --mount="type=bind,source=$(pwd),target=/workspace
 - `AI_API_URL` - Base URL of the OpenAI-compatible API (required, e.g. `https://api.openai.com/v1`)
 - `AI_MODEL` - Model name to use (required, e.g. `gpt-4`)
 - `AI_API_KEY` - API key for authentication (optional, omit for local models that don't require auth)
+- `AI_MAX_TOKENS` - Maximum number of output tokens to request from the model per response as a plain positive integer with no commas or units, e.g. `250000` rather than `250,000` or `250k` (optional, defaults to `100000`; raise for large or complex repositories and long reasoning runs)
 - `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 
 ### Mode 2: GitHub PR Review
@@ -53,6 +54,7 @@ docker container run --rm -it --env="GITHUB_TOKEN=$GITHUB_TOKEN" --env="PR_NUMBE
 - `AI_API_URL` - Base URL of the OpenAI-compatible API (required, e.g. `https://api.openai.com/v1`)
 - `AI_MODEL` - Model name to use (required, e.g. `gpt-4`)
 - `AI_API_KEY` - API key for authentication (optional, omit for local models that don't require auth)
+- `AI_MAX_TOKENS` - Maximum number of output tokens to request from the model per response as a plain positive integer with no commas or units, e.g. `250000` rather than `250,000` or `250k` (optional, defaults to `100000`; raise for large or complex repositories and long reasoning runs)
 - `AGENTS` - Comma-separated list of agent names to run (optional, defaults to all user agents or `Default`)
 - `GITHUB_API_URL` - Custom GitHub API URL (optional, defaults to `https://api.github.com`)
 
@@ -64,7 +66,7 @@ See [./.github/workflows/ci-agent.yml](./.github/workflows/ci-agent.yml) for an 
 
 Setup a GitHub repository/organization secret for `AI_API_KEY`.
 
-Setup a GitHub repository/organization variable for `AI_API_URL` and `AI_MODEL`.
+Setup a GitHub repository/organization variable for `AI_API_URL`, `AI_MODEL`, and optionally `AI_MAX_TOKENS`.
 
 Everything else should "just work".
 
@@ -109,7 +111,7 @@ The `Aggregator` agent is responsible for consolidating feedback from all other 
 
 You can override the default aggregator by providing your own `Aggregator.md` file (case-insensitive) in `/workspace/.ci-agents/`.
 If you choose to override the `Aggregator` agent, you must ensure that your agent always returns valid JSON for GitHub reviews.
-See [./agents/Aggregator.md](./agents/Aggregator.md) for an example of one way to achieve this.
+See [./agents/Aggregator.md](./agents/Aggregator.md) for an example of one way to achieve that.
 
 ### Specifying Agents
 
@@ -153,5 +155,5 @@ See `.github/workflows/ci-agent.yml` for the workflow configuration.
 
 The workflow triggers on:
 - `pull_request_target` events
-- `issue_comment` events (when trigger commands are detected)
-- Manual `workflow_dispatch`
+- `issue_comment` events (when trigger commands are detected in comments)
+- `workflow_dispatch` event (manual trigger of the workflow)
