@@ -34,7 +34,7 @@ COPY tests/ /ci-agent/tests/
 COPY Dockerfile /ci-agent/Dockerfile
 # copy the workflow file because we have test that ensures it stays in-sync with code
 COPY .github/workflows/ci-agent.yml /ci-agent/.github/workflows/ci-agent.yml
-# copy the readme because we have test that ensures it documents the workflow's environment variables
+# copy the readme because we have a test that ensures it documents the environment variables source/configuration.mts reads
 COPY README.md /ci-agent/README.md
 
 # Seed a git history so diff tests have commits to work with
