@@ -18,10 +18,14 @@ const TYPESCRIPT_COMMENT_LINE = /^\s*\/\//
 const WORKFLOW_REF_DECLARATION = /(?:^|[{,])\s*(?:"|')?ref(?:"|')?\s*:/m
 const WORKFLOW_PERMISSION_ENTRY = /^ {2}([a-z-]+):\s*(\S+)\s*$/
 const WORKFLOW_JOB_DECLARATION = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/
+const WORKFLOW_TRIGGER_EVENT_KEY = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/
 const WORKFLOW_JOB_PERMISSIONS_KEY = /^ {4}permissions:/
+const WORKFLOW_JOB_GATE_KEY = /^ {4}if:/
 const CHECKOUT_ACTION_PREFIX = "actions/checkout@"
 const STEP_USES_LINE = /^ {8,}uses:\s*(.+)$/
 const STEP_USES_TRAILING_COMMENT = /\s+#.*$/
+// The workflow may start from these pull request events and nothing else: `opened` reviews a new pull request automatically and `labeled` starts a label-triggered run.
+const WORKFLOW_PULL_REQUEST_TARGET_TYPES: ReadonlyArray<string> = ["opened", "labeled"]
 // A block scalar header is `|` or `>` followed by an optional chomping indicator and an optional indentation indicator in either order, so `|-`, `|+`, `|2`, `>-2` all open one.
 const BLOCK_SCALAR_INDICATOR = /^[|>][+-]?[1-9]?[+-]?$/
 // GitHub resolves these only for a pull request, so a step that names one runs against the pull request's own head instead of the checkout the workflow made.
@@ -336,6 +340,17 @@ function readWorkflowJobs(): ReadonlyArray<WorkflowJob> {
 	return jobs
 }
 
+// A comment can name an event without using it, so comment lines are dropped before the job's condition is read.
+function readWorkflowJobGateExpression(jobName: string): string {
+	const matchingJobs = readWorkflowJobs().filter(job => job.name === jobName)
+	const job = matchingJobs[0]
+	if (matchingJobs.length !== 1 || job === undefined) throw new Error(`ci-agent.yml declares ${matchingJobs.length} ${jobName} jobs, so this test cannot tell which job's if: condition gates a run`)
+	const gateLines = dropWorkflowCommentLines(job.lines.join("\n")).split("\n").filter(line => WORKFLOW_JOB_GATE_KEY.test(line))
+	const gateLine = gateLines[0]
+	if (gateLines.length !== 1 || gateLine === undefined) throw new Error(`ci-agent.yml ${jobName} job has ${gateLines.length} if: lines, so this test cannot tell which condition gates a run`)
+	return unquoteScalarValue(gateLine.slice("    if:".length).trim())
+}
+
 // Comment lines are dropped because a comment can name a trigger or a permission without granting it, and only the entries themselves decide what starts a run.
 function readWorkflowOnBlockEntries(): string {
 	const workflow = readWorkflow()
@@ -343,6 +358,16 @@ function readWorkflowOnBlockEntries(): string {
 	if (onStart === -1) throw new Error("ci-agent.yml has no on: block, so no event would start a run")
 	const onEnd = workflow.indexOf("\npermissions:", onStart)
 	return dropWorkflowCommentLines(workflow.slice(onStart, onEnd === -1 ? undefined : onEnd))
+}
+
+// Each trigger is one key at the on: block's own indentation, so the whole set is read here and compared exactly; looking for one known event instead would let an added trigger through.
+function readWorkflowTriggerEventNames(): ReadonlyArray<string> {
+	const eventNames: Array<string> = []
+	for (const line of readWorkflowOnBlockEntries().split("\n")) {
+		const eventName = WORKFLOW_TRIGGER_EVENT_KEY.exec(line)?.[1]
+		if (eventName !== undefined) eventNames.push(eventName)
+	}
+	return eventNames
 }
 
 // Intentional divergence from AGENTS.md: integration tests are discouraged because they are slow and exercise glue that should be kept thin.
@@ -465,10 +490,13 @@ describe("integration", () => {
 	})
 
 	it("binds the workflow job gate to the review start label constant", () => {
-		const workflow = readWorkflow()
-		const gateLine = workflow.split("\n").find(line => line.includes("github.event.label.name =="))
-		if (gateLine === undefined) throw new Error("ci-agent.yml has no job gate comparing github.event.label.name, so a labeled run would start for any applied label")
-		expect(gateLine).toContain(`github.event.label.name == '${REVIEW_START_LABEL}'`)
+		// The gate has three branches, and a gate that kept only the label comparison would skip every opened and manual run while a substring check still passed, so each branch is asserted against the workflow.
+		const gateExpression = readWorkflowJobGateExpression("ci-agent")
+		expect(gateExpression).toContain("github.event_name != 'pull_request_target'")
+		expect(gateExpression).toContain("github.event.action != 'labeled'")
+		expect(gateExpression).toContain(`github.event.label.name == '${REVIEW_START_LABEL}'`)
+		// The branches are also compared as one expression, because joining either pair with `&&` keeps every clause above while it stops opened and manual runs from reaching the agent.
+		expect(gateExpression).toBe(`github.event_name != 'pull_request_target' || github.event.action != 'labeled' || github.event.label.name == '${REVIEW_START_LABEL}'`)
 	})
 
 	it("keeps the pull-request events that start a run in the workflow triggers", () => {
@@ -480,9 +508,11 @@ describe("integration", () => {
 	})
 
 	it("limits the workflow triggers to the pull request and manual events", () => {
-		// An event outside the pull request and manual triggers would start a run from something other than a pull request, so no other event belongs in the on: block.
-		const issueCommentEventLines = readWorkflowOnBlockEntries().split("\n").filter(line => line.includes("issue_comment"))
-		expect(issueCommentEventLines).toEqual([])
+		// An allowlist rather than a denylist: a trigger outside these two starts a run from something other than a pull request or a manual dispatch, so an added `schedule` or `push` fails here as surely as a removed one.
+		expect(readWorkflowTriggerEventNames()).toEqual(["pull_request_target", "workflow_dispatch"])
+		// The pull request event types are compared exactly too, so an event added to or dropped from that trigger fails here.
+		const triggerTypesLines = readWorkflowOnBlockEntries().split("\n").filter(line => line.includes("types:")).map(line => line.trim())
+		expect(triggerTypesLines).toEqual([`types: [${WORKFLOW_PULL_REQUEST_TARGET_TYPES.join(", ")}]`])
 	})
 
 	it("grants the workflow exactly the permissions its GitHub calls need and no other scope", () => {

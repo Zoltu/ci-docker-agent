@@ -10,7 +10,7 @@ import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from
 import type { GitHubConfiguration } from "./github-types.mts"
 import type { GitHubFetch } from "./github.mts"
 import { fetchPullRequestDiff, fetchPullRequestMetadata, removePullRequestLabel, submitReview } from "./github.mts"
-import { findIgnoredSelectorLabels, formatIgnoredSelectorNotice, selectAgentNamesFromLabels } from "./labels.mts"
+import { selectAgentNamesFromLabels } from "./labels.mts"
 import type { Logger } from "./logger.mts"
 import type { ProviderProfile } from "./provider-profiles.mts"
 import type { AiReviewResult } from "./review.mts"
@@ -75,9 +75,6 @@ export async function runOnLabelTrigger(dependencies: OrchestratorDependencies, 
 	const userAgents = await dependencies.readAgents(userAgentsDirectory)
 	const builtinAgents = await dependencies.readAgents(builtinAgentsDirectory)
 	const agentNames = selectAgentNamesFromLabels(metadata.labelNames, selectableAgentNames(userAgents, builtinAgents))
-	// The notice depends on the resolved selection: only a run with no valid selector reviews with every reviewer.
-	const ignoredSelectorNotice = formatIgnoredSelectorNotice(findIgnoredSelectorLabels(metadata.labelNames), agentNames)
-	if (ignoredSelectorNotice !== undefined) dependencies.logger.log(ignoredSelectorNotice)
 	await submitPrReview(dependencies, agentNames, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 

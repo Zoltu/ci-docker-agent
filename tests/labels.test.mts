@@ -1,11 +1,16 @@
 import { describe, it, expect } from "bun:test"
-import { findIgnoredSelectorLabels, formatIgnoredSelectorNotice, REVIEW_START_LABEL, REVIEWER_LABEL_PREFIX, selectAgentNamesFromLabels } from "../source/labels.mts"
+import { REVIEW_START_LABEL, REVIEWER_LABEL_PREFIX, selectAgentNamesFromLabels } from "../source/labels.mts"
 
 const availableAgentNames = ["Architect", "Bug Hunter", "Defender", "Security", "Default"]
 
 // A well-formed selector label is spelled from the constants, so the input names and the expected messages cannot drift apart.
 function selectorLabel(agentName: string): string {
 	return `${REVIEWER_LABEL_PREFIX}${agentName}`
+}
+
+// The near-miss failure is asserted in full, so a message that dropped the required spelling or the offending label fails the test.
+function nearMissSelectorMessage(labelName: string): string {
+	return `Invalid selector label "${labelName}": a selector label must be spelled "${REVIEWER_LABEL_PREFIX}<Name>", with a capital "R", a spaced hyphen, and <Name> matching an agent prompt file name exactly and case-sensitively. Remove the label or correct its spelling.`
 }
 
 describe("selectAgentNamesFromLabels", () => {
@@ -17,19 +22,60 @@ describe("selectAgentNamesFromLabels", () => {
 		it("ignores the trigger label", () => {
 			expect(selectAgentNamesFromLabels([REVIEW_START_LABEL], availableAgentNames)).toBe("run all agents")
 		})
+
+		it("ignores a label that does not look like a selector", () => {
+			expect(selectAgentNamesFromLabels([REVIEW_START_LABEL, "bug", "documentation"], availableAgentNames)).toBe("run all agents")
+		})
+
+		it("ignores a label whose shortened selector word is not followed by a hyphen", () => {
+			expect(selectAgentNamesFromLabels([REVIEW_START_LABEL, "review pending", "needs-review"], availableAgentNames)).toBe("run all agents")
+		})
 	})
 
-	describe("near-miss prefixes", () => {
-		it("ignores a prefix that differs only in capitalization", () => {
-			expect(selectAgentNamesFromLabels(["reviewer - Security"], availableAgentNames)).toBe("run all agents")
+	describe("near-miss spellings", () => {
+		it("fails when the prefix differs only in capitalization", () => {
+			expect(() => selectAgentNamesFromLabels(["reviewer - Security"], availableAgentNames)).toThrow(nearMissSelectorMessage("reviewer - Security"))
 		})
 
-		it("ignores a pluralized prefix", () => {
-			expect(selectAgentNamesFromLabels(["Reviewers - Security"], availableAgentNames)).toBe("run all agents")
+		it("fails on a pluralized prefix", () => {
+			expect(() => selectAgentNamesFromLabels(["Reviewers - Security"], availableAgentNames)).toThrow(nearMissSelectorMessage("Reviewers - Security"))
 		})
 
-		it("ignores a prefix without the space before the dash", () => {
-			expect(selectAgentNamesFromLabels(["Reviewer- Security"], availableAgentNames)).toBe("run all agents")
+		it("fails when the space before the hyphen is missing", () => {
+			expect(() => selectAgentNamesFromLabels(["Reviewer- Security"], availableAgentNames)).toThrow(nearMissSelectorMessage("Reviewer- Security"))
+		})
+
+		it("fails when the space after the hyphen is missing", () => {
+			expect(() => selectAgentNamesFromLabels(["Reviewer -Security"], availableAgentNames)).toThrow(nearMissSelectorMessage("Reviewer -Security"))
+		})
+
+		it("fails on a shortened selector word", () => {
+			expect(() => selectAgentNamesFromLabels(["Review - Security"], availableAgentNames)).toThrow(nearMissSelectorMessage("Review - Security"))
+		})
+
+		it("fails on a label that only begins with the selector word", () => {
+			expect(() => selectAgentNamesFromLabels(["reviewer-pending"], availableAgentNames)).toThrow(nearMissSelectorMessage("reviewer-pending"))
+		})
+
+		it("fails on a label that begins with the shortened selector word and a hyphen", () => {
+			expect(() => selectAgentNamesFromLabels(["review-needed"], availableAgentNames)).toThrow(nearMissSelectorMessage("review-needed"))
+		})
+
+		it("fails instead of selecting every agent", () => {
+			// The failure mode this guards against is a run that reviews with every agent because the near-miss label selected nothing.
+			expect(() => selectAgentNamesFromLabels([REVIEW_START_LABEL, "reviewer - Security"], availableAgentNames)).toThrow()
+		})
+
+		it("fails even when a valid selector is also present", () => {
+			expect(() => selectAgentNamesFromLabels([selectorLabel("Security"), "Reviewers - Style"], availableAgentNames)).toThrow(nearMissSelectorMessage("Reviewers - Style"))
+		})
+
+		it("fails on a selector label with no agent name at all", () => {
+			expect(() => selectAgentNamesFromLabels(["Reviewer -"], availableAgentNames)).toThrow(nearMissSelectorMessage("Reviewer -"))
+		})
+
+		it("escapes control characters in a rejected near-miss label name", () => {
+			expect(() => selectAgentNamesFromLabels(["Reviewers - Evil\nFORGED\u2028NEXT"], availableAgentNames)).toThrow(`Invalid selector label "Reviewers - Evil\\u000aFORGED\\u2028NEXT": a selector label must be spelled "${REVIEWER_LABEL_PREFIX}<Name>"`)
 		})
 	})
 
@@ -87,62 +133,5 @@ describe("selectAgentNamesFromLabels", () => {
 		it("throws when the selector has extra whitespace after the prefix", () => {
 			expect(() => selectAgentNamesFromLabels([selectorLabel(" Bug Hunter")], availableAgentNames)).toThrow("names no available agent")
 		})
-	})
-})
-
-describe("findIgnoredSelectorLabels", () => {
-	it("returns nothing when every label is the trigger label or a valid selector", () => {
-		expect(findIgnoredSelectorLabels([REVIEW_START_LABEL, selectorLabel("Security")])).toEqual([])
-	})
-
-	it("returns the selector-like labels that selected nothing", () => {
-		expect(findIgnoredSelectorLabels([REVIEW_START_LABEL, "Reviewers - Security", "reviewer - Architect"])).toEqual(["Reviewers - Security", "reviewer - Architect"])
-	})
-
-	it("returns an unrelated label that merely starts with the selector-like word", () => {
-		// The matcher stays deliberately loose: a false positive on an unrelated label costs one advisory log line, while a missed selector-like label hides why the run ignored it.
-		expect(findIgnoredSelectorLabels(["reviewer-needed"])).toEqual(["reviewer-needed"])
-	})
-
-	it("returns nothing when no label looks like a selector", () => {
-		expect(findIgnoredSelectorLabels([REVIEW_START_LABEL, "bug", "documentation"])).toEqual([])
-	})
-})
-
-describe("formatIgnoredSelectorNotice", () => {
-	it("returns nothing when no selector-like label was ignored", () => {
-		expect(formatIgnoredSelectorNotice([], "run all agents")).toBeUndefined()
-	})
-
-	it("returns nothing when the only selector label is a valid one", () => {
-		const labelNames = [REVIEW_START_LABEL, selectorLabel("Security")]
-		const selection = selectAgentNamesFromLabels(labelNames, availableAgentNames)
-
-		expect(formatIgnoredSelectorNotice(findIgnoredSelectorLabels(labelNames), selection)).toBeUndefined()
-	})
-
-	it("states that every reviewer runs when no valid selector selected an agent", () => {
-		expect(formatIgnoredSelectorNotice(["Reviewers - Security"], "run all agents")).toBe(`Ignoring "Reviewers - Security": a selector label must start with "${REVIEWER_LABEL_PREFIX}", so it selects nothing, and every reviewer runs.`)
-	})
-
-	it("does not state that every reviewer runs when a valid selector is present", () => {
-		const notice = formatIgnoredSelectorNotice(["Reviewers - Style"], ["Security"])
-		if (notice === undefined) throw new Error("Expected an ignored-selector notice for the ignored label")
-
-		expect(notice).toBe(`Ignoring "Reviewers - Style": a selector label must start with "${REVIEWER_LABEL_PREFIX}", so it selects nothing, and the run uses only the agents named by valid selector labels.`)
-		expect(notice).not.toContain("every reviewer runs")
-	})
-
-	it("pluralizes the selection sentence for several ignored labels", () => {
-		expect(formatIgnoredSelectorNotice(["Reviewers - Security", "reviewer - Architect"], "run all agents")).toBe(`Ignoring "Reviewers - Security", "reviewer - Architect": a selector label must start with "${REVIEWER_LABEL_PREFIX}", so they select nothing, and every reviewer runs.`)
-	})
-
-	it("escapes control characters and line separators in an ignored label name", () => {
-		const notice = formatIgnoredSelectorNotice(["Reviewers - Evil\nFORGED\u2028NEXT"], "run all agents")
-		if (notice === undefined) throw new Error("Expected an ignored-selector notice for the ignored label")
-
-		expect(notice).toContain(`Ignoring "Reviewers - Evil\\u000aFORGED\\u2028NEXT"`)
-		expect(notice).not.toContain("\n")
-		expect(notice).not.toContain("\u2028")
 	})
 })

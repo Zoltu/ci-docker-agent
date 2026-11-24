@@ -28,6 +28,7 @@ permissions:
 jobs:
   ci-agent:
     # GitHub compares the label name with `==` case-insensitively, so a label that differs from `Review Start` only in case starts a labeled run and is then rejected by the container; opened and workflow_dispatch runs are unaffected.
+    # GitHub is expected to emit no labeled event for a pull request opened with the label already applied, so only that pull request's opened run reviews it and the label stays on the pull request until it is removed by hand.
     if: github.event_name != 'pull_request_target' || github.event.action != 'labeled' || github.event.label.name == 'Review Start'
     runs-on: ubuntu-latest
     container:

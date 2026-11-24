@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { runOnLabelTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
 import { AGGREGATOR_AGENT_NAME, type Agent, type AgentReader } from "../source/agents.mts"
-import { REVIEW_START_LABEL, REVIEWER_LABEL_PREFIX } from "../source/labels.mts"
+import { REVIEW_START_LABEL } from "../source/labels.mts"
 import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { Fetch, Random, Sleep } from "../source/agent-loop.mts"
@@ -9,7 +9,6 @@ import type { GitHubFetch } from "../source/github.mts"
 import { BASE_COMMIT_SHA, makeAgent, makeLabelTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration, createMockLogger, createMockAgentFetch, buildContentSse } from "./helpers.mts"
 import type { DebugWriter } from "../source/debug.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
-import type { Logger } from "../source/logger.mts"
 
 const silentLogger = createMockLogger()
 const noopDebugWriter: DebugWriter = { writePrompt: async () => {}, writeTrace: async () => {} }
@@ -129,38 +128,6 @@ function deletedLabelNames(urls: readonly string[]): string[] {
 	})
 }
 
-// Label-triggered runs with a logger that records each line, so a notice can be asserted exactly instead of by substring.
-async function runLabelTriggerCapturingMessages(labelNames: readonly string[], userAgents: Agent[]): Promise<string[]> {
-	const messages: string[] = []
-	const logger: Logger = {
-		log: (...data) => {
-			messages.push(data.map(value => String(value)).join(" "))
-		},
-	}
-	const { githubFetch } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames })
-
-	await runOnLabelTrigger(
-		{
-			spawnGit: makeSpawnGitOk(),
-			readAgents: makeReadAgents(userAgents),
-			githubFetch,
-			fetch: makeFetch("Good work"),
-			logger,
-			debugWriter: noopDebugWriter,
-			sleep: instantSleep,
-			random: fixedRandom,
-		},
-		makeLabelTriggerConfiguration(),
-		userAgentsDirectory,
-		builtinAgentsDirectory,
-		"test-model",
-		100_000,
-		IDENTITY_PROFILE,
-	)
-
-	return messages
-}
-
 describe("runOnPullRequest", () => {
 	it("returns early when no files changed", async () => {
 		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: "" })
@@ -239,6 +206,43 @@ describe("runOnPullRequest", () => {
 		// Pull-request mode needs only pull-requests: write, so a label removal through the issues endpoint would be a permission it does not ask for.
 		expect(deletedLabelUrls()).toEqual([])
 		expect(submitCallCount()).toBe(1)
+	})
+
+	it("runs every agent and removes no label when an automatic run carries selector labels", async () => {
+		const capturedBodies: string[] = []
+		const userAgents: Agent[] = [
+			{ name: "Bug Hunter", prompt: "Bug hunter prompt." },
+			{ name: "Security", prompt: "Security prompt." },
+			{ name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." },
+		]
+		// An opened run carries no trigger label, so a stale `Reviewer - All` or `Reviewer - Aggregator` label must not be read and no label may be removed.
+		const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - All", "Reviewer - Aggregator", "Reviewer - Bug Hunter"] })
+
+		await runOnPullRequest(
+			{
+				spawnGit: makeSpawnGitOk(),
+				readAgents: makeReadAgents(userAgents),
+				githubFetch,
+				fetch: makeFetch("Great work", capturedBodies),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makePullRequestConfiguration(),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			100_000,
+			IDENTITY_PROFILE,
+		)
+
+		// The automatic run selects every user agent, so the labels neither narrow the selection nor fail it.
+		const agentNames = requestedAgentNames(capturedBodies, userAgents).filter(name => name !== AGGREGATOR_AGENT_NAME)
+		expect(agentNames.sort()).toEqual(["Bug Hunter", "Security"])
+		expect(capturedBodies).toHaveLength(3)
+		expect(submittedReviews()).toHaveLength(1)
+		expect(deletedLabelUrls()).toEqual([])
 	})
 
 	it("forwards the configured max tokens to the request bodies", async () => {
@@ -509,6 +513,35 @@ describe("runOnLabelTrigger", () => {
 			expect(submittedReviews()).toHaveLength(1)
 		})
 
+		it("ignores a label that does not look like a selector and runs every user agent", async () => {
+			const capturedBodies: string[] = []
+			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "documentation"] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work", capturedBodies),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			// An unrelated label is neither a selector nor a near miss, so the run keeps the automatic all-agent selection.
+			const agentNames = requestedAgentNames(capturedBodies, namedAgents).filter(name => name !== AGGREGATOR_AGENT_NAME)
+			expect(agentNames.sort()).toEqual(["Bug Hunter", "Security"])
+			expect(submittedReviews()).toHaveLength(1)
+		})
+
 		it("selects an agent that only exists in the builtin agents directory", async () => {
 			const capturedBodies: string[] = []
 			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Default"] })
@@ -535,55 +568,6 @@ describe("runOnLabelTrigger", () => {
 			expect(capturedBodies).toHaveLength(2)
 			expect(capturedBodies[0]!).toContain("Builtin default prompt.")
 			expect(submittedReviews()).toHaveLength(1)
-		})
-
-		it("logs a selector-like label it ignores and then reviews with every user agent", async () => {
-			const capturedBodies: string[] = []
-			const messages: string[] = []
-			const logger: Logger = {
-				log: (...data) => {
-					messages.push(data.map(value => String(value)).join(" "))
-				},
-			}
-			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewers - Security"] })
-
-			await runOnLabelTrigger(
-				{
-					spawnGit: makeSpawnGitOk(),
-					readAgents: makeReadAgents(namedAgents),
-					githubFetch,
-					fetch: makeFetch("Good work", capturedBodies),
-					logger,
-					debugWriter: noopDebugWriter,
-					sleep: instantSleep,
-					random: fixedRandom,
-				},
-				makeLabelTriggerConfiguration(),
-				userAgentsDirectory,
-				builtinAgentsDirectory,
-				"test-model",
-				100_000,
-				IDENTITY_PROFILE,
-			)
-
-			expect(messages.filter(message => message.includes("Ignoring"))).toEqual([`Ignoring "Reviewers - Security": a selector label must start with "${REVIEWER_LABEL_PREFIX}", so it selects nothing, and every reviewer runs.`])
-			// The near-miss prefix falls through to every reviewer by design, so both user agents run and the aggregator adds the third request.
-			const agentNames = requestedAgentNames(capturedBodies, namedAgents).filter(name => name !== AGGREGATOR_AGENT_NAME)
-			expect(agentNames.sort()).toEqual(["Bug Hunter", "Security"])
-			expect(capturedBodies).toHaveLength(3)
-			expect(submittedReviews()).toHaveLength(1)
-		})
-
-		it("logs no ignored-label notice when every selector label is valid", async () => {
-			const messages = await runLabelTriggerCapturingMessages([REVIEW_START_LABEL, "Reviewer - Security"], namedAgents)
-
-			expect(messages.filter(message => message.includes("Ignoring"))).toEqual([])
-		})
-
-		it("does not claim every reviewer runs when a valid selector is also present", async () => {
-			const messages = await runLabelTriggerCapturingMessages([REVIEW_START_LABEL, "Reviewer - Security", "Reviewers - Style"], namedAgents)
-
-			expect(messages.filter(message => message.includes("Ignoring"))).toEqual([`Ignoring "Reviewers - Style": a selector label must start with "${REVIEWER_LABEL_PREFIX}", so it selects nothing, and the run uses only the agents named by valid selector labels.`])
 		})
 	})
 
@@ -666,6 +650,34 @@ describe("runOnLabelTrigger", () => {
 
 			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
 			expect(submitCallCount()).toBe(0)
+		})
+
+		it("rejects a near-miss selector label after removing the trigger label", async () => {
+			for (const nearMissLabelName of ["reviewer - Security", "Reviewers - Security", "Reviewer- Security"]) {
+				const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, nearMissLabelName] })
+
+				await expect(runOnLabelTrigger(
+					{
+						spawnGit: makeSpawnGitOk(),
+						readAgents: makeReadAgents(namedAgents),
+						githubFetch,
+						fetch: makeFetch("Good work"),
+						logger: silentLogger,
+						debugWriter: noopDebugWriter,
+						sleep: instantSleep,
+						random: fixedRandom,
+					},
+					makeLabelTriggerConfiguration(),
+					userAgentsDirectory,
+					builtinAgentsDirectory,
+					"test-model",
+					100_000,
+					IDENTITY_PROFILE,
+				)).rejects.toThrow(`Invalid selector label "${nearMissLabelName}": a selector label must be spelled "Reviewer - <Name>"`)
+
+				expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
+				expect(submitCallCount()).toBe(0)
+			}
 		})
 	})
 })
