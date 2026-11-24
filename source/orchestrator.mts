@@ -3,18 +3,20 @@ import type { AgentNames, AgentReader } from "./agents.mts"
 import { loadAgents, loadAggregator } from "./agents.mts"
 import { analyze } from "./ai.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
-import type { CommentTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
+import type { CommentTriggerConfiguration, LabelTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
 import type { DebugWriter } from "./debug.mts"
 import type { SpawnGit } from "./diff.mts"
 import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from "./diff.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
 import type { GitHubFetch } from "./github.mts"
-import { fetchPullRequestDiff, fetchPullRequestMetadata, submitReview } from "./github.mts"
+import { fetchPullRequestDiff, fetchPullRequestMetadata, removePullRequestLabel, submitReview } from "./github.mts"
+import { selectAgentNamesFromLabels } from "./labels.mts"
 import type { Logger } from "./logger.mts"
 import type { ProviderProfile } from "./provider-profiles.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
 import { getAgentsFromComment } from "./trigger.mts"
+import { includes } from "./typescript-helpers.mts"
 import type { AggregatorSubmitResult } from "./ai.mts"
 
 type OrchestratorDependencies = {
@@ -72,6 +74,20 @@ export async function runOnCommentTrigger(dependencies: OrchestratorDependencies
 export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
 	await submitPrReview(dependencies, configuration.agents, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
+}
+
+export async function runOnLabelTrigger(dependencies: OrchestratorDependencies, configuration: LabelTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
+	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
+
+	if (!includes(metadata.labelNames, configuration.triggerLabel)) throw new Error(`Label "${configuration.triggerLabel}" is not on pull request #${configuration.github.pullRequestNumber}. Re-add the label to start a new run.`)
+
+	// The trigger label is removed before any validation and before any agent runs, so a run that fails hard can be retried by adding the one label back.
+	await removePullRequestLabel(dependencies, configuration.github, configuration.triggerLabel)
+
+	const userAgents = await dependencies.readAgents(userAgentsDirectory)
+	const builtinAgents = await dependencies.readAgents(builtinAgentsDirectory)
+	const agentNames = selectAgentNamesFromLabels(metadata.labelNames, [...userAgents, ...builtinAgents].map(agent => agent.name))
+	await submitPrReview(dependencies, agentNames, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 
 export async function runOnLocalDiff(dependencies: OrchestratorDependencies, configuration: LocalDiffConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, workspaceDirectory: string, profile: ProviderProfile): Promise<string> {

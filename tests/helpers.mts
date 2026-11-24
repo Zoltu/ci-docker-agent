@@ -1,6 +1,6 @@
 import type { Agent } from "../source/agents.mts"
 import type { BaseCommitContext } from "../source/base-commit.mts"
-import type { CommentTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "../source/configuration.mts"
+import type { CommentTriggerConfiguration, LabelTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "../source/configuration.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { GitHubConfiguration } from "../source/github-types.mts"
 import type { Logger } from "../source/logger.mts"
@@ -34,6 +34,15 @@ export function makeCommentTriggerConfiguration(overrides: Partial<CommentTrigge
 		type: "comment-trigger",
 		github: makeGitHubConfiguration(),
 		commentBody: "/review",
+		...overrides,
+	}
+}
+
+export function makeLabelTriggerConfiguration(overrides: Partial<LabelTriggerConfiguration> = {}): LabelTriggerConfiguration {
+	return {
+		type: "label-trigger",
+		triggerLabel: "Review Start",
+		github: makeGitHubConfiguration(),
 		...overrides,
 	}
 }

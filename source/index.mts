@@ -5,7 +5,7 @@ import { createDebugWriter } from "./debug.mts"
 import { createSpawnGit } from "./diff.mts"
 import { createGithubFetch } from "./github.mts"
 import { createLogger } from "./logger.mts"
-import { runOnCommentTrigger, runOnLocalDiff, runOnPullRequest } from "./orchestrator.mts"
+import { runOnCommentTrigger, runOnLabelTrigger, runOnLocalDiff, runOnPullRequest } from "./orchestrator.mts"
 import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, getWorkspaceDirectory } from "./paths.mts"
 import { selectProviderProfile } from "./provider-profiles.mts"
 import { assertNever } from "./typescript-helpers.mts"
@@ -39,6 +39,9 @@ async function main(): Promise<void> {
 	}
 
 	switch (configuration.type) {
+		case "label-trigger": {
+			return runOnLabelTrigger(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, aiConfiguration.maxTokens, profile)
+		}
 		case "comment-trigger": {
 			return runOnCommentTrigger(dependencies, configuration, userAgentsDirectory, builtinAgentsDirectory, aiConfiguration.model, aiConfiguration.maxTokens, profile)
 		}

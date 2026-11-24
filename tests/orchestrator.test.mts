@@ -1,11 +1,11 @@
 import { describe, it, expect } from "bun:test"
-import { runOnCommentTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
+import { runOnCommentTrigger, runOnLabelTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
 import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 import type { Agent, AgentReader } from "../source/agents.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { Fetch, Random, Sleep } from "../source/agent-loop.mts"
 import type { GitHubFetch } from "../source/github.mts"
-import { makeAgent, makeCommentTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration, createMockLogger, createMockAgentFetch, buildContentSse } from "./helpers.mts"
+import { makeAgent, makeCommentTriggerConfiguration, makeLabelTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration, createMockLogger, createMockAgentFetch, buildContentSse } from "./helpers.mts"
 import type { DebugWriter } from "../source/debug.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
 
@@ -45,9 +45,10 @@ function makeSpawnGitWithDiff(diffText: string): SpawnGit {
 	}
 }
 
-function makeGithubFetch(options: { diffText?: string, baseCommit?: string, labelNames?: readonly string[], diffError?: Error, submitStatus?: number, submitResponses?: readonly { status: number; body?: string }[] } = {}): { githubFetch: GitHubFetch, submitCallCount: () => number, submittedReviews: () => readonly GitHubReviewPayload[] } {
+function makeGithubFetch(options: { diffText?: string, baseCommit?: string, labelNames?: readonly string[], diffError?: Error, submitStatus?: number, submitResponses?: readonly { status: number; body?: string }[] } = {}): { githubFetch: GitHubFetch, submitCallCount: () => number, submittedReviews: () => readonly GitHubReviewPayload[], deletedLabelUrls: () => readonly string[] } {
 	let submitIndex = 0
 	const reviewBodies: GitHubReviewPayload[] = []
+	const deleteUrls: string[] = []
 
 	const handlePullRequest = (init: RequestInit): Response => {
 		const headers = new Headers(init.headers)
@@ -76,14 +77,20 @@ function makeGithubFetch(options: { diffText?: string, baseCommit?: string, labe
 		return new Response(null, { status: 200 })
 	}
 
+	const handleDeleteLabel = (url: string): Response => {
+		deleteUrls.push(url)
+		return new Response(null, { status: 200 })
+	}
+
 	const githubFetch: GitHubFetch = async (url, init) => {
 		const method = init.method ?? "GET"
 		if (method === "POST" && /\/reviews/.test(url)) return handleReviews(init)
+		if (method === "DELETE" && /\/labels\//.test(url)) return handleDeleteLabel(url)
 		if (url.includes("/pulls/")) return handlePullRequest(init)
 		throw new Error(`Unexpected githubFetch call: ${method} ${url}`)
 	}
 
-	return { githubFetch, submitCallCount: () => submitIndex, submittedReviews: () => reviewBodies }
+	return { githubFetch, submitCallCount: () => submitIndex, submittedReviews: () => reviewBodies, deletedLabelUrls: () => deleteUrls }
 }
 
 const SAMPLE_DIFF = [
@@ -94,6 +101,8 @@ const SAMPLE_DIFF = [
 	"-old",
 	"+new",
 ].join("\n")
+
+const REVIEW_START_LABEL_URL = "https://api.github.com/repos/owner/repo/issues/42/labels/Review%20Start"
 
 describe("runOnCommentTrigger", () => {
 	it("returns early when comment does not trigger review", async () => {
@@ -432,6 +441,192 @@ describe("runOnPullRequest", () => {
 			100_000,
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("API error")
+	})
+})
+
+describe("runOnLabelTrigger", () => {
+	const namedAgents: Agent[] = [
+		{ name: "Bug Hunter", prompt: "Bug hunter prompt." },
+		{ name: "Security", prompt: "Security prompt." },
+		{ name: "Aggregator", prompt: "Aggregate." },
+	]
+
+	describe("label removal", () => {
+		it("removes the trigger label before running any agent", async () => {
+			const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["Review Start"] })
+			const respond = makeFetch("Good work")
+			const deletedLabelSnapshots: (readonly string[])[] = []
+			// Snapshot what has already been deleted at the moment each model request is made.
+			const fetch: Fetch = async (signal, body, headers) => {
+				deletedLabelSnapshots.push([...deletedLabelUrls()])
+				return respond(signal, body, headers)
+			}
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
+					githubFetch,
+					fetch,
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			expect(deletedLabelUrls()).toEqual([REVIEW_START_LABEL_URL])
+			expect(deletedLabelSnapshots).toEqual([[REVIEW_START_LABEL_URL], [REVIEW_START_LABEL_URL]])
+			expect(submittedReviews()).toHaveLength(1)
+		})
+	})
+
+	describe("agent selection", () => {
+		it("runs only the agent named by a selector label", async () => {
+			const capturedBodies: string[] = []
+			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["Review Start", "Reviewer - Security"] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work", capturedBodies),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			expect(capturedBodies).toHaveLength(2)
+			expect(capturedBodies[0]!).toContain("Security prompt.")
+			expect(capturedBodies[0]!).not.toContain("Bug hunter prompt.")
+			expect(submittedReviews()).toHaveLength(1)
+		})
+
+		it("runs every user agent when only the trigger label is present", async () => {
+			const capturedBodies: string[] = []
+			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["Review Start"] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work", capturedBodies),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			expect(capturedBodies).toHaveLength(3)
+			expect(capturedBodies[0]!).toContain("Bug hunter prompt.")
+			expect(capturedBodies[1]!).toContain("Security prompt.")
+			expect(submittedReviews()).toHaveLength(1)
+		})
+	})
+
+	describe("failures", () => {
+		it("rejects when the trigger label is not on the pull request and removes nothing", async () => {
+			const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["Reviewer - Security"] })
+
+			await expect(runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)).rejects.toThrow(`Label "Review Start" is not on pull request #42`)
+
+			expect(deletedLabelUrls()).toHaveLength(0)
+			expect(submitCallCount()).toBe(0)
+		})
+
+		it("rejects an unknown selector after removing the trigger label", async () => {
+			const capturedBodies: string[] = []
+			const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["Review Start", "Reviewer - Nope"] })
+
+			await expect(runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work", capturedBodies),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)).rejects.toThrow(`Label "Reviewer - Nope" names no available agent`)
+
+			expect(deletedLabelUrls()).toEqual([REVIEW_START_LABEL_URL])
+			expect(capturedBodies).toHaveLength(0)
+			expect(submitCallCount()).toBe(0)
+		})
+
+		it("rejects an aggregator selector after removing the trigger label", async () => {
+			const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["Review Start", "Reviewer - Aggregator"] })
+
+			await expect(runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)).rejects.toThrow(`"Reviewer - Aggregator" is a configuration error`)
+
+			expect(deletedLabelUrls()).toEqual([REVIEW_START_LABEL_URL])
+			expect(submitCallCount()).toBe(0)
+		})
 	})
 })
 

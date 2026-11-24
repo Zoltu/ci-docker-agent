@@ -1,5 +1,6 @@
 import type { AgentNames } from "./agents.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
+import { REVIEW_START_LABEL } from "./labels.mts"
 import type { TryResult } from "./typescript-helpers.mts"
 import { parseCommaSeparatedList } from "./typescript-helpers.mts"
 
@@ -7,6 +8,12 @@ export interface CommentTriggerConfiguration {
 	type: "comment-trigger"
 	github: GitHubConfiguration
 	commentBody: string
+}
+
+export interface LabelTriggerConfiguration {
+	type: "label-trigger"
+	triggerLabel: string
+	github: GitHubConfiguration
 }
 
 export interface PullRequestConfiguration {
@@ -22,7 +29,7 @@ export interface LocalDiffConfiguration {
 	headCommit: string
 }
 
-export type Configuration = CommentTriggerConfiguration | PullRequestConfiguration | LocalDiffConfiguration
+export type Configuration = CommentTriggerConfiguration | LabelTriggerConfiguration | PullRequestConfiguration | LocalDiffConfiguration
 
 function tryParseGitHubConfiguration(environment: Record<string, string | undefined>): TryResult<GitHubConfiguration> {
 	const token = environment.GITHUB_TOKEN
@@ -75,6 +82,18 @@ function tryGetCommentTriggerConfiguration(environment: Record<string, string | 
 	return { ok: true, value: { type: "comment-trigger", github: githubResult.value, commentBody } }
 }
 
+function tryGetLabelTriggerConfiguration(environment: Record<string, string | undefined>): TryResult<LabelTriggerConfiguration> {
+	// GitHub substitutes an empty string for an unset expression, so an empty TRIGGER_LABEL means the event carried no label at all.
+	const triggerLabel = environment.TRIGGER_LABEL
+	if (!triggerLabel) return { ok: false, reason: "TRIGGER_LABEL is not set" }
+	if (triggerLabel !== REVIEW_START_LABEL) return { ok: false, reason: `TRIGGER_LABEL must be "${REVIEW_START_LABEL}", got: ${JSON.stringify(triggerLabel)}` }
+
+	const githubResult = tryParseGitHubConfiguration(environment)
+	if (!githubResult.ok) return githubResult
+
+	return { ok: true, value: { type: "label-trigger", triggerLabel, github: githubResult.value } }
+}
+
 function tryGetPullRequestConfiguration(environment: Record<string, string | undefined>, agents: AgentNames): TryResult<PullRequestConfiguration> {
 	const githubResult = tryParseGitHubConfiguration(environment)
 	if (!githubResult.ok) return githubResult
@@ -88,13 +107,18 @@ export function getConfiguration(environment: Record<string, string | undefined>
 	const localResult = tryGetLocalDiffConfiguration(environment, agents)
 	if (localResult.ok) return localResult.value
 
+	const labelTriggerResult = tryGetLabelTriggerConfiguration(environment)
+	if (labelTriggerResult.ok) return labelTriggerResult.value
+	// A TRIGGER_LABEL that the workflow gate never passes is drift between the workflow and this code, so falling through to the pull-request branch would silently run every agent instead of failing.
+	if (environment.TRIGGER_LABEL) throw new Error(labelTriggerResult.reason)
+
 	const commentResult = tryGetCommentTriggerConfiguration(environment)
 	if (commentResult.ok) return commentResult.value
 
 	const pullRequestResult = tryGetPullRequestConfiguration(environment, agents)
 	if (pullRequestResult.ok) return pullRequestResult.value
 
-	const reasons = [localResult, commentResult, pullRequestResult]
+	const reasons = [localResult, labelTriggerResult, commentResult, pullRequestResult]
 		.filter((r): r is { ok: false; reason: string } => !r.ok)
 		.map(r => r.reason)
 	throw new Error(`No valid configuration found:\n${reasons.map(r => `- ${r}`).join("\n")}`)

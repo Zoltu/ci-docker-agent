@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { getConfiguration, type CommentTriggerConfiguration, type PullRequestConfiguration, type LocalDiffConfiguration, type Configuration } from "../source/configuration.mts"
+import { getConfiguration, type CommentTriggerConfiguration, type LabelTriggerConfiguration, type PullRequestConfiguration, type LocalDiffConfiguration, type Configuration } from "../source/configuration.mts"
 
 function resolveConfiguration(environment: Record<string, string | undefined>): Configuration {
 	return getConfiguration(environment)
@@ -20,6 +20,18 @@ function getCommentTriggerConfiguration(environment: Record<string, string | und
 		...environment,
 	})
 	if (configuration.type !== "comment-trigger") throw new Error(`Expected comment-trigger, got ${configuration.type}`)
+	return configuration
+}
+
+function getLabelTriggerConfiguration(environment: Record<string, string | undefined> = {}): LabelTriggerConfiguration {
+	const configuration = resolveConfiguration({
+		GITHUB_TOKEN: "my-token",
+		PR_NUMBER: "42",
+		REPO: "owner/repo",
+		TRIGGER_LABEL: "Review Start",
+		...environment,
+	})
+	if (configuration.type !== "label-trigger") throw new Error(`Expected label-trigger, got ${configuration.type}`)
 	return configuration
 }
 
@@ -96,6 +108,66 @@ describe("resolveConfiguration", () => {
 			const configuration = getCommentTriggerConfiguration({ GITHUB_API_URL: "https://github.enterprise.com/api/v3" })
 
 			expect(configuration.github.apiUrl).toBe("https://github.enterprise.com/api/v3")
+		})
+	})
+
+	describe("label-trigger configuration", () => {
+		it("returns label-trigger with the trigger label and GitHub fields", () => {
+			const configuration = getLabelTriggerConfiguration()
+
+			expect(configuration.type).toBe("label-trigger")
+			expect(configuration.triggerLabel).toBe("Review Start")
+			expect(configuration.github).toEqual({
+				token: "my-token",
+				apiUrl: "https://api.github.com",
+				owner: "owner",
+				repositoryName: "repo",
+				pullRequestNumber: 42,
+			})
+		})
+
+		it("uses custom GITHUB_API_URL when provided", () => {
+			const configuration = getLabelTriggerConfiguration({ GITHUB_API_URL: "https://github.enterprise.com/api/v3" })
+
+			expect(configuration.github.apiUrl).toBe("https://github.enterprise.com/api/v3")
+		})
+
+		it("does not carry AGENTS into a label-triggered configuration", () => {
+			const configuration = getLabelTriggerConfiguration({ AGENTS: "SecurityAgent" })
+
+			expect(Object.keys(configuration).sort()).toEqual(["github", "triggerLabel", "type"])
+		})
+
+		it("takes priority over pull-request when both are satisfiable", () => {
+			const configuration = resolveConfiguration({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo",
+				TRIGGER_LABEL: "Review Start",
+			})
+
+			expect(configuration.type).toBe("label-trigger")
+		})
+
+		it("returns pull-request when TRIGGER_LABEL is absent", () => {
+			const configuration = resolveConfiguration({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo",
+			})
+
+			expect(configuration.type).toBe("pull-request")
+		})
+
+		it("treats an empty TRIGGER_LABEL as absent", () => {
+			const configuration = resolveConfiguration({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo",
+				TRIGGER_LABEL: "",
+			})
+
+			expect(configuration.type).toBe("pull-request")
 		})
 	})
 
@@ -198,6 +270,28 @@ describe("resolveConfiguration", () => {
 				PR_NUMBER: "42",
 				REPO: "owner/repo/extra",
 			})).toThrow("REPO must be in format 'owner/repo', got: owner/repo/extra")
+		})
+
+		it("throws when TRIGGER_LABEL is not the review start label instead of falling back to a pull-request run", () => {
+			expect(() => resolveConfiguration({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo",
+				TRIGGER_LABEL: "review start",
+			})).toThrow(`TRIGGER_LABEL must be "Review Start", got: "review start"`)
+		})
+
+		it("throws when TRIGGER_LABEL has trailing whitespace", () => {
+			expect(() => resolveConfiguration({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo",
+				TRIGGER_LABEL: "Review Start ",
+			})).toThrow(`TRIGGER_LABEL must be "Review Start", got: "Review Start "`)
+		})
+
+		it("reports the label-trigger reason when no configuration is valid", () => {
+			expect(() => resolveConfiguration({ TRIGGER_LABEL: "" })).toThrow("- TRIGGER_LABEL is not set")
 		})
 	})
 })

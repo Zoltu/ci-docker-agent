@@ -9,8 +9,8 @@ const GITHUB_PR_MODE_HEADING = "### Mode 2: GitHub PR Review"
 const ENVIRONMENT_VARIABLE_REFERENCE = /environment\.([A-Z][A-Z0-9_]*)/g
 const DOCUMENTED_VARIABLE_BULLET = /^- `([A-Z][A-Z0-9_]*)` - /gm
 
-// COMMENT_BODY arrives from the triggering comment event through the workflow's env: block, so it is never set by whoever runs the container and README does not present it as configuration.
-const WORKFLOW_INJECTED_ENVIRONMENT_VARIABLES: ReadonlySet<string> = new Set(["COMMENT_BODY"])
+// COMMENT_BODY and TRIGGER_LABEL arrive from the triggering event through the workflow's env: block, so they are never set by whoever runs the container and README does not present them as configuration.
+const WORKFLOW_INJECTED_ENVIRONMENT_VARIABLES: ReadonlySet<string> = new Set(["COMMENT_BODY", "TRIGGER_LABEL"])
 
 function readProjectFile(...path: ReadonlyArray<string>): string {
 	return readFileSync(join(PROJECT_ROOT, ...path), "utf-8")
