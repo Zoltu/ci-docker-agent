@@ -68,7 +68,39 @@ Setup a GitHub repository/organization secret for `AI_API_KEY`.
 
 Setup a GitHub repository/organization variable for `AI_API_URL`, `AI_MODEL`, and optionally `AI_MAX_TOKENS`.
 
-Everything else should "just work".
+Create the trigger labels by hand in each repository; see [Trigger Labels (GitHub Mode)](#trigger-labels-github-mode).
+
+### Trigger Labels (GitHub Mode)
+
+A new pull request is reviewed automatically with every reviewer, so labels are only needed to choose a subset of reviewers or to request another review of the same pull request.
+
+| Label | Purpose |
+| --- | --- |
+| `Review Start` | Starts a run for the selected `Reviewer - *` labels, or for every reviewer when none are present. The workflow removes this label when the run begins. |
+| `Reviewer - Architect` | Selects the `Architect` agent from `.ci-agents/Architect.md` for the run. |
+| `Reviewer - Bug Hunter` | Selects the `Bug Hunter` agent from `.ci-agents/Bug Hunter.md` for the run. |
+| `Reviewer - Defender` | Selects the `Defender` agent from `.ci-agents/Defender.md` for the run. |
+| `Reviewer - Security` | Selects the `Security` agent from `.ci-agents/Security.md` for the run. |
+
+#### Selection Rules
+
+- Apply the `Reviewer - *` labels first, then add `Review Start`.
+- Re-add `Review Start` to request a re-review, because the workflow removes it when a run begins.
+- Only `Review Start` starts a run; a `Reviewer - *` label applied on its own does nothing.
+- Matching is exact and case-sensitive, including spaces and capitalization.
+- A selector that matches no agent prompt file, in `.ci-agents/` or among the built-in agents, fails the run as a configuration error, and the message lists the available agent names.
+- A `Reviewer - Aggregator` label fails the run as a configuration error, because the aggregator always runs last automatically.
+- Label-triggered runs ignore the `AGENTS` environment variable.
+
+#### Per-Repository Setup
+
+GitHub labels are per-repository, so create these five labels by hand in every repository that runs the workflow:
+
+- `Review Start`
+- `Reviewer - Architect`
+- `Reviewer - Bug Hunter`
+- `Reviewer - Defender`
+- `Reviewer - Security`
 
 ## Agents
 
@@ -108,6 +140,8 @@ See [./agents/Aggregator.md](./agents/Aggregator.md) for an example of one way t
 
 ### Specifying Agents
 
+Labels select agents for GitHub Action runs; see [Trigger Labels (GitHub Mode)](#trigger-labels-github-mode).
+
 #### Via Environment Variable
 
 ```bash
@@ -143,5 +177,7 @@ The workflow run itself owns the check status; the agent submits a review only.
 See `.github/workflows/ci-agent.yml` for the workflow configuration.
 
 The workflow triggers on:
-- `pull_request_target` events
+- `pull_request_target` events of type `opened` and `labeled`
 - `workflow_dispatch` event (manual trigger of the workflow)
+
+Only the exact `Review Start` label starts a `labeled` run, and the workflow passes the applied label to the container.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { REVIEW_START_LABEL } from "../source/labels.mts"
 import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, getWorkspaceDirectory } from "../source/paths.mts"
@@ -9,6 +9,7 @@ const LOCAL_DIFF_MODE_HEADING = "### Mode 1: Local Diff Analysis"
 const GITHUB_PR_MODE_HEADING = "### Mode 2: GitHub PR Review"
 const ENVIRONMENT_VARIABLE_REFERENCE = /environment\.([A-Z][A-Z0-9_]*)/g
 const DOCUMENTED_VARIABLE_BULLET = /^- `([A-Z][A-Z0-9_]*)` - /gm
+const REVIEWER_LABEL_ROW = /^\| `Reviewer - ([^`]+)` \|/gm
 
 // TRIGGER_LABEL arrives from the triggering event through the workflow's env: block, so it is never set by whoever runs the container and README does not present it as configuration.
 const WORKFLOW_INJECTED_ENVIRONMENT_VARIABLES: ReadonlySet<string> = new Set(["TRIGGER_LABEL"])
@@ -60,6 +61,17 @@ function readDocumentedVariableNames(heading: string): ReadonlySet<string> {
 	return names
 }
 
+function readUserAgentNames(): ReadonlyArray<string> {
+	return readdirSync(join(PROJECT_ROOT, ".ci-agents"))
+		.filter(entry => entry.toLowerCase().endsWith(".md"))
+		.map(entry => entry.replace(/\.md$/i, ""))
+}
+
+function readReviewerLabelRowAgentNames(): ReadonlyArray<string> {
+	const readme = readProjectFile("README.md")
+	return [...readme.matchAll(REVIEWER_LABEL_ROW)].flatMap(row => row[1] === undefined ? [] : [row[1]])
+}
+
 // Intentional divergence from AGENTS.md: integration tests are discouraged because they are slow and exercise glue that should be kept thin.
 // These tests are the only place we tolerate that cost, and they are intentionally kept minimalistic.
 describe("integration", () => {
@@ -95,6 +107,16 @@ describe("integration", () => {
 		const gitHubPrDocumented = readDocumentedVariableNames(GITHUB_PR_MODE_HEADING)
 		expect(gitHubVariableNames.filter(name => !gitHubPrDocumented.has(name))).toEqual([])
 		expect(gitHubVariableNames.filter(name => localDiffDocumented.has(name))).toEqual([])
+	})
+
+	it("documents a Reviewer label for every agent prompt in .ci-agents and no others", () => {
+		const userAgentNames = readUserAgentNames()
+		// The label table is where a reader learns which labels to create by hand, so a missing row makes a reviewer unreachable and an extra row guarantees a failed run.
+		expect(userAgentNames.length).toBeGreaterThan(0)
+		const reviewerLabelAgentNames = readReviewerLabelRowAgentNames()
+		expect([...reviewerLabelAgentNames].sort()).toEqual([...userAgentNames].sort())
+		expect([...new Set(reviewerLabelAgentNames)]).toHaveLength(userAgentNames.length)
+		expect(readProjectFile("README.md")).toContain(`| \`${REVIEW_START_LABEL}\` |`)
 	})
 
 	it("workflow passes AI_MAX_TOKENS through to the agent", () => {
