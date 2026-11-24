@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { getConfiguration, type CommentTriggerConfiguration, type LabelTriggerConfiguration, type PullRequestConfiguration, type LocalDiffConfiguration, type Configuration } from "../source/configuration.mts"
+import { getConfiguration, type LabelTriggerConfiguration, type PullRequestConfiguration, type LocalDiffConfiguration, type Configuration } from "../source/configuration.mts"
 
 function resolveConfiguration(environment: Record<string, string | undefined>): Configuration {
 	return getConfiguration(environment)
@@ -8,18 +8,6 @@ function resolveConfiguration(environment: Record<string, string | undefined>): 
 function getLocalDiffConfiguration(environment: Record<string, string | undefined> = {}): LocalDiffConfiguration {
 	const configuration = resolveConfiguration({ BASE_COMMIT: "abc123", HEAD_COMMIT: "def456", ...environment })
 	if (configuration.type !== "local-diff") throw new Error(`Expected local-diff, got ${configuration.type}`)
-	return configuration
-}
-
-function getCommentTriggerConfiguration(environment: Record<string, string | undefined> = {}): CommentTriggerConfiguration {
-	const configuration = resolveConfiguration({
-		GITHUB_TOKEN: "my-token",
-		PR_NUMBER: "42",
-		REPO: "owner/repo",
-		COMMENT_BODY: "/review",
-		...environment,
-	})
-	if (configuration.type !== "comment-trigger") throw new Error(`Expected comment-trigger, got ${configuration.type}`)
 	return configuration
 }
 
@@ -86,29 +74,6 @@ describe("resolveConfiguration", () => {
 
 			expect(configuration.type).toBe("local-diff")
 		})
-
-	})
-
-	describe("comment-trigger configuration", () => {
-		it("returns comment-trigger when COMMENT_BODY is set with GitHub vars", () => {
-			const configuration = getCommentTriggerConfiguration()
-
-			expect(configuration.type).toBe("comment-trigger")
-			expect(configuration.github).toEqual({
-				token: "my-token",
-				apiUrl: "https://api.github.com",
-				owner: "owner",
-				repositoryName: "repo",
-				pullRequestNumber: 42,
-			})
-			expect(configuration.commentBody).toBe("/review")
-		})
-
-		it("uses custom GITHUB_API_URL when provided", () => {
-			const configuration = getCommentTriggerConfiguration({ GITHUB_API_URL: "https://github.enterprise.com/api/v3" })
-
-			expect(configuration.github.apiUrl).toBe("https://github.enterprise.com/api/v3")
-		})
 	})
 
 	describe("label-trigger configuration", () => {
@@ -172,7 +137,7 @@ describe("resolveConfiguration", () => {
 	})
 
 	describe("pull-request configuration", () => {
-		it("returns pull-request when GitHub vars are provided without COMMENT_BODY", () => {
+		it("returns pull-request when GitHub vars are provided without TRIGGER_LABEL", () => {
 			const configuration = getPullRequestConfiguration()
 
 			expect(configuration.type).toBe("pull-request")

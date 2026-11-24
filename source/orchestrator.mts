@@ -3,7 +3,7 @@ import type { AgentNames, AgentReader } from "./agents.mts"
 import { loadAgents, loadAggregator } from "./agents.mts"
 import { analyze } from "./ai.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
-import type { CommentTriggerConfiguration, LabelTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
+import type { LabelTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
 import type { DebugWriter } from "./debug.mts"
 import type { SpawnGit } from "./diff.mts"
 import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from "./diff.mts"
@@ -15,7 +15,6 @@ import type { Logger } from "./logger.mts"
 import type { ProviderProfile } from "./provider-profiles.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
-import { getAgentsFromComment } from "./trigger.mts"
 import { includes } from "./typescript-helpers.mts"
 import type { AggregatorSubmitResult } from "./ai.mts"
 
@@ -57,18 +56,6 @@ async function submitPrReview(dependencies: OrchestratorDependencies, agentNames
 	}
 	await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseSha, model, maxTokens, profile, submit)
 	dependencies.logger.log("PR review submitted successfully")
-}
-
-export async function runOnCommentTrigger(dependencies: OrchestratorDependencies, configuration: CommentTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
-	const triggerResult = getAgentsFromComment(configuration.commentBody)
-
-	if (triggerResult === "no review triggered") {
-		dependencies.logger.log("No /review trigger found in comment")
-		return
-	}
-
-	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
-	await submitPrReview(dependencies, triggerResult, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 
 export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {

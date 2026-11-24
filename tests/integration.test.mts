@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import { REVIEW_START_LABEL } from "../source/labels.mts"
 import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, getWorkspaceDirectory } from "../source/paths.mts"
 
 const PROJECT_ROOT = join(import.meta.dir, "..")
@@ -9,8 +10,8 @@ const GITHUB_PR_MODE_HEADING = "### Mode 2: GitHub PR Review"
 const ENVIRONMENT_VARIABLE_REFERENCE = /environment\.([A-Z][A-Z0-9_]*)/g
 const DOCUMENTED_VARIABLE_BULLET = /^- `([A-Z][A-Z0-9_]*)` - /gm
 
-// COMMENT_BODY and TRIGGER_LABEL arrive from the triggering event through the workflow's env: block, so they are never set by whoever runs the container and README does not present them as configuration.
-const WORKFLOW_INJECTED_ENVIRONMENT_VARIABLES: ReadonlySet<string> = new Set(["COMMENT_BODY", "TRIGGER_LABEL"])
+// TRIGGER_LABEL arrives from the triggering event through the workflow's env: block, so it is never set by whoever runs the container and README does not present it as configuration.
+const WORKFLOW_INJECTED_ENVIRONMENT_VARIABLES: ReadonlySet<string> = new Set(["TRIGGER_LABEL"])
 
 function readProjectFile(...path: ReadonlyArray<string>): string {
 	return readFileSync(join(PROJECT_ROOT, ...path), "utf-8")
@@ -107,5 +108,15 @@ describe("integration", () => {
 		expect(envStart).toBeGreaterThan(-1)
 		const envBlock = stepBlock.slice(envStart)
 		expect(envBlock).toContain("\n          AI_MAX_TOKENS: ${{ vars.AI_MAX_TOKENS }}\n")
+	})
+
+	it("binds the workflow job gate to the review start label constant", () => {
+		const workflow = readProjectFile(".github", "workflows", "ci-agent.yml")
+		// The workflow cannot import the constant, so it repeats the label as a literal; comparing that literal back to the constant is what turns a rename on either side into a failing test instead of silent skipping of every labeled run.
+		const gateLine = workflow.split("\n").find(line => line.includes("github.event.label.name =="))
+		if (gateLine === undefined) throw new Error("ci-agent.yml has no job gate comparing github.event.label.name, so a labeled run would start for any applied label")
+		expect(gateLine).toContain(`github.event.label.name == '${REVIEW_START_LABEL}'`)
+		// Removing the applied trigger label needs the issues scope, which the workflow must grant next to the pull-request write it already needs.
+		expect(workflow).toContain("\n  issues: write\n")
 	})
 })

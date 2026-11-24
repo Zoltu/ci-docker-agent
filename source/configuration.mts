@@ -4,12 +4,6 @@ import { REVIEW_START_LABEL } from "./labels.mts"
 import type { TryResult } from "./typescript-helpers.mts"
 import { parseCommaSeparatedList } from "./typescript-helpers.mts"
 
-export interface CommentTriggerConfiguration {
-	type: "comment-trigger"
-	github: GitHubConfiguration
-	commentBody: string
-}
-
 export interface LabelTriggerConfiguration {
 	type: "label-trigger"
 	triggerLabel: string
@@ -29,7 +23,7 @@ export interface LocalDiffConfiguration {
 	headCommit: string
 }
 
-export type Configuration = CommentTriggerConfiguration | LabelTriggerConfiguration | PullRequestConfiguration | LocalDiffConfiguration
+export type Configuration = LabelTriggerConfiguration | PullRequestConfiguration | LocalDiffConfiguration
 
 function tryParseGitHubConfiguration(environment: Record<string, string | undefined>): TryResult<GitHubConfiguration> {
 	const token = environment.GITHUB_TOKEN
@@ -72,16 +66,6 @@ function tryGetLocalDiffConfiguration(environment: Record<string, string | undef
 	return { ok: true, value: { type: "local-diff", agents, baseCommit, headCommit } }
 }
 
-function tryGetCommentTriggerConfiguration(environment: Record<string, string | undefined>): TryResult<CommentTriggerConfiguration> {
-	const commentBody = environment.COMMENT_BODY
-	if (!commentBody) return { ok: false, reason: "COMMENT_BODY is not set" }
-
-	const githubResult = tryParseGitHubConfiguration(environment)
-	if (!githubResult.ok) return githubResult
-
-	return { ok: true, value: { type: "comment-trigger", github: githubResult.value, commentBody } }
-}
-
 function tryGetLabelTriggerConfiguration(environment: Record<string, string | undefined>): TryResult<LabelTriggerConfiguration> {
 	// GitHub substitutes an empty string for an unset expression, so an empty TRIGGER_LABEL means the event carried no label at all.
 	const triggerLabel = environment.TRIGGER_LABEL
@@ -112,13 +96,10 @@ export function getConfiguration(environment: Record<string, string | undefined>
 	// A TRIGGER_LABEL that the workflow gate never passes is drift between the workflow and this code, so falling through to the pull-request branch would silently run every agent instead of failing.
 	if (environment.TRIGGER_LABEL) throw new Error(labelTriggerResult.reason)
 
-	const commentResult = tryGetCommentTriggerConfiguration(environment)
-	if (commentResult.ok) return commentResult.value
-
 	const pullRequestResult = tryGetPullRequestConfiguration(environment, agents)
 	if (pullRequestResult.ok) return pullRequestResult.value
 
-	const reasons = [localResult, labelTriggerResult, commentResult, pullRequestResult]
+	const reasons = [localResult, labelTriggerResult, pullRequestResult]
 		.filter((r): r is { ok: false; reason: string } => !r.ok)
 		.map(r => r.reason)
 	throw new Error(`No valid configuration found:\n${reasons.map(r => `- ${r}`).join("\n")}`)

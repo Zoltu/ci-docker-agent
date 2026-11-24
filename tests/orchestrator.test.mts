@@ -1,11 +1,11 @@
 import { describe, it, expect } from "bun:test"
-import { runOnCommentTrigger, runOnLabelTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
+import { runOnLabelTrigger, runOnPullRequest, runOnLocalDiff } from "../source/orchestrator.mts"
 import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 import type { Agent, AgentReader } from "../source/agents.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { Fetch, Random, Sleep } from "../source/agent-loop.mts"
 import type { GitHubFetch } from "../source/github.mts"
-import { makeAgent, makeCommentTriggerConfiguration, makeLabelTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration, createMockLogger, createMockAgentFetch, buildContentSse } from "./helpers.mts"
+import { makeAgent, makeLabelTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration, createMockLogger, createMockAgentFetch, buildContentSse } from "./helpers.mts"
 import type { DebugWriter } from "../source/debug.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
 
@@ -104,36 +104,11 @@ const SAMPLE_DIFF = [
 
 const REVIEW_START_LABEL_URL = "https://api.github.com/repos/owner/repo/issues/42/labels/Review%20Start"
 
-describe("runOnCommentTrigger", () => {
-	it("returns early when comment does not trigger review", async () => {
-		let fetchCalled = false
-
-		await runOnCommentTrigger(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([]),
-				githubFetch: async () => { fetchCalled = true; return new Response() },
-				fetch: makeFetch(""),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makeCommentTriggerConfiguration({ commentBody: "just a comment" }),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)
-
-		expect(fetchCalled).toBe(false)
-	})
-
+describe("runOnPullRequest", () => {
 	it("returns early when no files changed", async () => {
 		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: "" })
 
-		await runOnCommentTrigger(
+		await runOnPullRequest(
 			{
 				spawnGit: makeSpawnGitOk(),
 				readAgents: makeReadAgents([]),
@@ -144,7 +119,7 @@ describe("runOnCommentTrigger", () => {
 				sleep: instantSleep,
 				random: fixedRandom,
 			},
-			makeCommentTriggerConfiguration(),
+			makePullRequestConfiguration(),
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
@@ -155,21 +130,21 @@ describe("runOnCommentTrigger", () => {
 		expect(submittedReviews()).toHaveLength(0)
 	})
 
-	it("submits review when triggered and files exist", async () => {
+	it("submits review after analysis", async () => {
 		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF })
 
-		await runOnCommentTrigger(
+		await runOnPullRequest(
 			{
 				spawnGit: makeSpawnGitOk(),
 				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
 				githubFetch,
-				fetch: makeFetch("Good work"),
+				fetch: makeFetch("Great work"),
 				logger: silentLogger,
 				debugWriter: noopDebugWriter,
 				sleep: instantSleep,
 				random: fixedRandom,
 			},
-			makeCommentTriggerConfiguration(),
+			makePullRequestConfiguration(),
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
@@ -179,67 +154,25 @@ describe("runOnCommentTrigger", () => {
 
 		expect(submittedReviews()).toHaveLength(1)
 		expect(submittedReviews()[0]!.event).toBe("COMMENT")
-		expect(submittedReviews()[0]!.body).toContain("Good work")
-	})
-
-	it("propagates error when fetchPullRequestDiff throws", async () => {
-		expect(runOnCommentTrigger(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([]),
-				githubFetch: makeGithubFetch({ diffError: new Error("API error") }).githubFetch,
-				fetch: makeFetch(""),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makeCommentTriggerConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)).rejects.toThrow("API error")
-	})
-
-	it("propagates error when submitReview throws with a non-422 status", async () => {
-		expect(runOnCommentTrigger(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
-				githubFetch: makeGithubFetch({ diffText: SAMPLE_DIFF, submitStatus: 500 }).githubFetch,
-				fetch: makeFetch("Good work"),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makeCommentTriggerConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)).rejects.toThrow("Failed to submit review")
+		expect(submittedReviews()[0]!.body).toContain("Great work")
 	})
 
 	it("forwards the configured max tokens to the request bodies", async () => {
 		const capturedBodies: string[] = []
-		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF })
+		const { githubFetch } = makeGithubFetch({ diffText: SAMPLE_DIFF })
 
-		await runOnCommentTrigger(
+		await runOnPullRequest(
 			{
 				spawnGit: makeSpawnGitOk(),
 				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
 				githubFetch,
-				fetch: makeFetch("Good work", capturedBodies),
+				fetch: makeFetch("Great work", capturedBodies),
 				logger: silentLogger,
 				debugWriter: noopDebugWriter,
 				sleep: instantSleep,
 				random: fixedRandom,
 			},
-			makeCommentTriggerConfiguration(),
+			makePullRequestConfiguration(),
 			userAgentsDirectory,
 			builtinAgentsDirectory,
 			"test-model",
@@ -250,7 +183,48 @@ describe("runOnCommentTrigger", () => {
 		expect(capturedBodies).toHaveLength(2)
 		expect(JSON.parse(capturedBodies[0]!).max_tokens).toBe(250_000)
 		expect(JSON.parse(capturedBodies[1]!).max_tokens).toBe(250_000)
-		expect(submittedReviews()).toHaveLength(1)
+	})
+
+	it("propagates error when fetchPullRequestDiff throws", async () => {
+		expect(runOnPullRequest(
+			{
+				spawnGit: makeSpawnGitOk(),
+				readAgents: makeReadAgents([]),
+				githubFetch: makeGithubFetch({ diffError: new Error("API error") }).githubFetch,
+				fetch: makeFetch(""),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makePullRequestConfiguration(),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			100_000,
+			IDENTITY_PROFILE,
+		)).rejects.toThrow("API error")
+	})
+
+	it("propagates error when submitReview fails with a non-422 status", async () => {
+		await expect(runOnPullRequest(
+			{
+				spawnGit: makeSpawnGitOk(),
+				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
+				githubFetch: makeGithubFetch({ diffText: SAMPLE_DIFF, submitStatus: 500 }).githubFetch,
+				fetch: makeFetch("Good work"),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makePullRequestConfiguration(),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			100_000,
+			IDENTITY_PROFILE,
+		)).rejects.toThrow("Failed to submit review")
 	})
 
 	it("retries submit when GitHub returns 422 and accepts the corrected output", async () => {
@@ -339,108 +313,6 @@ describe("runOnCommentTrigger", () => {
 
 			expect(submitCallCount()).toBe(1)
 		}
-	})
-})
-
-describe("runOnPullRequest", () => {
-	it("returns early when no files changed", async () => {
-		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: "" })
-
-		await runOnPullRequest(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([]),
-				githubFetch,
-				fetch: makeFetch(""),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makePullRequestConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)
-
-		expect(submittedReviews()).toHaveLength(0)
-	})
-
-	it("submits review after analysis", async () => {
-		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF })
-
-		await runOnPullRequest(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
-				githubFetch,
-				fetch: makeFetch("Great work"),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makePullRequestConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)
-
-		expect(submittedReviews()).toHaveLength(1)
-		expect(submittedReviews()[0]!.body).toContain("Great work")
-	})
-
-	it("forwards the configured max tokens to the request bodies", async () => {
-		const capturedBodies: string[] = []
-		const { githubFetch } = makeGithubFetch({ diffText: SAMPLE_DIFF })
-
-		await runOnPullRequest(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
-				githubFetch,
-				fetch: makeFetch("Great work", capturedBodies),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makePullRequestConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			250_000,
-			IDENTITY_PROFILE,
-		)
-
-		expect(capturedBodies).toHaveLength(2)
-		expect(JSON.parse(capturedBodies[0]!).max_tokens).toBe(250_000)
-		expect(JSON.parse(capturedBodies[1]!).max_tokens).toBe(250_000)
-	})
-
-	it("propagates error when fetchPullRequestDiff throws", async () => {
-		expect(runOnPullRequest(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([]),
-				githubFetch: makeGithubFetch({ diffError: new Error("API error") }).githubFetch,
-				fetch: makeFetch(""),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makePullRequestConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)).rejects.toThrow("API error")
 	})
 })
 

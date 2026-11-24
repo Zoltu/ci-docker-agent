@@ -70,13 +70,6 @@ Setup a GitHub repository/organization variable for `AI_API_URL`, `AI_MODEL`, an
 
 Everything else should "just work".
 
-### Trigger Commands (GitHub Mode)
-
-When running in GitHub Actions, the agent can be triggered via PR comments:
-
-- `/review` - Run all user-provided agents or Default if none exist
-- `/review SecurityAgent, StyleAgent` - Run specific agents (comma-separated)
-
 ## Agents
 
 The CI Agent uses a multi-agent architecture where each agent provides feedback in prose form, and an `Aggregator` agent consolidates the results.  By default, a single generic agent is used, but users can provide their own agent prompts in their project.
@@ -121,12 +114,6 @@ See [./agents/Aggregator.md](./agents/Aggregator.md) for an example of one way t
 docker container run -e AGENTS="Security, Style Master" ...
 ```
 
-#### Via PR Comment
-
-```
-/review Security, Style Master
-```
-
 ## Output
 
 ### Local Diff Mode
@@ -157,5 +144,4 @@ See `.github/workflows/ci-agent.yml` for the workflow configuration.
 
 The workflow triggers on:
 - `pull_request_target` events
-- `issue_comment` events (when trigger commands are detected in comments)
 - `workflow_dispatch` event (manual trigger of the workflow)

@@ -59,7 +59,7 @@ if (!isValidConfiguration(configuration)) throw new Error('Invalid configuration
 `as const` is acceptable and encouraged for literal values. It narrows types (makes them stricter), not looser:
 
 ```typescript
-const TRIGGER_COMMAND = '/review' as const; // Type is literal '/review', not string
+const REVIEW_START_LABEL = 'Review Start' as const; // Type is literal 'Review Start', not string
 ```
 
 ---
@@ -202,7 +202,7 @@ Orchestration functions sequence calls, make decisions, handle errors, and branc
 
 Each orchestration function declares its own type containing **only** the configured leaf functions it **directly** uses. Do not use type unions (`&`) to compose dependency types from callees. Because TypeScript uses structural typing, a superset object is assignable to a subset type automatically.
 
-Examples: `runAnalysis`, `runOnCommentTrigger`, `runOnLocalDiff`.
+Examples: `runAnalysis`, `runOnLabelTrigger`, `runOnLocalDiff`.
 
 ### Pure Helper Functions
 
