@@ -18,6 +18,8 @@ on:
         required: false
         type: string
 
+# A labeled run is gated by GitHub's permission to apply the label (triage or above), and the token is the only limit on what the run can do: `issues: write` removes that label and `pull-requests: write` submits the review.
+# `contents: read` is all the checkout and the base commit fetch need.
 permissions:
   pull-requests: write
   contents: read
@@ -25,7 +27,7 @@ permissions:
 
 jobs:
   ci-agent:
-    # Only the exact Review Start label starts a labeled run; opened and workflow_dispatch runs are unaffected.
+    # GitHub compares the label name with `==` case-insensitively, so a label that differs from `Review Start` only in case starts a labeled run and is then rejected by the container; opened and workflow_dispatch runs are unaffected.
     if: github.event_name != 'pull_request_target' || github.event.action != 'labeled' || github.event.label.name == 'Review Start'
     runs-on: ubuntu-latest
     container:

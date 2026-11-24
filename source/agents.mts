@@ -2,6 +2,7 @@ import type { BaseCommitContext } from "./base-commit.mts"
 import { readdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
+import { sanitizeForSingleLine } from "./typescript-helpers.mts"
 
 export type AgentNames = readonly string[] | "run all agents"
 
@@ -11,6 +12,11 @@ export interface Agent {
 }
 
 export type AgentReader = (directory: string) => Promise<Agent[]>
+
+// Both the aggregator prompt file and the aggregator selector are matched case-insensitively, so an override named `aggregator.md` behaves like the canonical file everywhere.
+export const AGGREGATOR_AGENT_NAME = "Aggregator" as const
+
+const AGGREGATOR_AGENT_NAME_KEY = AGGREGATOR_AGENT_NAME.toLowerCase()
 
 export function createReadAgentsFromDisk(): AgentReader {
 	return async function readAgentsFromDisk(directory: string): Promise<Agent[]> {
@@ -30,16 +36,40 @@ export function createReadAgentsFromDisk(): AgentReader {
 	}
 }
 
+export function isAggregatorName(name: string): boolean {
+	return name.toLowerCase() === AGGREGATOR_AGENT_NAME_KEY
+}
+
 function buildAgentMap(agents: Agent[]): Map<string, Agent> {
 	return new Map(agents.map(a => [a.name.toLowerCase(), a]))
 }
 
 function filterOutAggregator(agents: Agent[]): Agent[] {
-	return agents.filter(a => a.name.toLowerCase() !== "aggregator")
+	return agents.filter(a => !isAggregatorName(a.name))
 }
 
 function findAggregator(agents: Agent[]): Agent | null {
-	return agents.find(a => a.name.toLowerCase() === "aggregator") ?? null
+	return agents.find(a => isAggregatorName(a.name)) ?? null
+}
+
+// The aggregator prompt file sits in an agent directory too, so without this the available-agent list would advertise a selector that always fails.
+// A user prompt can shadow a builtin name, so each name appears once, in the order the directories are passed.
+export function selectableAgentNames(userAgents: readonly Agent[], builtinAgents: readonly Agent[]): readonly string[] {
+	const names: string[] = []
+	const seenNames = new Set<string>()
+	for (const agent of [...userAgents, ...builtinAgents]) {
+		if (isAggregatorName(agent.name)) continue
+		const key = agent.name.toLowerCase()
+		if (seenNames.has(key)) continue
+		seenNames.add(key)
+		names.push(agent.name)
+	}
+	return names
+}
+
+// Both selector surfaces refuse a selection that names the aggregator, so the shared reason lives here and each caller supplies only how that selection is removed.
+export function formatAggregatorSelectionError(selection: string, removalInstruction: string): string {
+	return `"${sanitizeForSingleLine(selection)}" is a configuration error: the ${AGGREGATOR_AGENT_NAME} always runs last automatically and must not be selected. ${removalInstruction}`
 }
 
 function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinAgents: Agent[]): Agent[] {
@@ -77,7 +107,11 @@ function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinA
 		unresolvedNames.push(name)
 	}
 
-	if (unresolvedNames.length !== 0) throw new Error(`Unresolved agents: ${unresolvedNames.join(", ")}.  Each name must match a markdown file in .ci-agents/ or the built-in agents directory (case-insensitive, without .md extension).`)
+	// The aggregator prompt file ships in an agent directory the user can read, so a request naming it needs to say why it cannot be honored instead of reporting a name that appears to exist.
+	const aggregatorSelection = unresolvedNames.find(isAggregatorName)
+	if (aggregatorSelection !== undefined) throw new Error(formatAggregatorSelectionError(aggregatorSelection, "Remove it from AGENTS."))
+
+	if (unresolvedNames.length !== 0) throw new Error(`Unresolved agents: ${unresolvedNames.join(", ")}. Each name must match a markdown file in .ci-agents/ or the built-in agents directory; AGENTS names are matched case-insensitively, without the .md extension.`)
 
 	return agents
 }

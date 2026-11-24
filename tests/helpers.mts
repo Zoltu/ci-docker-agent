@@ -3,9 +3,16 @@ import type { BaseCommitContext } from "../source/base-commit.mts"
 import type { LabelTriggerConfiguration, PullRequestConfiguration, LocalDiffConfiguration } from "../source/configuration.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { GitHubConfiguration } from "../source/github-types.mts"
+import { REVIEW_START_LABEL } from "../source/labels.mts"
 import type { Logger } from "../source/logger.mts"
 import type { Fetch as SseFetch } from "../source/sse.mts"
 import type { Fetch as AgentFetch } from "../source/agent-loop.mts"
+
+// A base commit as GitHub reports it: 40 lowercase hex characters, the width the base.sha boundary check requires.
+export const BASE_COMMIT_SHA = "0123456789abcdef0123456789abcdef01234567"
+
+// A base commit from a repository that uses SHA-256 object names.
+export const BASE_COMMIT_SHA_256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 export function makeAgent(overrides: Partial<Agent> = {}): Agent {
 	return { name: "TestAgent", prompt: "Test prompt.", ...overrides }
@@ -32,7 +39,7 @@ export function makeGitHubConfiguration(overrides: Partial<GitHubConfiguration> 
 export function makeLabelTriggerConfiguration(overrides: Partial<LabelTriggerConfiguration> = {}): LabelTriggerConfiguration {
 	return {
 		type: "label-trigger",
-		triggerLabel: "Review Start",
+		triggerLabel: REVIEW_START_LABEL,
 		github: makeGitHubConfiguration(),
 		...overrides,
 	}

@@ -134,6 +134,15 @@ export function deepMerge<T>(base: T, override: T): T {
 	return result as T
 }
 
+// Escapes control characters that start a new line plus the invisible characters that reorder or hide rendered text: bidi overrides and marks, zero-width characters, and the byte order mark.
+const SINGLE_LINE_HAZARD_PATTERN = /[\u0000-\u001F\u007F-\u009F\u061C\u200B-\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/g
+
+// Untrusted text such as a label name, a repository name, an environment value, or an HTTP response body reaches log lines and error messages, so escape anything that could start a new line or make the entry read differently from the bytes it carries.
+// Backslashes are escaped first, so a value that contains the literal text `\u000a` cannot render identically to an escaped newline.
+export function sanitizeForSingleLine(value: string): string {
+	return value.replace(/\\/g, "\\\\").replace(SINGLE_LINE_HAZARD_PATTERN, character => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`)
+}
+
 export function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
 }

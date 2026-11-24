@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { buildAgentPrompt, type PromptMessage } from "../source/agents.mts"
+import { buildAgentPrompt, selectableAgentNames, type PromptMessage } from "../source/agents.mts"
 import { makeAgent, makeBaseCommitContext } from "./helpers.mts"
 
 const SAMPLE_DIFF = [
@@ -188,5 +188,47 @@ describe("buildAgentPrompt", () => {
 				expect(content).not.toContain("You are a reviewer.")
 			}
 		})
+	})
+})
+
+describe("selectableAgentNames", () => {
+	it("excludes the aggregator so no available-agent message advertises it", () => {
+		const result = selectableAgentNames(
+			[makeAgent({ name: "Security" })],
+			[makeAgent({ name: "Default" }), makeAgent({ name: "Aggregator" })],
+		)
+
+		expect(result).toEqual(["Security", "Default"])
+	})
+
+	it("excludes the aggregator in any capitalization", () => {
+		const result = selectableAgentNames([], [makeAgent({ name: "aggregator" }), makeAgent({ name: "Default" })])
+
+		expect(result).toEqual(["Default"])
+	})
+
+	it("names a user agent that shadows a builtin name once", () => {
+		const result = selectableAgentNames(
+			[makeAgent({ name: "Default", prompt: "User default prompt." })],
+			[makeAgent({ name: "Default", prompt: "Builtin default prompt." })],
+		)
+
+		expect(result).toEqual(["Default"])
+	})
+
+	it("names a user agent that shadows a builtin name in different capitalization once", () => {
+		const result = selectableAgentNames([makeAgent({ name: "default" })], [makeAgent({ name: "Default" })])
+
+		expect(result).toEqual(["default"])
+	})
+
+	it("lists user agents before builtin agents", () => {
+		const result = selectableAgentNames([makeAgent({ name: "Security" })], [makeAgent({ name: "Architect" })])
+
+		expect(result).toEqual(["Security", "Architect"])
+	})
+
+	it("returns nothing when every agent is the aggregator", () => {
+		expect(selectableAgentNames([makeAgent({ name: "Aggregator" })], [makeAgent({ name: "aggregator" })])).toEqual([])
 	})
 })

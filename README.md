@@ -38,7 +38,7 @@ docker container run --rm -it --mount="type=bind,source=$(pwd),target=/workspace
 Fetch a pull request from GitHub and submit a review with AI-generated feedback.
 
 #### Requirements
-- A GitHub access token with `pull_requests` scope
+- A GitHub access token with `pull-requests: write`, which is the only permission this mode uses: it reads the pull request metadata and diff and submits one review, and it never touches the issues endpoint; only the label-triggered run in Mode 3 removes a label, so the Mode 3 list below also grants `issues: write` for that call
 - The repository owner/name and PR number
 
 #### Example
@@ -62,21 +62,22 @@ docker container run --rm -it --env="GITHUB_TOKEN=$GITHUB_TOKEN" --env="PR_NUMBE
 
 See [./.github/workflows/ci-agent.yml](./.github/workflows/ci-agent.yml) for an example.
 
+#### Requirements
+- A `GITHUB_TOKEN` with `pull-requests: write` to submit the review and `issues: write` to remove the `Review Start` label from the pull request, which is the permission pair the workflow grants for those two calls because GitHub serves pull request labels through the issues endpoint; without the label permission a labeled run fails with the `Review Start` label still applied and before any agent runs
+
 #### Secrets and Variables
 
 Setup a GitHub repository/organization secret for `AI_API_KEY`.
 
 Setup a GitHub repository/organization variable for `AI_API_URL`, `AI_MODEL`, and optionally `AI_MAX_TOKENS`.
 
-Create the trigger labels by hand in each repository; see [Trigger Labels (GitHub Mode)](#trigger-labels-github-mode).
-
 ### Trigger Labels (GitHub Mode)
 
-A new pull request is reviewed automatically with every reviewer, so labels are only needed to choose a subset of reviewers or to request another review of the same pull request.
+A new pull request is reviewed automatically with every agent, so labels are only needed to choose a subset of agents or to request another review of the same pull request.
 
 | Label | Purpose |
 | --- | --- |
-| `Review Start` | Starts a run for the selected `Reviewer - *` labels, or for every reviewer when none are present. The workflow removes this label when the run begins. |
+| `Review Start` | Starts a run for the selected `Reviewer - *` labels, or for every agent when none are present. A label-triggered run removes this label; see [Selection Rules](#selection-rules) for the cases that leave it applied. |
 | `Reviewer - Architect` | Selects the `Architect` agent from `.ci-agents/Architect.md` for the run. |
 | `Reviewer - Bug Hunter` | Selects the `Bug Hunter` agent from `.ci-agents/Bug Hunter.md` for the run. |
 | `Reviewer - Defender` | Selects the `Defender` agent from `.ci-agents/Defender.md` for the run. |
@@ -85,22 +86,26 @@ A new pull request is reviewed automatically with every reviewer, so labels are 
 #### Selection Rules
 
 - Apply the `Reviewer - *` labels first, then add `Review Start`.
-- Re-add `Review Start` to request a re-review, because the workflow removes it when a run begins.
+- To request a re-review, remove the `Review Start` label and add it again: GitHub emits no `labeled` event for a label that is already applied, so adding a label that is still on the pull request starts nothing.
+- Only a run that started from the `Review Start` label removes it, and it does so after reading the pull request metadata and confirming the label is on the pull request, before it selects agents, validates their selector labels, or runs any agent. A run that fails after that point, which includes an unknown selector label, a `Reviewer - Aggregator` label, a diff or model failure, and a rejected review, ends with the label off.
+- The label stays applied in every other case, so a run that ends with it still on the pull request needs it removed by hand before it can start another run:
+  - A run that reviews a pull request without a trigger label, which is a newly opened pull request or a manual run, never removes a label.
+  - A run that fails before the removal or cannot complete it, which is a failed metadata fetch or a removal request that fails, such as with a token that lacks `issues: write`.
+  - A `TRIGGER_LABEL` that differs from `Review Start` only in case never reaches the removal, because it fails configuration parsing before any GitHub request.
+- A metadata read that lists no `Review Start` label leaves nothing to remove, because the label is not applied, and the run reports it as missing; add the label to start a run.
 - Only `Review Start` starts a run; a `Reviewer - *` label applied on its own does nothing.
-- Matching is exact and case-sensitive, including spaces and capitalization.
-- A selector that matches no agent prompt file, in `.ci-agents/` or among the built-in agents, fails the run as a configuration error, and the message lists the available agent names.
-- A `Reviewer - Aggregator` label fails the run as a configuration error, because the aggregator always runs last automatically.
+- Only labels that start with the exact `Reviewer - ` prefix are selectors; every other label is ignored, including a mistyped prefix such as `reviewer - Security`, `Reviewers - Security`, or `Reviewer- Security`. Ignored labels change nothing: a run with no valid selector label reviews with every agent. The run logs each ignored selector-like label.
+- The agent name that follows the prefix is matched exactly and case-sensitively, including spaces and capitalization; the aggregator name is the one exception and is matched case-insensitively.
+- A well-formed selector whose agent name matches no agent prompt file, in `.ci-agents/` or among the built-in agents, fails the run as a configuration error, and the message states that a label's agent name is matched case-sensitively while listing the available agent names.
+- A selector naming the aggregator in any capitalization, such as `Reviewer - Aggregator` or `Reviewer - aggregator`, fails the run as a configuration error, because the aggregator always runs last automatically.
 - Label-triggered runs ignore the `AGENTS` environment variable.
 
 #### Per-Repository Setup
 
-GitHub labels are per-repository, so create these five labels by hand in every repository that runs the workflow:
-
-- `Review Start`
-- `Reviewer - Architect`
-- `Reviewer - Bug Hunter`
-- `Reviewer - Defender`
-- `Reviewer - Security`
+GitHub labels are per-repository, so every repository that runs the workflow needs its own copy, created by hand: `Review Start` plus one `Reviewer - <Name>` label per selectable agent, the four in the table above plus the built-in `Default`.
+The name that follows the prefix selects an agent from either prompt location, a markdown file in the repository's own `.ci-agents/` directory or one of the built-in agents, so `Reviewer - Default` selects the built-in `Default` agent even in a repository with no `.ci-agents` directory at all.
+Do not create a `Reviewer - Aggregator` label: the aggregator always runs last automatically, so a selector naming it fails every label-triggered run it is present on, including in a repository that overrides `.ci-agents/Aggregator.md`.
+A selector whose agent name matches no agent in either location fails the run; see [Selection Rules](#selection-rules) for the message it reports.
 
 ## Agents
 
@@ -140,7 +145,7 @@ See [./agents/Aggregator.md](./agents/Aggregator.md) for an example of one way t
 
 ### Specifying Agents
 
-Labels select agents for GitHub Action runs; see [Trigger Labels (GitHub Mode)](#trigger-labels-github-mode).
+Labels select agents for labeled runs; see [Trigger Labels (GitHub Mode)](#trigger-labels-github-mode).
 
 #### Via Environment Variable
 
@@ -180,4 +185,6 @@ The workflow triggers on:
 - `pull_request_target` events of type `opened` and `labeled`
 - `workflow_dispatch` event (manual trigger of the workflow)
 
-Only the exact `Review Start` label starts a `labeled` run, and the workflow passes the applied label to the container.
+A `labeled` run starts only for the `Review Start` label, and the workflow passes the applied label to the container as `TRIGGER_LABEL`, which is empty for `opened` and manual runs.
+A `TRIGGER_LABEL` set to anything other than exactly `Review Start` fails the run instead of reviewing the pull request.
+GitHub compares that label name with `==` case-insensitively, so a label that differs from `Review Start` only in case passes the workflow gate and is then rejected in code: the run fails closed and no agents run.

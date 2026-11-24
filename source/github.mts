@@ -1,6 +1,6 @@
 import type { GitHubConfiguration, GitHubReviewPayload } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
-import { guard, isArrayOf, isString, normalizeFetchError } from "./typescript-helpers.mts"
+import { guard, isArrayOf, isRecord, isString, normalizeFetchError, sanitizeForSingleLine } from "./typescript-helpers.mts"
 
 const REQUEST_TIMEOUT_MILLISECONDS = 10_000
 const RETRY_DELAY_MILLISECONDS = 30_000
@@ -81,12 +81,15 @@ export async function fetchPullRequestDiff(dependencies: { githubFetch: GitHubFe
 
 	if (!response.ok) {
 		const body = await response.text().catch(() => "")
-		throw new Error(`Failed to fetch PR diff: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
+		throw new Error(`Failed to fetch PR diff: ${response.status} ${response.statusText}${body ? `\n${sanitizeForSingleLine(body)}` : ""}`)
 	}
 
 	return response.text()
 }
 
+// A non-2xx from submitReview is aggregator feedback the caller acts on (a 422 becomes a retry instruction), so it is returned as data.
+// Every other non-2xx in this module throws, because the caller has no alternative but to fail the run.
+// The body stays byte-exact because the aggregator reads it as data, so this is the one response body in the module that is not sanitized.
 export type SubmitReviewResult = { ok: true } | { ok: false, status: number, body: string }
 export async function submitReview(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, review: GitHubReviewPayload): Promise<SubmitReviewResult> {
 	const { token } = configuration
@@ -110,10 +113,21 @@ export interface PullRequestMetadata {
 	labelNames: readonly string[]
 }
 
-const isValidPullRequestMetadata = guard({
-	base: guard({ sha: isString }),
-	labels: isArrayOf(guard({ name: isString })),
-})
+// GitHub reports commit object names as hex, and base.sha reaches git as an argument, so a value of any other shape is rejected here.
+const COMMIT_OBJECT_NAME_PATTERN = /^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/
+
+const isPullRequestBase = guard({ sha: isString })
+const isPullRequestLabels = isArrayOf(guard({ name: isString }))
+
+// Each message names the wire field the response got wrong, so a diagnosis points at the payload GitHub returned rather than at the domain fields derived from it.
+function parsePullRequestResponse(data: unknown): PullRequestMetadata {
+	if (!isRecord(data)) throw new Error("Invalid PR response: the body is not a JSON object")
+	if (!isPullRequestBase(data.base)) throw new Error("Invalid PR response: missing base.sha")
+	if (!isPullRequestLabels(data.labels)) throw new Error("Invalid PR response: missing labels[].name")
+	if (!COMMIT_OBJECT_NAME_PATTERN.test(data.base.sha)) throw new Error(`Invalid PR response: base.sha must be a 40 or 64 character hex commit object name, got: ${sanitizeForSingleLine(JSON.stringify(data.base.sha))}`)
+
+	return { baseSha: data.base.sha, labelNames: data.labels.map(label => label.name) }
+}
 
 export async function fetchPullRequestMetadata(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration): Promise<PullRequestMetadata> {
 	const { token } = configuration
@@ -126,16 +140,25 @@ export async function fetchPullRequestMetadata(dependencies: { githubFetch: GitH
 
 	if (!response.ok) {
 		const body = await response.text().catch(() => "")
-		throw new Error(`Failed to fetch PR metadata: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
+		throw new Error(`Failed to fetch PR metadata: ${response.status} ${response.statusText}${body ? `\n${sanitizeForSingleLine(body)}` : ""}`)
 	}
 
 	const data: unknown = await response.json()
-	if (!isValidPullRequestMetadata(data)) throw new Error("Invalid PR response: missing base.sha or labels")
+	return parsePullRequestResponse(data)
+}
 
-	return { baseSha: data.base.sha, labelNames: data.labels.map(label => label.name) }
+// A URL parser resolves a bare dot segment out of a path and treats a backslash as a separator, so either one moves the DELETE off the label URL and onto a different endpoint.
+const LABEL_NAME_SEPARATOR_OR_CONTROL_CHARACTER_PATTERN = /[/\\\u0000-\u001F\u007F-\u009F]/
+
+function assertLabelNameTargetsOnePathSegment(labelName: string): void {
+	const reflectedLabelName = sanitizeForSingleLine(JSON.stringify(labelName))
+	if (labelName.trim().length === 0) throw new Error(`Label name must not be empty or whitespace only, got: ${reflectedLabelName}`)
+	if (labelName === "." || labelName === "..") throw new Error(`Label name must not be a dot segment, got: ${reflectedLabelName}`)
+	if (LABEL_NAME_SEPARATOR_OR_CONTROL_CHARACTER_PATTERN.test(labelName)) throw new Error(`Label name must not contain a path separator or a control character, got: ${reflectedLabelName}`)
 }
 
 export async function removePullRequestLabel(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, labelName: string): Promise<void> {
+	assertLabelNameTargetsOnePathSegment(labelName)
 	// The caller must have verified the label is on the pull request, so a 404 here is a real failure rather than a no-op.
 	const { token } = configuration
 	const url = buildRepoUrl(configuration, ["issues", String(configuration.pullRequestNumber), "labels", encodeURIComponent(labelName)])
@@ -147,6 +170,6 @@ export async function removePullRequestLabel(dependencies: { githubFetch: GitHub
 
 	if (!response.ok) {
 		const body = await response.text().catch(() => "")
-		throw new Error(`Failed to remove label "${labelName}": ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
+		throw new Error(`Failed to remove label "${sanitizeForSingleLine(labelName)}": ${response.status} ${response.statusText}${body ? `\n${sanitizeForSingleLine(body)}` : ""}`)
 	}
 }

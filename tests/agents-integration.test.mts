@@ -71,7 +71,7 @@ describe("loadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
+		await expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
 	})
 
 	it("throws for unresolved names even when some agents resolve", async () => {
@@ -82,7 +82,29 @@ describe("loadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["SecurityAgent", "NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
+		await expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["SecurityAgent", "NonExistent"])).rejects.toThrow("Unresolved agents: NonExistent")
+	})
+
+	it("reports the aggregator as a selection error rather than an unresolved name", async () => {
+		const userDirectory = "/user"
+		const builtinDirectory = "/builtins"
+		const readAgents = mockReader(new Map([
+			[userDirectory, []],
+			[builtinDirectory, [{ name: "Aggregator", prompt: "Aggregator prompt" }]],
+		]))
+
+		await expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["Aggregator"])).rejects.toThrow('"Aggregator" is a configuration error: the Aggregator always runs last automatically and must not be selected. Remove it from AGENTS.')
+	})
+
+	it("reports the aggregator selection error in any capitalization", async () => {
+		const userDirectory = "/user"
+		const builtinDirectory = "/builtins"
+		const readAgents = mockReader(new Map([
+			[userDirectory, []],
+			[builtinDirectory, [{ name: "Aggregator", prompt: "Aggregator prompt" }]],
+		]))
+
+		await expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["aggregator"])).rejects.toThrow('"aggregator" is a configuration error: the Aggregator always runs last automatically')
 	})
 
 	it("filters out Aggregator from user agents when 'run all agents'", async () => {
@@ -135,7 +157,7 @@ describe("loadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["SecurityAgent", "SecurityAgent"])).rejects.toThrow(
+		await expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["SecurityAgent", "SecurityAgent"])).rejects.toThrow(
 			'Duplicate agent name: "SecurityAgent"'
 		)
 	})
@@ -148,7 +170,7 @@ describe("loadAgents", () => {
 			[builtinDirectory, []],
 		]))
 
-		expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["SecurityAgent", "securityagent"])).rejects.toThrow(
+		await expect(loadAgents({ readAgents }, userDirectory, builtinDirectory, ["SecurityAgent", "securityagent"])).rejects.toThrow(
 			'Duplicate agent name: "securityagent"'
 		)
 	})
