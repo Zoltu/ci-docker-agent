@@ -149,6 +149,8 @@ A review is submitted to the pull request with:
 - An overall comment containing the AI summary
 - Line-specific comments on relevant code changes
 
+The workflow run itself owns the check status; the agent submits a review only.
+
 ## GitHub Actions Integration
 
 See `.github/workflows/ci-agent.yml` for the workflow configuration.

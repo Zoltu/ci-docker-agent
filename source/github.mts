@@ -1,6 +1,6 @@
 import type { GitHubConfiguration, GitHubReviewPayload } from "./github-types.mts"
 import type { Logger } from "./logger.mts"
-import { guard, isArrayOf, isInteger, isString, normalizeFetchError } from "./typescript-helpers.mts"
+import { guard, isArrayOf, isString, normalizeFetchError } from "./typescript-helpers.mts"
 
 const REQUEST_TIMEOUT_MILLISECONDS = 10_000
 const RETRY_DELAY_MILLISECONDS = 30_000
@@ -105,13 +105,17 @@ export async function submitReview(dependencies: { githubFetch: GitHubFetch }, c
 	return { ok: true }
 }
 
-const isPrRef = guard({ sha: isString })
-const isValidPrMetadata = guard({
-	base: isPrRef,
-	head: isPrRef,
+export interface PullRequestMetadata {
+	baseSha: string
+	labelNames: readonly string[]
+}
+
+const isValidPullRequestMetadata = guard({
+	base: guard({ sha: isString }),
+	labels: isArrayOf(guard({ name: isString })),
 })
 
-async function fetchPrShaField(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, field: "base" | "head"): Promise<string> {
+export async function fetchPullRequestMetadata(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration): Promise<PullRequestMetadata> {
 	const { token } = configuration
 	const url = buildRepoUrl(configuration, ["pulls", String(configuration.pullRequestNumber)])
 
@@ -122,83 +126,27 @@ async function fetchPrShaField(dependencies: { githubFetch: GitHubFetch }, confi
 
 	if (!response.ok) {
 		const body = await response.text().catch(() => "")
-		throw new Error(`Failed to fetch PR ${field} commit: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
+		throw new Error(`Failed to fetch PR metadata: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
 	}
 
 	const data: unknown = await response.json()
-	if (!isValidPrMetadata(data)) throw new Error(`Invalid PR response: missing ${field}.sha`)
-	return data[field].sha
+	if (!isValidPullRequestMetadata(data)) throw new Error("Invalid PR response: missing base.sha or labels")
+
+	return { baseSha: data.base.sha, labelNames: data.labels.map(label => label.name) }
 }
 
-export async function fetchPullRequestBaseCommit(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration): Promise<string> {
-	return fetchPrShaField(dependencies, configuration, "base")
-}
-
-export async function fetchPullRequestHeadSha(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration): Promise<string> {
-	return fetchPrShaField(dependencies, configuration, "head")
-}
-
-export interface CheckRunOutput {
-	title: string
-	summary: string
-	text?: string
-}
-
-const isValidCheckRunResponse = guard({ id: isInteger })
-const isCheckRunSummary = guard({ id: isInteger, name: isString, status: isString })
-const isValidCheckRunsList = guard({ check_runs: isArrayOf(isCheckRunSummary) })
-
-export async function findActiveCheckRunByName(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, headSha: string, name: string): Promise<number | null> {
+export async function removePullRequestLabel(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, labelName: string): Promise<void> {
+	// The caller must have verified the label is on the pull request, so a 404 here is a real failure rather than a no-op.
 	const { token } = configuration
-	const url = buildRepoUrl(configuration, ["commits", headSha, "check-runs"], { check_name: name })
+	const url = buildRepoUrl(configuration, ["issues", String(configuration.pullRequestNumber), "labels", encodeURIComponent(labelName)])
 
 	const response = await dependencies.githubFetch(url, {
-		method: "GET",
+		method: "DELETE",
 		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" },
 	})
 
-	if (!response.ok) return null
-
-	const data: unknown = await response.json()
-	if (!isValidCheckRunsList(data)) return null
-
-	const active = data.check_runs.find(run => run.name === name && run.status === "in_progress")
-	return active?.id ?? null
-}
-
-export async function createCheckRun(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, headSha: string, name: string, output: CheckRunOutput): Promise<number> {
-	const { token } = configuration
-	const url = buildRepoUrl(configuration, ["check-runs"])
-
-	const response = await dependencies.githubFetch(url, {
-		method: "POST",
-		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" },
-		body: JSON.stringify({ name, head_sha: headSha, status: "in_progress", output }),
-	})
-
 	if (!response.ok) {
 		const body = await response.text().catch(() => "")
-		throw new Error(`Failed to create check run: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
-	}
-
-	const data: unknown = await response.json()
-	if (!isValidCheckRunResponse(data)) throw new Error("Invalid check run response: missing id")
-
-	return data.id
-}
-
-export async function updateCheckRun(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, checkRunId: number, conclusion: "success" | "failure" | "cancelled", output: CheckRunOutput): Promise<void> {
-	const { token } = configuration
-	const url = buildRepoUrl(configuration, ["check-runs", String(checkRunId)])
-
-	const response = await dependencies.githubFetch(url, {
-		method: "PATCH",
-		headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json", "Content-Type": "application/json" },
-		body: JSON.stringify({ status: "completed", conclusion, output }),
-	})
-
-	if (!response.ok) {
-		const body = await response.text().catch(() => "")
-		throw new Error(`Failed to update check run: ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
+		throw new Error(`Failed to remove label "${labelName}": ${response.status} ${response.statusText}${body ? `\n${body}` : ""}`)
 	}
 }

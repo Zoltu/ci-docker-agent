@@ -8,8 +8,8 @@ import type { DebugWriter } from "./debug.mts"
 import type { SpawnGit } from "./diff.mts"
 import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from "./diff.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
-import type { CheckRunOutput, GitHubFetch } from "./github.mts"
-import { createCheckRun, fetchPullRequestBaseCommit, fetchPullRequestDiff, fetchPullRequestHeadSha, findActiveCheckRunByName, submitReview, updateCheckRun } from "./github.mts"
+import type { GitHubFetch } from "./github.mts"
+import { fetchPullRequestDiff, fetchPullRequestMetadata, submitReview } from "./github.mts"
 import type { Logger } from "./logger.mts"
 import type { ProviderProfile } from "./provider-profiles.mts"
 import type { AiReviewResult } from "./review.mts"
@@ -28,48 +28,6 @@ type OrchestratorDependencies = {
 	random: Random
 }
 
-const COMMENT_REVIEW_CHECK_RUN_NAME = "CI Agent Comment Reviewer"
-const PULL_REQUEST_REVIEW_CHECK_RUN_NAME = "CI Agent Pull Request Reviewer"
-
-// Magic string: must match the `id:` of the job in .github/workflows/ci-agent.yml that creates a check run before invoking CI Agent. The integration test in tests/integration.test.mts enforces this.
-export const EXISTING_CHECK_RUN_JOB_NAME = "ci-agent"
-
-type CheckRunIdSource = (dependencies: OrchestratorDependencies, githubConfiguration: GitHubConfiguration, headSha: string) => Promise<number>
-
-function extractErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message
-	return String(error)
-}
-
-function formatCheckRunErrorOutput(error: unknown, name: string): CheckRunOutput {
-	return {
-		title: `${name} failed`,
-		summary: "The CI Agent encountered an error while reviewing this pull request. See details below or check the GitHub Actions logs for more context.",
-		text: `## Error\n\n> ${extractErrorMessage(error)}`,
-	}
-}
-
-async function runWithCheckRun(dependencies: OrchestratorDependencies, githubConfiguration: GitHubConfiguration, name: string, getCheckRunId: CheckRunIdSource, operation: () => Promise<void>): Promise<void> {
-	const headSha = await fetchPullRequestHeadSha(dependencies, githubConfiguration)
-	const checkRunId = await getCheckRunId(dependencies, githubConfiguration, headSha)
-
-	try {
-		await operation()
-	} catch (error) {
-		await updateCheckRun(dependencies, githubConfiguration, checkRunId, "failure", formatCheckRunErrorOutput(error, name)).catch(reportingError => {
-			dependencies.logger.log(`Failed to update check run ${checkRunId} with error: ${reportingError}`)
-		})
-		throw error
-	}
-
-	await updateCheckRun(dependencies, githubConfiguration, checkRunId, "success", {
-		title: name,
-		summary: "Review submitted successfully.",
-	}).catch(reportingError => {
-		dependencies.logger.log(`Failed to update check run ${checkRunId} with success status: ${reportingError}`)
-	})
-}
-
 async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
 	const agents = await loadAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, agentNames)
 	const aggregator = await loadAggregator(dependencies, userAgentsDirectory, builtinAgentsDirectory)
@@ -78,11 +36,8 @@ async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: A
 	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model, maxTokens, profile, submit)
 }
 
-async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
-	const [diffText, baseCommit] = await Promise.all([
-		fetchPullRequestDiff(dependencies, githubConfiguration),
-		fetchPullRequestBaseCommit(dependencies, githubConfiguration),
-	])
+async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, baseSha: string, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
+	const diffText = await fetchPullRequestDiff(dependencies, githubConfiguration)
 
 	if (diffText.trim() === "") {
 		dependencies.logger.log("No files changed, nothing to review")
@@ -98,7 +53,7 @@ async function submitPrReview(dependencies: OrchestratorDependencies, agentNames
 		}
 		return { kind: "fatal", message: `Failed to submit review: ${outcome.status} ${outcome.body}` }
 	}
-	await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseCommit, model, maxTokens, profile, submit)
+	await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseSha, model, maxTokens, profile, submit)
 	dependencies.logger.log("PR review submitted successfully")
 }
 
@@ -110,32 +65,13 @@ export async function runOnCommentTrigger(dependencies: OrchestratorDependencies
 		return
 	}
 
-	await runWithCheckRun(
-		dependencies,
-		configuration.github,
-		COMMENT_REVIEW_CHECK_RUN_NAME,
-		async (deps, config, headSha) => createCheckRun(deps, config, headSha, COMMENT_REVIEW_CHECK_RUN_NAME, {
-			title: COMMENT_REVIEW_CHECK_RUN_NAME,
-			summary: "Review is in progress.",
-		}),
-		() => submitPrReview(dependencies, triggerResult, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile),
-	)
+	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
+	await submitPrReview(dependencies, triggerResult, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 
 export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
-	await runWithCheckRun(
-		dependencies,
-		configuration.github,
-		PULL_REQUEST_REVIEW_CHECK_RUN_NAME,
-		async (deps, config, headSha) => {
-			const existingId = await findActiveCheckRunByName(deps, config, headSha, EXISTING_CHECK_RUN_JOB_NAME)
-			if (existingId === null) {
-				throw new Error(`No active check run named "${EXISTING_CHECK_RUN_JOB_NAME}" found for head SHA ${headSha}. The workflow must create a check run with this name before invoking CI Agent.`)
-			}
-			return existingId
-		},
-		() => submitPrReview(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile),
-	)
+	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
+	await submitPrReview(dependencies, configuration.agents, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 
 export async function runOnLocalDiff(dependencies: OrchestratorDependencies, configuration: LocalDiffConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, workspaceDirectory: string, profile: ProviderProfile): Promise<string> {

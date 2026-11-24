@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test"
-import { createCheckRun, fetchPullRequestDiff, fetchPullRequestBaseCommit, fetchPullRequestHeadSha, findActiveCheckRunByName, submitReview, updateCheckRun, type GitHubFetch } from "../source/github.mts"
-import { makeGitHubConfiguration } from "./helpers.mts"
+import { fetchPullRequestDiff, fetchPullRequestMetadata, removePullRequestLabel, submitReview, type GitHubFetch } from "../source/github.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
+import { makeGitHubConfiguration } from "./helpers.mts"
 
 describe("fetchPullRequestDiff", () => {
 	it("fetches PR diff text from GitHub API", async () => {
@@ -63,209 +63,87 @@ describe("submitReview", () => {
 	})
 })
 
-describe("fetchPullRequestBaseCommit", () => {
-	it("fetches base commit sha from GitHub API", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: "abc123def" }, head: { sha: "def456ghi" } }), { status: 200 })
+describe("fetchPullRequestMetadata", () => {
+	it("returns the base sha and the label names", async () => {
+		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({
+			base: { sha: "abc123def" },
+			head: { sha: "def456ghi" },
+			labels: [{ name: "Review Start" }, { name: "Reviewer - Bug Hunter" }],
+		}), { status: 200 })
 		const configuration = makeGitHubConfiguration()
 
-		const baseCommit = await fetchPullRequestBaseCommit({ githubFetch }, configuration)
+		const metadata = await fetchPullRequestMetadata({ githubFetch }, configuration)
 
-		expect(baseCommit).toBe("abc123def")
+		expect(metadata.baseSha).toBe("abc123def")
+		expect(metadata.labelNames).toEqual(["Review Start", "Reviewer - Bug Hunter"])
+	})
+
+	it("returns an empty label list when the pull request has no labels", async () => {
+		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: "abc123def" }, labels: [] }), { status: 200 })
+		const configuration = makeGitHubConfiguration()
+
+		const metadata = await fetchPullRequestMetadata({ githubFetch }, configuration)
+
+		expect(metadata.labelNames).toEqual([])
 	})
 
 	it("throws on non-ok response", async () => {
 		const githubFetch: GitHubFetch = async () => new Response("Not found", { status: 404, statusText: "Not Found" })
 		const configuration = makeGitHubConfiguration()
 
-		expect(fetchPullRequestBaseCommit({ githubFetch }, configuration)).rejects.toThrow("Failed to fetch PR base commit")
+		expect(fetchPullRequestMetadata({ githubFetch }, configuration)).rejects.toThrow("Failed to fetch PR metadata: 404 Not Found")
 	})
 
-	it("throws when response is missing base.sha", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ head: { sha: "abc" } }), { status: 200 })
+	it("throws when the response is missing labels", async () => {
+		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: "abc123def" } }), { status: 200 })
 		const configuration = makeGitHubConfiguration()
 
-		expect(fetchPullRequestBaseCommit({ githubFetch }, configuration)).rejects.toThrow("Invalid PR response")
+		expect(fetchPullRequestMetadata({ githubFetch }, configuration)).rejects.toThrow("Invalid PR response")
+	})
+
+	it("throws when a label has no name", async () => {
+		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: "abc123def" }, labels: [{ color: "ffffff" }] }), { status: 200 })
+		const configuration = makeGitHubConfiguration()
+
+		expect(fetchPullRequestMetadata({ githubFetch }, configuration)).rejects.toThrow("Invalid PR response")
+	})
+
+	it("throws when the response is missing base.sha", async () => {
+		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ labels: [] }), { status: 200 })
+		const configuration = makeGitHubConfiguration()
+
+		expect(fetchPullRequestMetadata({ githubFetch }, configuration)).rejects.toThrow("Invalid PR response")
 	})
 
 	it("throws when base.sha is not a string", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: 123 }, head: { sha: "def" } }), { status: 200 })
+		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: 123 }, labels: [] }), { status: 200 })
 		const configuration = makeGitHubConfiguration()
 
-		expect(fetchPullRequestBaseCommit({ githubFetch }, configuration)).rejects.toThrow("Invalid PR response")
+		expect(fetchPullRequestMetadata({ githubFetch }, configuration)).rejects.toThrow("Invalid PR response")
 	})
 })
 
-describe("fetchPullRequestHeadSha", () => {
-	it("fetches head commit sha from GitHub API", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: "abc123def" }, head: { sha: "def456ghi" } }), { status: 200 })
-		const configuration = makeGitHubConfiguration()
-
-		const headSha = await fetchPullRequestHeadSha({ githubFetch }, configuration)
-
-		expect(headSha).toBe("def456ghi")
-	})
-
-	it("throws on non-ok response", async () => {
-		const githubFetch: GitHubFetch = async () => new Response("Not found", { status: 404, statusText: "Not Found" })
-		const configuration = makeGitHubConfiguration()
-
-		expect(fetchPullRequestHeadSha({ githubFetch }, configuration)).rejects.toThrow("Failed to fetch PR head commit")
-	})
-
-	it("throws when response is missing head.sha", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ base: { sha: "abc" } }), { status: 200 })
-		const configuration = makeGitHubConfiguration()
-
-		expect(fetchPullRequestHeadSha({ githubFetch }, configuration)).rejects.toThrow("Invalid PR response")
-	})
-})
-
-describe("createCheckRun", () => {
-	it("creates a check run and returns its id", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ id: 12345 }), { status: 201 })
-		const configuration = makeGitHubConfiguration()
-
-		const id = await createCheckRun({ githubFetch }, configuration, "headSha123", "Test Check", {
-			title: "Test",
-			summary: "Test summary",
-		})
-
-		expect(id).toBe(12345)
-	})
-
-	it("sends POST to /check-runs with correct payload", async () => {
+describe("removePullRequestLabel", () => {
+	it("sends DELETE to the label URL with the label name encoded", async () => {
 		let capturedUrl = ""
-		let capturedBody = ""
+		let capturedMethod = ""
 		const githubFetch: GitHubFetch = async (url, options) => {
 			capturedUrl = url
-			capturedBody = options.body as string
-			return new Response(JSON.stringify({ id: 1 }), { status: 201 })
-		}
-		const configuration = makeGitHubConfiguration()
-
-		await createCheckRun({ githubFetch }, configuration, "headSha123", "Test Check", {
-			title: "Test",
-			summary: "Test summary",
-			text: "Detail",
-		})
-
-		expect(capturedUrl).toBe("https://api.github.com/repos/owner/repo/check-runs")
-		const payload = JSON.parse(capturedBody)
-		expect(payload.name).toBe("Test Check")
-		expect(payload.head_sha).toBe("headSha123")
-		expect(payload.status).toBe("in_progress")
-		expect(payload.output.title).toBe("Test")
-		expect(payload.output.summary).toBe("Test summary")
-		expect(payload.output.text).toBe("Detail")
-	})
-
-	it("throws on non-ok response", async () => {
-		const githubFetch: GitHubFetch = async () => new Response("Forbidden", { status: 403, statusText: "Forbidden" })
-		const configuration = makeGitHubConfiguration()
-
-		expect(createCheckRun({ githubFetch }, configuration, "headSha123", "Test", { title: "T", summary: "S" })).rejects.toThrow("Failed to create check run")
-	})
-
-	it("throws when response is missing id", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({}), { status: 201 })
-		const configuration = makeGitHubConfiguration()
-
-		expect(createCheckRun({ githubFetch }, configuration, "headSha123", "Test", { title: "T", summary: "S" })).rejects.toThrow("Invalid check run response")
-	})
-})
-
-describe("updateCheckRun", () => {
-	it("sends PATCH to /check-runs/{id} with correct payload", async () => {
-		let capturedUrl = ""
-		let capturedBody = ""
-		const githubFetch: GitHubFetch = async (url, options) => {
-			capturedUrl = url
-			capturedBody = options.body as string
+			capturedMethod = options.method ?? ""
 			return new Response(null, { status: 200 })
 		}
 		const configuration = makeGitHubConfiguration()
 
-		await updateCheckRun({ githubFetch }, configuration, 999, "failure", {
-			title: "Failed",
-			summary: "It broke",
-			text: "Stack trace here",
-		})
+		await removePullRequestLabel({ githubFetch }, configuration, "Review Start")
 
-		expect(capturedUrl).toBe("https://api.github.com/repos/owner/repo/check-runs/999")
-		const payload = JSON.parse(capturedBody)
-		expect(payload.status).toBe("completed")
-		expect(payload.conclusion).toBe("failure")
-		expect(payload.output.title).toBe("Failed")
+		expect(capturedMethod).toBe("DELETE")
+		expect(capturedUrl).toBe("https://api.github.com/repos/owner/repo/issues/42/labels/Review%20Start")
 	})
 
-	it("throws on non-ok response", async () => {
-		const githubFetch: GitHubFetch = async () => new Response("Not found", { status: 404, statusText: "Not Found" })
+	it("throws with the status and body on non-ok response", async () => {
+		const githubFetch: GitHubFetch = async () => new Response("Label does not exist", { status: 404, statusText: "Not Found" })
 		const configuration = makeGitHubConfiguration()
 
-		expect(updateCheckRun({ githubFetch }, configuration, 1, "success", { title: "T", summary: "S" })).rejects.toThrow("Failed to update check run")
+		expect(removePullRequestLabel({ githubFetch }, configuration, "Review Start")).rejects.toThrow("Failed to remove label \"Review Start\": 404 Not Found\nLabel does not exist")
 	})
 })
-
-describe("findActiveCheckRunByName", () => {
-	it("returns the id of the in-progress check run matching the name", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({
-			check_runs: [
-				{ id: 100, name: "ci-agent", status: "completed" },
-				{ id: 200, name: "ci-agent", status: "in_progress" },
-				{ id: 300, name: "other-job", status: "in_progress" },
-			],
-		}), { status: 200 })
-		const configuration = makeGitHubConfiguration()
-
-		const id = await findActiveCheckRunByName({ githubFetch }, configuration, "headSha123", "ci-agent")
-
-		expect(id).toBe(200)
-	})
-
-	it("returns null when no in-progress check run matches the name", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({
-			check_runs: [
-				{ id: 100, name: "ci-agent", status: "completed" },
-				{ id: 300, name: "other-job", status: "in_progress" },
-			],
-		}), { status: 200 })
-		const configuration = makeGitHubConfiguration()
-
-		const id = await findActiveCheckRunByName({ githubFetch }, configuration, "headSha123", "ci-agent")
-
-		expect(id).toBeNull()
-	})
-
-	it("returns null on non-ok response", async () => {
-		const githubFetch: GitHubFetch = async () => new Response("Not found", { status: 404, statusText: "Not Found" })
-		const configuration = makeGitHubConfiguration()
-
-		const id = await findActiveCheckRunByName({ githubFetch }, configuration, "headSha123", "ci-agent")
-
-		expect(id).toBeNull()
-	})
-
-	it("returns null when response has invalid structure", async () => {
-		const githubFetch: GitHubFetch = async () => new Response(JSON.stringify({ unexpected: "shape" }), { status: 200 })
-		const configuration = makeGitHubConfiguration()
-
-		const id = await findActiveCheckRunByName({ githubFetch }, configuration, "headSha123", "ci-agent")
-
-		expect(id).toBeNull()
-	})
-
-	it("includes the check name as a query parameter", async () => {
-		let capturedUrl = ""
-		const githubFetch: GitHubFetch = async (url) => {
-			capturedUrl = url
-			return new Response(JSON.stringify({ check_runs: [] }), { status: 200 })
-		}
-		const configuration = makeGitHubConfiguration()
-
-		await findActiveCheckRunByName({ githubFetch }, configuration, "headSha123", "ci-agent")
-
-		expect(capturedUrl).toContain("/commits/headSha123/check-runs")
-		expect(capturedUrl).toContain("check_name=ci-agent")
-	})
-})
-

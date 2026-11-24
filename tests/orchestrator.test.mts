@@ -45,47 +45,17 @@ function makeSpawnGitWithDiff(diffText: string): SpawnGit {
 	}
 }
 
-type CheckRunCreated = { name: string; headSha: string; output: { title: string; summary: string; text?: string } }
-type CheckRunUpdated = { id: number; conclusion: string; output: { title: string; summary: string; text?: string } }
-
-function makeGithubFetch(options: { diffText?: string, baseCommit?: string, headCommit?: string, diffError?: Error, submitStatus?: number, submitResponses?: readonly { status: number; body?: string }[], checkRunCreateStatus?: number, checkRunUpdateStatus?: number, checkRunList?: readonly { id: number; name: string; status: string }[] } = {}): { githubFetch: GitHubFetch, submitCallCount: () => number, submittedReviews: () => readonly GitHubReviewPayload[], createdCheckRuns: () => readonly CheckRunCreated[], updatedCheckRuns: () => readonly CheckRunUpdated[] } {
+function makeGithubFetch(options: { diffText?: string, baseCommit?: string, labelNames?: readonly string[], diffError?: Error, submitStatus?: number, submitResponses?: readonly { status: number; body?: string }[] } = {}): { githubFetch: GitHubFetch, submitCallCount: () => number, submittedReviews: () => readonly GitHubReviewPayload[] } {
 	let submitIndex = 0
 	const reviewBodies: GitHubReviewPayload[] = []
-	const createdRuns: CheckRunCreated[] = []
-	const updatedRuns: CheckRunUpdated[] = []
-
-	const handleCheckRunUpdate = (url: string, init: RequestInit): Response => {
-		const idMatch = /\/check-runs\/(\d+)/.exec(url)
-		if (idMatch === null) throw new Error(`Invalid PATCH URL for check-runs: ${url}`)
-		const id = Number.parseInt(idMatch[1]!, 10)
-		if (options.checkRunUpdateStatus !== undefined && options.checkRunUpdateStatus !== 200) {
-			return new Response(null, { status: options.checkRunUpdateStatus, statusText: "Error" })
-		}
-		const payload = JSON.parse(init.body as string)
-		updatedRuns.push({ id, conclusion: payload.conclusion, output: payload.output })
-		return new Response(null, { status: 200 })
-	}
-
-	const handleCheckRunCreate = (init: RequestInit): Response => {
-		if (options.checkRunCreateStatus !== undefined && options.checkRunCreateStatus !== 201) {
-			return new Response(null, { status: options.checkRunCreateStatus, statusText: "Error" })
-		}
-		const payload = JSON.parse(init.body as string)
-		createdRuns.push({ name: payload.name, headSha: payload.head_sha, output: payload.output })
-		return new Response(JSON.stringify({ id: createdRuns.length }), { status: 201 })
-	}
-
-	const handleCheckRunList = (): Response => {
-		const runs = options.checkRunList ?? [{ id: 555, name: "ci-agent", status: "in_progress" }]
-		return new Response(JSON.stringify({ check_runs: runs }), { status: 200 })
-	}
 
 	const handlePullRequest = (init: RequestInit): Response => {
 		const headers = new Headers(init.headers)
 		const isDiffRequest = headers.get("Accept") === "application/vnd.github.diff"
 		if (options.diffError && isDiffRequest) throw options.diffError
 		if (isDiffRequest) return new Response(options.diffText ?? "", { status: 200 })
-		return new Response(JSON.stringify({ base: { sha: options.baseCommit ?? "base123" }, head: { sha: options.headCommit ?? "head456" } }), { status: 200 })
+		const labels = (options.labelNames ?? []).map(name => ({ name }))
+		return new Response(JSON.stringify({ base: { sha: options.baseCommit ?? "base123" }, labels }), { status: 200 })
 	}
 
 	const handleReviews = (init: RequestInit): Response => {
@@ -108,15 +78,12 @@ function makeGithubFetch(options: { diffText?: string, baseCommit?: string, head
 
 	const githubFetch: GitHubFetch = async (url, init) => {
 		const method = init.method ?? "GET"
-		if (method === "PATCH" && /\/check-runs\/\d+/.test(url)) return handleCheckRunUpdate(url, init)
 		if (method === "POST" && /\/reviews/.test(url)) return handleReviews(init)
-		if (method === "POST" && /\/check-runs$/.test(url)) return handleCheckRunCreate(init)
-		if (method === "GET" && /\/commits\/[^/]+\/check-runs/.test(url)) return handleCheckRunList()
 		if (url.includes("/pulls/")) return handlePullRequest(init)
 		throw new Error(`Unexpected githubFetch call: ${method} ${url}`)
 	}
 
-	return { githubFetch, submitCallCount: () => submitIndex, submittedReviews: () => reviewBodies, createdCheckRuns: () => createdRuns, updatedCheckRuns: () => updatedRuns }
+	return { githubFetch, submitCallCount: () => submitIndex, submittedReviews: () => reviewBodies }
 }
 
 const SAMPLE_DIFF = [
@@ -131,7 +98,6 @@ const SAMPLE_DIFF = [
 describe("runOnCommentTrigger", () => {
 	it("returns early when comment does not trigger review", async () => {
 		let fetchCalled = false
-		let submitCalled = false
 
 		await runOnCommentTrigger(
 			{
@@ -153,17 +119,16 @@ describe("runOnCommentTrigger", () => {
 		)
 
 		expect(fetchCalled).toBe(false)
-		expect(submitCalled).toBe(false)
 	})
 
 	it("returns early when no files changed", async () => {
-		let submitCalled = false
+		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: "" })
 
 		await runOnCommentTrigger(
 			{
 				spawnGit: makeSpawnGitOk(),
 				readAgents: makeReadAgents([]),
-				githubFetch: makeGithubFetch({ diffText: "" }).githubFetch,
+				githubFetch,
 				fetch: makeFetch(""),
 				logger: silentLogger,
 				debugWriter: noopDebugWriter,
@@ -178,7 +143,7 @@ describe("runOnCommentTrigger", () => {
 			IDENTITY_PROFILE,
 		)
 
-		expect(submitCalled).toBe(false)
+		expect(submittedReviews()).toHaveLength(0)
 	})
 
 	it("submits review when triggered and files exist", async () => {
@@ -206,95 +171,6 @@ describe("runOnCommentTrigger", () => {
 		expect(submittedReviews()).toHaveLength(1)
 		expect(submittedReviews()[0]!.event).toBe("COMMENT")
 		expect(submittedReviews()[0]!.body).toContain("Good work")
-	})
-
-	it("creates a check run named 'CI Agent Comment Reviewer' on success and updates it to success", async () => {
-		const { githubFetch, createdCheckRuns, updatedCheckRuns } = makeGithubFetch({ diffText: SAMPLE_DIFF })
-
-		await runOnCommentTrigger(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
-				githubFetch,
-				fetch: makeFetch("Good work"),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makeCommentTriggerConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)
-
-		expect(createdCheckRuns()).toHaveLength(1)
-		expect(createdCheckRuns()[0]!.name).toBe("CI Agent Comment Reviewer")
-		expect(createdCheckRuns()[0]!.headSha).toBe("head456")
-		expect(updatedCheckRuns()).toHaveLength(1)
-		expect(updatedCheckRuns()[0]!.conclusion).toBe("success")
-	})
-
-	it("updates check run with failure output and re-throws when the review fails", async () => {
-		const readAgents: AgentReader = async () => { throw new Error("Read failure") }
-		const { githubFetch, createdCheckRuns, updatedCheckRuns } = makeGithubFetch({ diffText: SAMPLE_DIFF })
-
-		await expect(runOnCommentTrigger(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents,
-				githubFetch,
-				fetch: makeFetch(""),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makeCommentTriggerConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)).rejects.toThrow("Read failure")
-
-		expect(createdCheckRuns()).toHaveLength(1)
-		expect(updatedCheckRuns()).toHaveLength(1)
-		expect(updatedCheckRuns()[0]!.conclusion).toBe("failure")
-		expect(updatedCheckRuns()[0]!.output.title).toBe("CI Agent Comment Reviewer failed")
-		expect(updatedCheckRuns()[0]!.output.text).toContain("Read failure")
-	})
-
-	it("propagates the createCheckRun error when check run creation fails", async () => {
-		const { githubFetch, createdCheckRuns, updatedCheckRuns, submittedReviews } = makeGithubFetch({
-			diffText: SAMPLE_DIFF,
-			checkRunCreateStatus: 500,
-		})
-
-		await expect(runOnCommentTrigger(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
-				githubFetch,
-				fetch: makeFetch("Good work"),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makeCommentTriggerConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)).rejects.toThrow("Failed to create check run")
-
-		expect(createdCheckRuns()).toHaveLength(0)
-		expect(updatedCheckRuns()).toHaveLength(0)
-		expect(submittedReviews()).toHaveLength(0)
 	})
 
 	it("propagates error when fetchPullRequestDiff throws", async () => {
@@ -337,35 +213,6 @@ describe("runOnCommentTrigger", () => {
 			100_000,
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("Failed to submit review")
-	})
-
-	it("does not throw when updateCheckRun fails on the success path", async () => {
-		const { githubFetch, updatedCheckRuns, submittedReviews } = makeGithubFetch({
-			diffText: SAMPLE_DIFF,
-			checkRunUpdateStatus: 500,
-		})
-
-		await runOnCommentTrigger(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
-				githubFetch,
-				fetch: makeFetch("Good work"),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makeCommentTriggerConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)
-
-		expect(submittedReviews()).toHaveLength(1)
-		expect(updatedCheckRuns()).toHaveLength(0)
 	})
 
 	it("forwards the configured max tokens to the request bodies", async () => {
@@ -488,13 +335,13 @@ describe("runOnCommentTrigger", () => {
 
 describe("runOnPullRequest", () => {
 	it("returns early when no files changed", async () => {
-		let submitCalled = false
+		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: "" })
 
 		await runOnPullRequest(
 			{
 				spawnGit: makeSpawnGitOk(),
 				readAgents: makeReadAgents([]),
-				githubFetch: makeGithubFetch({ diffText: "" }).githubFetch,
+				githubFetch,
 				fetch: makeFetch(""),
 				logger: silentLogger,
 				debugWriter: noopDebugWriter,
@@ -509,7 +356,7 @@ describe("runOnPullRequest", () => {
 			IDENTITY_PROFILE,
 		)
 
-		expect(submitCalled).toBe(false)
+		expect(submittedReviews()).toHaveLength(0)
 	})
 
 	it("submits review after analysis", async () => {
@@ -564,101 +411,6 @@ describe("runOnPullRequest", () => {
 		expect(capturedBodies).toHaveLength(2)
 		expect(JSON.parse(capturedBodies[0]!).max_tokens).toBe(250_000)
 		expect(JSON.parse(capturedBodies[1]!).max_tokens).toBe(250_000)
-	})
-
-	it("finds the existing 'ci-agent' check run and updates it to success", async () => {
-		const { githubFetch, createdCheckRuns, updatedCheckRuns } = makeGithubFetch({
-			diffText: SAMPLE_DIFF,
-			checkRunList: [{ id: 555, name: "ci-agent", status: "in_progress" }],
-		})
-
-		await runOnPullRequest(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
-				githubFetch,
-				fetch: makeFetch("Great work"),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makePullRequestConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)
-
-		expect(createdCheckRuns()).toHaveLength(0)
-		expect(updatedCheckRuns()).toHaveLength(1)
-		expect(updatedCheckRuns()[0]!.id).toBe(555)
-		expect(updatedCheckRuns()[0]!.conclusion).toBe("success")
-		expect(updatedCheckRuns()[0]!.output.title).toBe("CI Agent Pull Request Reviewer")
-	})
-
-	it("updates existing check run with failure output and re-throws on error", async () => {
-		const readAgents: AgentReader = async () => { throw new Error("Read failure") }
-		const { githubFetch, createdCheckRuns, updatedCheckRuns } = makeGithubFetch({
-			diffText: SAMPLE_DIFF,
-			checkRunList: [{ id: 555, name: "ci-agent", status: "in_progress" }],
-		})
-
-		await expect(runOnPullRequest(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents,
-				githubFetch,
-				fetch: makeFetch(""),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makePullRequestConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)).rejects.toThrow("Read failure")
-
-		expect(createdCheckRuns()).toHaveLength(0)
-		expect(updatedCheckRuns()).toHaveLength(1)
-		expect(updatedCheckRuns()[0]!.id).toBe(555)
-		expect(updatedCheckRuns()[0]!.conclusion).toBe("failure")
-		expect(updatedCheckRuns()[0]!.output.text).toContain("Read failure")
-	})
-
-	it("throws when no existing 'ci-agent' check run is found", async () => {
-		const { githubFetch, createdCheckRuns, updatedCheckRuns, submittedReviews } = makeGithubFetch({
-			diffText: SAMPLE_DIFF,
-			checkRunList: [{ id: 555, name: "other-job", status: "in_progress" }],
-		})
-
-		await expect(runOnPullRequest(
-			{
-				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([makeAgent(), { name: "Aggregator", prompt: "Aggregate." }]),
-				githubFetch,
-				fetch: makeFetch("Great work"),
-				logger: silentLogger,
-				debugWriter: noopDebugWriter,
-				sleep: instantSleep,
-				random: fixedRandom,
-			},
-			makePullRequestConfiguration(),
-			userAgentsDirectory,
-			builtinAgentsDirectory,
-			"test-model",
-			100_000,
-			IDENTITY_PROFILE,
-		)).rejects.toThrow(`No active check run named "ci-agent" found for head SHA head456`)
-
-		expect(createdCheckRuns()).toHaveLength(0)
-		expect(updatedCheckRuns()).toHaveLength(0)
-		expect(submittedReviews()).toHaveLength(0)
 	})
 
 	it("propagates error when fetchPullRequestDiff throws", async () => {
