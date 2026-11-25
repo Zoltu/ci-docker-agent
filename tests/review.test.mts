@@ -266,7 +266,7 @@ describe("review body hardening", () => {
 	})
 
 	it("passes a body that leaves a details block open through unchanged and still ends with the repeat", () => {
-		// A raw HTML block is not tracked, so the fence line inside this one is read as a fence and the opener after it survives: the top notice is the primary signal and the repeat is best effort.
+		// A raw HTML block is not tracked, so the fence line inside this one is read as a fence and the opener after it survives.
 		const bodyLeavingDetailsOpen: AiReviewResult = { body: ["<details>", "```html", "<!-- opened by the diff"].join("\n"), comments: [] }
 		const body = buildReviewPayload(bodyLeavingDetailsOpen, partialCoverage(["Security"], 2)).body
 

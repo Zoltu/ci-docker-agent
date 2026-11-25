@@ -119,6 +119,7 @@ export function buildReviewPayload(aiResult: AiReviewResult, coverage: ReviewerC
 
 	// A long review scrolls the first line out of view, so a partial review states the same warning again as the last line.
 	// A fence the body left open renders that repeat as literal code, so it is closed first, adding a line and leaving the fenced content byte-exact.
+	// An unclosed `<details>` element can still swallow that repeat, and hardening that further was judged too costly relative to the risk.
 	if (coverage.kind === "partial") {
 		if (neutralizedBody.openFence !== null) bodyLines.push(formatFenceCloser(neutralizedBody.openFence))
 		bodyLines.push("", reviewerRunNotice)

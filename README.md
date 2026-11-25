@@ -201,8 +201,7 @@ The notice follows these rules for its numbers and names:
 `All` means the run covered every reviewer a run with no selector labels would use, so applying every selector label explicitly also reads as a full review, and a selector that adds a reviewer on top of them also leaves nothing out, with its count still covering every reviewer that ran.
 The `All` in the notice is unrelated to the legacy `Reviewer - All` label; see [Selection Rules](#selection-rules) for what that label does.
 
-The first warning is the primary signal, because the tool writes it into the review itself, where no body content can affect it, while the repeat is defence in depth and best effort.
-The tool neutralises HTML comment openers in the review body and closes a code fence the body leaves open, but it does not attempt to defeat every construct a body could leave open, such as an unclosed `<details>` element, which can still swallow the repeat.
+The tool neutralises HTML comment openers in the review body and closes a code fence the body leaves open.
 
 The workflow run itself owns the check status; the agent submits a review only.
 
