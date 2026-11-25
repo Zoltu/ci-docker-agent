@@ -201,9 +201,6 @@ The notice follows these rules for its numbers and names:
 `All` means the run covered every reviewer a run with no selector labels would use, so applying every selector label explicitly also reads as a full review, and a selector that adds a reviewer on top of them also leaves nothing out, with its count still covering every reviewer that ran.
 The `All` in the notice is unrelated to the legacy `Reviewer - All` label; see [Selection Rules](#selection-rules) for what that label does.
 
-The tool neutralises HTML comment openers in the review body.
-A partial review closes a code fence the body leaves open, so the repeated warning renders below the fence instead of as its content.
-
 The workflow run itself owns the check status; the agent submits a review only.
 
 ## GitHub Actions Integration
