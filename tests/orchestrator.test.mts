@@ -6,6 +6,7 @@ import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import type { Fetch, Random, Sleep } from "../source/agent-loop.mts"
 import type { GitHubFetch } from "../source/github.mts"
+import type { Logger } from "../source/logger.mts"
 import { BASE_COMMIT_SHA, makeAgent, makeLabelTriggerConfiguration, makePullRequestConfiguration, makeLocalDiffConfiguration, createMockLogger, createMockAgentFetch, buildContentSse } from "./helpers.mts"
 import type { DebugWriter } from "../source/debug.mts"
 import type { GitHubReviewPayload } from "../source/github-types.mts"
@@ -17,6 +18,12 @@ const fixedRandom: Random = () => 1
 
 const userAgentsDirectory = "/test/user-agents"
 const builtinAgentsDirectory = "/test/builtin-agents"
+
+// The shipped builtin agents directory holds the Default reviewer and the Aggregator, so a repository with no .ci-agents of its own reviews with Default alone.
+const shippedBuiltinAgents: Agent[] = [
+	{ name: "Default", prompt: "Builtin default prompt." },
+	{ name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." },
+]
 
 function makeReadAgents(userAgents: Agent[], builtinAgents: Agent[] = []): AgentReader {
 	return async (directory: string) => {
@@ -136,7 +143,7 @@ describe("runOnPullRequest", () => {
 		await runOnPullRequest(
 			{
 				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([]),
+				readAgents: makeReadAgents([], shippedBuiltinAgents),
 				githubFetch,
 				fetch: makeFetch(""),
 				logger: silentLogger,
@@ -183,6 +190,35 @@ describe("runOnPullRequest", () => {
 		expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (1 of 1).")
 	})
 
+	it("reports a full review of the built-in Default when the repository ships no prompt", async () => {
+		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF })
+
+		await runOnPullRequest(
+			{
+				spawnGit: makeSpawnGitOk(),
+				readAgents: makeReadAgents([], shippedBuiltinAgents),
+				githubFetch,
+				fetch: makeFetch("Great work"),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makePullRequestConfiguration(),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			100_000,
+			IDENTITY_PROFILE,
+		)
+
+		// A repository without .ci-agents resolves the built-in Default alone, so an automatic run on an opened pull request is a full review of one reviewer and its total cannot fall below that count.
+		expect(submittedReviews()).toHaveLength(1)
+		expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (1 of 1).")
+		expect(submittedReviews()[0]!.body).not.toContain("**")
+		expect(submittedReviews()[0]!.body).not.toContain("> ")
+	})
+
 	it("warns when the configured AGENTS names only some of the reviewers", async () => {
 		const userAgents: Agent[] = [
 			{ name: "Bug Hunter", prompt: "Bug hunter prompt." },
@@ -212,6 +248,35 @@ describe("runOnPullRequest", () => {
 
 		const partialNotice = "> **Reviewers: only 1 of 2 ran (`Security`). The remaining reviewers did not run, so this is not a full review.**"
 		expect(submittedReviews()[0]!.body.split(partialNotice)).toHaveLength(3)
+	})
+
+	it("reports a full review when AGENTS names every selectable reviewer, including the built-in Default", async () => {
+		const builtinAgents: Agent[] = [{ name: "Default", prompt: "Builtin default prompt." }]
+		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF })
+
+		await runOnPullRequest(
+			{
+				spawnGit: makeSpawnGitOk(),
+				readAgents: makeReadAgents([{ name: "Security", prompt: "Security prompt." }, { name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." }], builtinAgents),
+				githubFetch,
+				fetch: makeFetch("Great work"),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makePullRequestConfiguration({ agents: ["Security", "Default"] }),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			100_000,
+			IDENTITY_PROFILE,
+		)
+
+		// AGENTS can name the built-in Default too, so a selection that names every selectable reviewer left nobody out and must not report more reviewers than the run had.
+		expect(submittedReviews()).toHaveLength(1)
+		expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (2 of 2).")
+		expect(submittedReviews()[0]!.body).not.toContain("**")
 	})
 
 	it("removes no label, even when the trigger label is on the pull request", async () => {
@@ -310,7 +375,7 @@ describe("runOnPullRequest", () => {
 		await expect(runOnPullRequest(
 			{
 				spawnGit: makeSpawnGitOk(),
-				readAgents: makeReadAgents([]),
+				readAgents: makeReadAgents([], shippedBuiltinAgents),
 				githubFetch: makeGithubFetch({ diffError: new Error("API error") }).githubFetch,
 				fetch: makeFetch(""),
 				logger: silentLogger,
@@ -521,6 +586,46 @@ describe("runOnLabelTrigger", () => {
 			for (const snapshot of deletedLabelSnapshots) expect(deletedLabelNames(snapshot)).toEqual([REVIEW_START_LABEL, "Reviewer - Security", "Reviewer - Bug Hunter"])
 			expect(submittedReviews()).toHaveLength(1)
 		})
+
+		it("logs every label it removes on one line", async () => {
+			// A label name can carry an invisible character that the DELETE encoding passes through, so the log line escapes it like every other untrusted name.
+			const hostileReviewerName = "Bug\u202eHunter"
+			const labelNames = [REVIEW_START_LABEL, "Reviewer - Security", `Reviewer - ${hostileReviewerName}`]
+			const userAgents: Agent[] = [
+				{ name: "Security", prompt: "Security prompt." },
+				{ name: hostileReviewerName, prompt: "Hostile prompt." },
+				{ name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." },
+			]
+			const { githubFetch, deletedLabelUrls } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames })
+			const logLines: string[] = []
+			const logger: Logger = { log: (...data: unknown[]) => logLines.push(data.map(String).join(" ")) }
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(userAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL, "Reviewer - Security", `Reviewer - ${hostileReviewerName}`])
+			expect(logLines.filter(line => line.startsWith("Removed label"))).toEqual([
+				`Removed label "${REVIEW_START_LABEL}"`,
+				"Removed label \"Reviewer - Security\"",
+				"Removed label \"Reviewer - Bug\\u202eHunter\"",
+			])
+		})
 	})
 
 	describe("agent selection", () => {
@@ -590,6 +695,38 @@ describe("runOnLabelTrigger", () => {
 			expect(submittedReviews()[0]!.body).not.toContain("**")
 		})
 
+		it("reports a full review of the built-in Default when the repository ships no prompt", async () => {
+			const capturedBodies: string[] = []
+			const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents([], shippedBuiltinAgents),
+					githubFetch,
+					fetch: makeFetch("Good work", capturedBodies),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			// No selector label is applied, so the run keeps the all-reviewer selection, and with no .ci-agents directory that selection is the built-in Default alone: a full review of one reviewer rather than a warning whose total is smaller than the run.
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
+			expect(capturedBodies).toHaveLength(2)
+			expect(submittedReviews()).toHaveLength(1)
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (1 of 1).")
+			expect(submittedReviews()[0]!.body).not.toContain("**")
+			expect(submittedReviews()[0]!.body).not.toContain("> ")
+		})
+
 		it("reports a full review when every selector label is applied explicitly", async () => {
 			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Bug Hunter", "Reviewer - Security"] })
 
@@ -616,6 +753,90 @@ describe("runOnLabelTrigger", () => {
 			expect(submittedReviews()).toHaveLength(1)
 			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (2 of 2).")
 			expect(submittedReviews()[0]!.body).not.toContain("**")
+		})
+
+		it("reads a selector for every repository prompt as a full review beside the shipped built-in agents", async () => {
+			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Bug Hunter", "Reviewer - Security"] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents, shippedBuiltinAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			// The shipped built-in Default is selectable but opt-in, so a run that labels every prompt of its own reviews exactly the reviewers a bare run uses and must not read as narrowed.
+			expect(submittedReviews()).toHaveLength(1)
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (2 of 2).")
+			expect(submittedReviews()[0]!.body).not.toContain("**")
+		})
+
+		it("reports a full review when the labels name every selectable reviewer, including the built-in Default", async () => {
+			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Bug Hunter", "Reviewer - Security", "Reviewer - Default"] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents, builtinOnlyAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			// A selector label can name the built-in Default too, so this run left nobody out and a subset warning here would carry a total smaller than the selection.
+			expect(submittedReviews()).toHaveLength(1)
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (3 of 3).")
+			expect(submittedReviews()[0]!.body).not.toContain("**")
+		})
+
+		it("reports the reference denominator when a selection adds the built-in Default but leaves a repository prompt out", async () => {
+			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Security", "Reviewer - Default"] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents, builtinOnlyAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			// `namedAgents` holds Bug Hunter and Security, so this run left Bug Hunter out while adding the built-in Default: one of the two reference reviewers ran, and the list names both reviewers that ran.
+			expect(submittedReviews()).toHaveLength(1)
+			expect(submittedReviews()[0]!.body).toContain("> **Reviewers: only 1 of 2 ran (`Security`, `Default`). The remaining reviewers did not run, so this is not a full review.**")
+			expect(submittedReviews()[0]!.body).not.toContain("Reviewers: All ran")
 		})
 
 		it("ignores a label that does not look like a selector and runs every user agent", async () => {
@@ -809,6 +1030,39 @@ describe("runOnLabelTrigger", () => {
 
 			// The label that fails the run is removed with the rest, so a leftover costs one failed run rather than a manual cleanup.
 			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL, "Reviewer - All", "Reviewer - Security"])
+			expect(submitCallCount()).toBe(0)
+		})
+
+		it("rejects case-colliding prompt files after removing the trigger label and the selector label", async () => {
+			const collidingAgents: Agent[] = [
+				{ name: "Security", prompt: "Security prompt." },
+				{ name: "security", prompt: "Lowercase prompt." },
+				{ name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." },
+			]
+			const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Security"] })
+
+			await expect(runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(collidingAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)).rejects.toThrow('Duplicate agent prompt file names: "Security" and "security"')
+
+			// The selector label matches one of the two files case-sensitively, so the run must fail rather than review with one prompt and call that a full review.
+			// The labels are gone either way, so the run is retryable by adding the trigger label back once the prompt directory is fixed.
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL, "Reviewer - Security"])
 			expect(submitCallCount()).toBe(0)
 		})
 

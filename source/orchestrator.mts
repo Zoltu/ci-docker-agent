@@ -1,6 +1,6 @@
 import type { Fetch, Random, Sleep } from "./agent-loop.mts"
-import type { AgentNames, AgentReader } from "./agents.mts"
-import { loadAgents, loadAggregator, selectAllReviewerNames, selectableAgentNames } from "./agents.mts"
+import type { Agent, AgentReader, ReviewerRun } from "./agents.mts"
+import { loadAggregator, loadReviewerRun } from "./agents.mts"
 import { analyze } from "./ai.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
 import type { LabelTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
@@ -29,15 +29,14 @@ type OrchestratorDependencies = {
 	random: Random
 }
 
-async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
-	const agents = await loadAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, agentNames)
+async function runAnalysis(dependencies: OrchestratorDependencies, agents: readonly Agent[], userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
 	const aggregator = await loadAggregator(dependencies, userAgentsDirectory, builtinAgentsDirectory)
 	await ensureCommitAvailable(dependencies, baseCommit)
 	const baseCommitContext = await getBaseCommitContext(dependencies, baseCommit)
 	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model, maxTokens, profile, submit)
 }
 
-async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, allReviewerNames: readonly string[], baseSha: string, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
+async function submitPrReview(dependencies: OrchestratorDependencies, reviewerRun: ReviewerRun, baseSha: string, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const diffText = await fetchPullRequestDiff(dependencies, githubConfiguration)
 
 	if (diffText.trim() === "") {
@@ -46,7 +45,7 @@ async function submitPrReview(dependencies: OrchestratorDependencies, agentNames
 	}
 
 	const submit = async (result: AiReviewResult): Promise<AggregatorSubmitResult> => {
-		const outcome = await submitReview(dependencies, githubConfiguration, buildReviewPayload(result, agentNames, allReviewerNames))
+		const outcome = await submitReview(dependencies, githubConfiguration, buildReviewPayload(result, reviewerRun.coverage))
 		if (outcome.ok) return { kind: "ok" }
 		if (outcome.status === 422) {
 			dependencies.logger.log(`GitHub rejected aggregator output with ${outcome.status}, sending feedback to aggregator`)
@@ -55,15 +54,15 @@ async function submitPrReview(dependencies: OrchestratorDependencies, agentNames
 		// main prints the fatal message, so a multi-line body would forge extra log lines; the retry feedback above is read by the aggregator as data and keeps the body byte-exact.
 		return { kind: "fatal", message: `Failed to submit review: ${outcome.status} ${sanitizeForSingleLine(outcome.body)}` }
 	}
-	await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseSha, model, maxTokens, profile, submit)
+	await runAnalysis(dependencies, reviewerRun.agents, userAgentsDirectory, builtinAgentsDirectory, diffText, baseSha, model, maxTokens, profile, submit)
 	dependencies.logger.log("PR review submitted successfully")
 }
 
 export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
-	// The notice in the submitted review names every reviewer the run could have used, so the set is read before the review body is built.
-	const allReviewerNames = selectAllReviewerNames(await dependencies.readAgents(userAgentsDirectory))
-	await submitPrReview(dependencies, configuration.agents, allReviewerNames, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
+	// The configured selection and the notice's coverage claim come from one read of the prompt directories, so the notice cannot describe a different set of reviewers than the run used.
+	const reviewerRun = await loadReviewerRun(dependencies, userAgentsDirectory, builtinAgentsDirectory, () => configuration.agents)
+	await submitPrReview(dependencies, reviewerRun, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 
 export async function runOnLabelTrigger(dependencies: OrchestratorDependencies, configuration: LabelTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
@@ -74,13 +73,14 @@ export async function runOnLabelTrigger(dependencies: OrchestratorDependencies, 
 	// The trigger label and every selector label are removed before any validation and before any agent runs, so a run that fails hard can be retried by adding the one label back and no selector can narrow a later run.
 	for (const labelName of selectLabelNamesToRemove(metadata.labelNames, configuration.triggerLabel)) {
 		await removePullRequestLabel(dependencies, configuration.github, labelName)
+		// A removed label is gone from the pull request, so the run's own log is the only record of what it consumed.
+		// A label name can carry an invisible character that would make that record read differently from the bytes deleted, so it is escaped like every other untrusted name.
+		dependencies.logger.log(`Removed label "${sanitizeForSingleLine(labelName)}"`)
 	}
 
-	const userAgents = await dependencies.readAgents(userAgentsDirectory)
-	const builtinAgents = await dependencies.readAgents(builtinAgentsDirectory)
-	const agentNames = selectAgentNamesFromLabels(metadata.labelNames, selectableAgentNames(userAgents, builtinAgents))
-	const allReviewerNames = selectAllReviewerNames(userAgents)
-	await submitPrReview(dependencies, agentNames, allReviewerNames, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
+	// The labels the pull request carried are the selection input even though they are now gone, so the selection is made from the metadata read before removal.
+	const reviewerRun = await loadReviewerRun(dependencies, userAgentsDirectory, builtinAgentsDirectory, availableAgentNames => selectAgentNamesFromLabels(metadata.labelNames, availableAgentNames))
+	await submitPrReview(dependencies, reviewerRun, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 
 // workspaceDirectory is advisory and only appears in diagnostics.
@@ -92,6 +92,7 @@ export async function runOnLocalDiff(dependencies: OrchestratorDependencies, con
 
 	if (diffText.trim() === "") return "No files changed, nothing to review"
 
-	const aiResult = await runAnalysis(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, maxTokens, profile)
+	const reviewerRun = await loadReviewerRun(dependencies, userAgentsDirectory, builtinAgentsDirectory, () => configuration.agents)
+	const aiResult = await runAnalysis(dependencies, reviewerRun.agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, maxTokens, profile)
 	return formatReviewForConsole(aiResult)
 }

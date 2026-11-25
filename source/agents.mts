@@ -13,6 +13,17 @@ export interface Agent {
 
 export type AgentReader = (directory: string) => Promise<Agent[]>
 
+// A full claim carries only the number of reviewers that ran; a partial claim carries both counts, because the reference reviewers that ran and the reviewers that ran differ whenever a selection adds a reviewer the reference set does not hold.
+export type ReviewerCoverage =
+	| { readonly kind: "full"; readonly reviewerCount: number }
+	| { readonly kind: "partial"; readonly ranReviewerNames: readonly string[]; readonly ranReferenceReviewerCount: number; readonly referenceReviewerCount: number }
+
+// A run's agents together with the coverage claim about exactly those agents, so a caller cannot pair a full claim with a list that leaves a reference reviewer out.
+export interface ReviewerRun {
+	readonly agents: readonly Agent[]
+	readonly coverage: ReviewerCoverage
+}
+
 // Both the aggregator prompt file and the aggregator selector are matched case-insensitively, so an override named `aggregator.md` behaves like the canonical file everywhere.
 export const AGGREGATOR_AGENT_NAME = "Aggregator" as const
 
@@ -55,9 +66,24 @@ function findAggregator(agents: Agent[]): Agent | null {
 	return agents.find(a => isAggregatorName(a.name)) ?? null
 }
 
+// A prompt file name is matched case-insensitively, so two files whose names differ only by case are one reviewer and only one of them would ever run.
+// That is a repository misconfiguration, so it fails where a name list is built rather than being collapsed into a count that reports the prompt it skipped as a reviewer that ran.
+function assertDistinctAgentNames(agents: readonly Agent[]): void {
+	const firstNameByKey = new Map<string, string>()
+	for (const agent of agents) {
+		const key = agent.name.toLowerCase()
+		const firstName = firstNameByKey.get(key)
+		if (firstName !== undefined) throw new Error(`Duplicate agent prompt file names: "${sanitizeForSingleLine(firstName)}" and "${sanitizeForSingleLine(agent.name)}". Two prompt files whose names differ only by case are one reviewer, so only one of them would ever run; rename or delete one of them.`)
+		firstNameByKey.set(key, agent.name)
+	}
+}
+
 // The aggregator prompt file sits in an agent directory too, so without this the available-agent list would advertise a selector that always fails.
-// A user prompt can shadow a builtin name, so each name appears once, in the order the directories are passed.
+// A user prompt can shadow a builtin name, so each name appears once, in the order the directories are passed; a collision inside one directory is a duplicate prompt instead, which the next selector label would otherwise resolve against only one of.
 export function selectableAgentNames(userAgents: readonly Agent[], builtinAgents: readonly Agent[]): readonly string[] {
+	assertDistinctAgentNames(userAgents)
+	assertDistinctAgentNames(builtinAgents)
+
 	const names: string[] = []
 	const seenNames = new Set<string>()
 	for (const agent of [...userAgents, ...builtinAgents]) {
@@ -70,12 +96,26 @@ export function selectableAgentNames(userAgents: readonly Agent[], builtinAgents
 	return names
 }
 
-// The reviewers a run with no selector names: every user prompt, or the built-in Default when the repository ships none, with the aggregator excluded because it always runs last.
-// A caller compares a run's selection against this set rather than against its size, so a run that names every reviewer one label at a time still reads as a full review.
+// The reviewers a run with no selector resolves: every user prompt in the order the directory listed them, or the built-in Default when the repository ships none, with the aggregator excluded because it always runs last.
+// The coverage claim compares a run against this same list, so a duplicate prompt name fails here rather than being counted as one reviewer and reported as a full review.
 export function selectAllReviewerNames(userAgents: readonly Agent[]): readonly string[] {
+	assertDistinctAgentNames(userAgents)
+
 	const reviewerNames = filterOutAggregator(userAgents).map(agent => agent.name)
 	if (reviewerNames.length > 0) return reviewerNames
 	return [DEFAULT_AGENT_NAME]
+}
+
+// A run is narrowed only when it leaves out a reviewer a run with no selector labels would have used, so the comparison asks whether the reference set is covered, not whether the two lists match.
+// A selection may cover that set and add a reviewer that no bare run uses, such as `Reviewer - Default` beside every `.ci-agents` prompt, and such a run reviews strictly more than a bare run does.
+// Names are compared in lowercase because agent selection matches a requested name against the prompt file name case-insensitively, so `security` and `Security` are the same reviewer and comparing them as different would report a full review as narrowed.
+// Every count treats two spellings of one reviewer name as one reviewer, while the listed names stay every reviewer that ran, in run order, because those are the names the warning shows.
+function deriveReviewerCoverage(agents: readonly Agent[], referenceReviewerNames: readonly string[]): ReviewerCoverage {
+	const ranReviewerNameKeys = new Set(agents.map(agent => agent.name.toLowerCase()))
+	const referenceReviewerNameKeys = new Set(referenceReviewerNames.map(name => name.toLowerCase()))
+	const ranReferenceReviewerCount = [...referenceReviewerNameKeys].filter(key => ranReviewerNameKeys.has(key)).length
+	if (ranReferenceReviewerCount !== referenceReviewerNameKeys.size) return { kind: "partial", ranReviewerNames: agents.map(agent => agent.name), ranReferenceReviewerCount, referenceReviewerCount: referenceReviewerNameKeys.size }
+	return { kind: "full", reviewerCount: ranReviewerNameKeys.size }
 }
 
 // Both selector surfaces refuse a selection that names the aggregator, so the shared reason lives here and each caller supplies only how that selection is removed.
@@ -84,23 +124,23 @@ export function formatAggregatorSelectionError(selection: string, removalInstruc
 }
 
 function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinAgents: Agent[]): Agent[] {
+	assertDistinctAgentNames(userAgents)
+	assertDistinctAgentNames(builtinAgents)
+
 	const filteredUserAgents = filterOutAggregator(userAgents)
 	const filteredBuiltinAgents = filterOutAggregator(builtinAgents)
 	const userAgentMap = buildAgentMap(filteredUserAgents)
 	const builtinAgentMap = buildAgentMap(filteredBuiltinAgents)
 
-	const resolvedNames = requestedNames === "run all agents"
-		? filteredUserAgents.length > 0
-			? filteredUserAgents.map(a => a.name)
-			: [DEFAULT_AGENT_NAME]
-		: requestedNames
+	const resolvedNames = requestedNames === "run all agents" ? selectAllReviewerNames(userAgents) : requestedNames
 
 	const seenNames = new Set<string>()
 	const agents: Agent[] = []
 	const unresolvedNames: string[] = []
+	// Each requested name is a prompt file name or an `AGENTS` value, and both messages below reach a log, so a newline in one would forge an extra line there.
 	for (const name of resolvedNames) {
 		const key = name.toLowerCase()
-		if (seenNames.has(key)) throw new Error(`Duplicate agent name: "${name}"`)
+		if (seenNames.has(key)) throw new Error(`Duplicate agent name: "${sanitizeForSingleLine(name)}"`)
 		seenNames.add(key)
 
 		const userAgent = userAgentMap.get(key)
@@ -122,16 +162,19 @@ function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinA
 	const aggregatorSelection = unresolvedNames.find(isAggregatorName)
 	if (aggregatorSelection !== undefined) throw new Error(formatAggregatorSelectionError(aggregatorSelection, "Remove it from AGENTS."))
 
-	if (unresolvedNames.length !== 0) throw new Error(`Unresolved agents: ${unresolvedNames.join(", ")}. Each name must match a markdown file in .ci-agents/ or the built-in agents directory; AGENTS names are matched case-insensitively, without the .md extension.`)
+	if (unresolvedNames.length !== 0) throw new Error(`Unresolved agents: ${unresolvedNames.map(name => sanitizeForSingleLine(name)).join(", ")}. Each name must match a markdown file in .ci-agents/ or the built-in agents directory; AGENTS names are matched case-insensitively, without the .md extension.`)
 
 	return agents
 }
 
-export async function loadAgents(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, agentNames: AgentNames): Promise<Agent[]> {
-	const allUserAgents = await dependencies.readAgents(userAgentsDirectory)
-	const allBuiltinAgents = await dependencies.readAgents(builtinAgentsDirectory)
+// One read of each prompt directory, one resolution against that read, and one coverage claim about exactly the agents that came back.
+// The caller supplies how a selection is made so the selector vocabulary and the credentials the selection came from are read once, beside the read the claim describes.
+export async function loadReviewerRun(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, requestAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<ReviewerRun> {
+	const userAgents = await dependencies.readAgents(userAgentsDirectory)
+	const builtinAgents = await dependencies.readAgents(builtinAgentsDirectory)
 
-	return resolveAgents(agentNames, allUserAgents, allBuiltinAgents)
+	const agents = resolveAgents(requestAgentNames(selectableAgentNames(userAgents, builtinAgents)), userAgents, builtinAgents)
+	return { agents, coverage: deriveReviewerCoverage(agents, selectAllReviewerNames(userAgents)) }
 }
 
 export async function loadAggregator(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string): Promise<Agent> {

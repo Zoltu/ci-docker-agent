@@ -35,7 +35,7 @@ export function selectAgentNamesFromLabels(labelNames: readonly string[], availa
 
 		const agentName = labelName.slice(REVIEWER_LABEL_PREFIX.length)
 		if (isAggregatorName(agentName)) throw new Error(formatAggregatorSelectionError(labelName, "Remove the label."))
-		if (!includes(availableAgentNames, agentName)) throw new Error(`Invalid selector label "${sanitizeForSingleLine(labelName)}": it names no available agent, and a label's agent name is matched case-sensitively. Available agents: ${availableAgentNames.join(", ")}.`)
+		if (!includes(availableAgentNames, agentName)) throw new Error(`Invalid selector label "${sanitizeForSingleLine(labelName)}": it names no available agent, and a label's agent name is matched case-sensitively. Available agents: ${availableAgentNames.map(name => sanitizeForSingleLine(name)).join(", ")}.`)
 
 		selectedAgentNames.push(agentName)
 	}

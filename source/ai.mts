@@ -13,7 +13,7 @@ import { readReasoningFromDelta } from "./reasoning.mts"
 import type { AiReviewResult } from "./review.mts"
 import { createTools } from "./tool-executor.mts"
 import { createTraceWriter } from "./trace-writer.mts"
-import { applyJitter, computeExponentialBackoff, errorMessage, includes, isReadonlyArray, normalizeFetchError, sleepWithSignal } from "./typescript-helpers.mts"
+import { applyJitter, computeExponentialBackoff, errorMessage, includes, isReadonlyArray, normalizeFetchError, sanitizeForSingleLine, sleepWithSignal } from "./typescript-helpers.mts"
 
 export class FetchRetriesExhaustedError extends Error {
 	constructor(cause: unknown) {
@@ -216,11 +216,11 @@ export function createFetch(dependencies: FetchDependencies): Fetch {
 }
 
 async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, agent: Agent, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, model: string, maxTokens: number, profile: ProviderProfile, agentInputs?: Map<string, string>, outputValidator?: OutputValidator): Promise<string> {
-	dependencies.logger.log(`Building prompt for ${agent.name}`)
+	dependencies.logger.log(`Building prompt for ${sanitizeForSingleLine(agent.name)}`)
 	const promptMessages = buildAgentPrompt(agent, baseCommitContext, diffText, agentInputs)
 	const debugText = promptMessages.map(m => `--- ${m.role} ---\n${m.content}`).join("\n\n")
 	await dependencies.debugWriter.writePrompt(agent.name, debugText)
-	dependencies.logger.log(`Running agent ${agent.name}`)
+	dependencies.logger.log(`Running agent ${sanitizeForSingleLine(agent.name)}`)
 
 	const tools = createTools(dependencies, baseCommit)
 	const messages: CompletionsMessage[] = [...promptMessages]
@@ -261,7 +261,7 @@ async function runAgent(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger
 	return lastMessage.content
 }
 
-async function runAgents(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], model: string, maxTokens: number, profile: ProviderProfile): Promise<Map<string, string>> {
+async function runAgents(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommit: string, baseCommitContext: BaseCommitContext, diffText: string, agents: readonly Agent[], model: string, maxTokens: number, profile: ProviderProfile): Promise<Map<string, string>> {
 	const promises = agents.map(async agent => [agent.name, await runAgent(dependencies, agent, baseCommit, baseCommitContext, diffText, model, maxTokens, profile)] as const)
 	const reviewResults = await Promise.all(promises)
 	return new Map(reviewResults)
@@ -310,8 +310,8 @@ async function aggregatorOutputValidator(submit: ((result: AiReviewResult) => Pr
 	throw new Error(outcome.message)
 }
 
-export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommitContext: BaseCommitContext, diffText: string, agents: Agent[], aggregator: Agent, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
-	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agents.map(a => a.name).join(", ") : "Default"}`)
+export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommitContext: BaseCommitContext, diffText: string, agents: readonly Agent[], aggregator: Agent, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
+	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agents.map(a => sanitizeForSingleLine(a.name)).join(", ") : "Default"}`)
 
 	const agentOutputs = await runAgents(dependencies, baseCommit, baseCommitContext, diffText, agents, model, maxTokens, profile)
 	const finalOutput = await runAgent(dependencies, aggregator, baseCommit, baseCommitContext, diffText, model, maxTokens, profile, agentOutputs, content => aggregatorOutputValidator(submit, content))

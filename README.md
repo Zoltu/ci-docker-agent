@@ -88,10 +88,10 @@ A new pull request is reviewed automatically with every agent, so labels are onl
 
 - Apply the `Reviewer - *` labels first, then add `Review Start`.
 - To request a re-review, remove the `Review Start` label and add it again: GitHub is expected to emit no `labeled` event for a label that is already applied, so removing it first is what makes the next addition a new event. The selector labels are consumed by the run that used them, so re-adding `Review Start` alone reviews with every agent unless the selectors are applied again.
-- Consuming the selector labels is what keeps a one-off subset run one-off. Without it, a one-off run leaves its selectors behind and the next automatic `opened` run or the next `Review Start` silently reviews a subset nobody asked for, so removal makes the normal state of a pull request a review with every reviewer.
+- Consuming the selector labels is what keeps a one-off subset run one-off. Without it, a one-off run leaves its selectors behind and the next `Review Start` silently reviews a subset nobody asked for, so removal makes the normal state of a pull request a review with every reviewer. The automatic run on a newly opened pull request is unaffected either way: it takes its reviewers from the `AGENTS` variable rather than from labels, and an unset `AGENTS` means every agent.
 - A `Reviewer - All` label left over from the earlier label scheme costs one failed run rather than a manual cleanup: it looks like a selector but names no agent, so the run removes it and then fails selection.
 - A pull request opened with `Review Start` already applied starts only the automatic `opened` run, because GitHub is expected to emit no `labeled` event for a label the pull request was created with. That run reviews with every agent, ignores the `Reviewer - *` labels, and leaves `Review Start` applied, so remove the label by hand before it can start a label-triggered run.
-- Only a run that started from the `Review Start` label removes labels, and it does so after reading the pull request metadata and confirming the label is on the pull request, before it selects agents, validates their selector labels, or runs any agent. It removes `Review Start` first and then every label that carries the exact `Reviewer - ` prefix, in the order the labels appear on the pull request. A run that fails after that point, which includes an unknown selector label, a near-miss selector label, a `Reviewer - Aggregator` label, a diff or model failure, and a rejected review, ends with the trigger label and the selector labels off.
+- Only a run that started from the `Review Start` label removes labels, and it does so after reading the pull request metadata and confirming the label is on the pull request, before it selects agents, validates their selector labels, or runs any agent. It removes `Review Start` first and then every label that carries the exact `Reviewer - ` prefix; GitHub returns those labels sorted by name, so the order among them means nothing. A run that fails after that point, which includes an unknown selector label, a near-miss selector label, a `Reviewer - Aggregator` label, a diff or model failure, and a rejected review, ends with the trigger label and the selector labels off.
 - The labels stay applied in every other case, so a pull request that ends a run with them still on it needs them removed by hand before it can start another run:
   - A run that reviews a pull request without a trigger label, which is a newly opened pull request or a manual run, removes no label, including a pull request opened with `Review Start` already applied.
   - A run that fails before the removals or cannot complete them, which is a failed metadata fetch or a removal request that fails, such as with a token that lacks `issues: write`.
@@ -180,15 +180,20 @@ Output is printed to stdout in a human-readable format:
 ### GitHub PR Mode
 
 A review is submitted to the pull request with:
-- A first line stating which reviewers ran, such as `Reviewers: All ran (5 of 5).` when every reviewer ran, or a bold warning naming how many of the total ran and which ones when only a subset did
+- A line directly under the `## CI Agent Review` heading, above the AI summary, stating which reviewers ran, such as `Reviewers: All ran (4 of 4).` when every reviewer ran, or a bold warning naming which reviewers ran and how many of the reference reviewers they cover when only a subset did
 - The same warning repeated as the last line of a subset review, because a long review scrolls the first warning out of view
 - An overall comment containing the AI summary
 - Line-specific comments on relevant code changes
 
 The full-review line is deliberately plain and the partial-review warning is deliberately loud.
 Almost every review is a full review, so emphasis on that line would become wallpaper, while a partial review is a security signal a human auditor has to notice before trusting the review.
-`All` means the run's reviewers are exactly the set a run with no selector labels would use, so applying every selector label explicitly also reads as a full review.
+`All` means the run's reviewers include every reviewer a run with no selector labels would use, so applying every selector label explicitly also reads as a full review.
+A selector that adds a reviewer on top of them also leaves nothing out, so that review is full too, and its total still counts every reviewer that ran.
+In a partial review the denominator is the number of reviewers a run with no selector labels would use and the numerator is how many of those ran, while the listed names are the reviewers that actually ran, because a selection can add a reviewer the reference set does not hold.
 Line comments carry no notice.
+
+The top notice is the primary signal: it sits above the AI summary, where no body content can affect it.
+The repeated warning is defence in depth and best effort, so the agent neutralises HTML comment openers in the review body and closes a code fence the body leaves open, but it does not attempt to defeat every construct a body could leave open, such as an unclosed `<details>` element.
 
 The workflow run itself owns the check status; the agent submits a review only.
 

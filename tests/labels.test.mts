@@ -114,6 +114,10 @@ describe("selectAgentNamesFromLabels", () => {
 			expect(() => selectAgentNamesFromLabels([selectorLabel("Nope\nFORGED\u2028NEXT")], availableAgentNames)).toThrow(`Invalid selector label "${REVIEWER_LABEL_PREFIX}Nope\\u000aFORGED\\u2028NEXT": it names no available agent`)
 		})
 
+		it("escapes control characters in the available agent names it lists", () => {
+			expect(() => selectAgentNamesFromLabels([selectorLabel("Nope")], ["Architect\nFORGED"])).toThrow("Available agents: Architect\\u000aFORGED.")
+		})
+
 		it("rejects the Aggregator selector without reporting it as an unknown agent", () => {
 			expect(() => selectAgentNamesFromLabels([selectorLabel("Aggregator")], availableAgentNames)).toThrow(`"${selectorLabel("Aggregator")}" is a configuration error`)
 		})
@@ -148,10 +152,6 @@ describe("selectLabelNamesToRemove", () => {
 
 		it("removes the trigger label first even when it is listed last", () => {
 			expect(selectLabelNamesToRemove([selectorLabel("Security"), REVIEW_START_LABEL], REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL, selectorLabel("Security")])
-		})
-
-		it("names the trigger label once", () => {
-			expect(selectLabelNamesToRemove([REVIEW_START_LABEL, selectorLabel("Security")], REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL, selectorLabel("Security")])
 		})
 	})
 

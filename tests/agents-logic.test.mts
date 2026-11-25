@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test"
+import { describe, expect, it } from "bun:test"
 import { buildAgentPrompt, selectAllReviewerNames, selectableAgentNames, type PromptMessage } from "../source/agents.mts"
 import { makeAgent, makeBaseCommitContext } from "./helpers.mts"
 
@@ -231,6 +231,19 @@ describe("selectableAgentNames", () => {
 	it("returns nothing when every agent is the aggregator", () => {
 		expect(selectableAgentNames([makeAgent({ name: "Aggregator" })], [makeAgent({ name: "aggregator" })])).toEqual([])
 	})
+
+	it("rejects two prompt files whose names differ only by case", () => {
+		// A selector label matches a name case-sensitively against this list, so a list built from both files would accept the label and run only the one the map kept.
+		expect(() => selectableAgentNames([makeAgent({ name: "Security" }), makeAgent({ name: "security", prompt: "Lowercase prompt." })], [])).toThrow(
+			'Duplicate agent prompt file names: "Security" and "security". Two prompt files whose names differ only by case are one reviewer, so only one of them would ever run; rename or delete one of them.'
+		)
+	})
+
+	it("rejects two builtin prompt files whose names differ only by case", () => {
+		expect(() => selectableAgentNames([], [makeAgent({ name: "Security" }), makeAgent({ name: "SECURITY" })])).toThrow(
+			'Duplicate agent prompt file names: "Security" and "SECURITY"'
+		)
+	})
 })
 
 describe("selectAllReviewerNames", () => {
@@ -244,6 +257,19 @@ describe("selectAllReviewerNames", () => {
 
 	it("excludes the aggregator in any capitalization", () => {
 		expect(selectAllReviewerNames([makeAgent({ name: "aggregator" }), makeAgent({ name: "Security" })])).toEqual(["Security"])
+	})
+
+	it("rejects two prompt files that differ only by case, because one of them could never run", () => {
+		// Resolution matches a requested name case-insensitively, so a run that accepted both names would review with one prompt where a maintainer wrote two and never learn about it.
+		expect(() => selectAllReviewerNames([makeAgent({ name: "Security" }), makeAgent({ name: "security", prompt: "Lowercase prompt." })])).toThrow(
+			'Duplicate agent prompt file names: "Security" and "security"'
+		)
+	})
+
+	it("escapes a prompt file name that would forge a line in the duplicate message", () => {
+		expect(() => selectAllReviewerNames([makeAgent({ name: "Evil\u000aFORGED LOG LINE" }), makeAgent({ name: "EVIL\u000aFORGED LOG LINE" })])).toThrow(
+			'Duplicate agent prompt file names: "Evil\\u000aFORGED LOG LINE" and "EVIL\\u000aFORGED LOG LINE"'
+		)
 	})
 
 	it("falls back to the built-in Default reviewer when the repository ships no agent prompt", () => {
