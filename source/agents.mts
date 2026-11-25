@@ -18,6 +18,9 @@ export const AGGREGATOR_AGENT_NAME = "Aggregator" as const
 
 const AGGREGATOR_AGENT_NAME_KEY = AGGREGATOR_AGENT_NAME.toLowerCase()
 
+// The built-in reviewer a repository without its own prompts reviews with, so every place that names it derives the name from here.
+const DEFAULT_AGENT_NAME = "Default" as const
+
 export function createReadAgentsFromDisk(): AgentReader {
 	return async function readAgentsFromDisk(directory: string): Promise<Agent[]> {
 		if (!existsSync(directory)) return []
@@ -44,7 +47,7 @@ function buildAgentMap(agents: Agent[]): Map<string, Agent> {
 	return new Map(agents.map(a => [a.name.toLowerCase(), a]))
 }
 
-function filterOutAggregator(agents: Agent[]): Agent[] {
+function filterOutAggregator(agents: readonly Agent[]): Agent[] {
 	return agents.filter(a => !isAggregatorName(a.name))
 }
 
@@ -67,6 +70,14 @@ export function selectableAgentNames(userAgents: readonly Agent[], builtinAgents
 	return names
 }
 
+// The reviewers a run with no selector names: every user prompt, or the built-in Default when the repository ships none, with the aggregator excluded because it always runs last.
+// A caller compares a run's selection against this set rather than against its size, so a run that names every reviewer one label at a time still reads as a full review.
+export function selectAllReviewerNames(userAgents: readonly Agent[]): readonly string[] {
+	const reviewerNames = filterOutAggregator(userAgents).map(agent => agent.name)
+	if (reviewerNames.length > 0) return reviewerNames
+	return [DEFAULT_AGENT_NAME]
+}
+
 // Both selector surfaces refuse a selection that names the aggregator, so the shared reason lives here and each caller supplies only how that selection is removed.
 export function formatAggregatorSelectionError(selection: string, removalInstruction: string): string {
 	return `"${sanitizeForSingleLine(selection)}" is a configuration error: the ${AGGREGATOR_AGENT_NAME} always runs last automatically and must not be selected. ${removalInstruction}`
@@ -81,7 +92,7 @@ function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinA
 	const resolvedNames = requestedNames === "run all agents"
 		? filteredUserAgents.length > 0
 			? filteredUserAgents.map(a => a.name)
-			: ["Default"]
+			: [DEFAULT_AGENT_NAME]
 		: requestedNames
 
 	const seenNames = new Set<string>()

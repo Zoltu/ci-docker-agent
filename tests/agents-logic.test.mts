@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { buildAgentPrompt, selectableAgentNames, type PromptMessage } from "../source/agents.mts"
+import { buildAgentPrompt, selectAllReviewerNames, selectableAgentNames, type PromptMessage } from "../source/agents.mts"
 import { makeAgent, makeBaseCommitContext } from "./helpers.mts"
 
 const SAMPLE_DIFF = [
@@ -230,5 +230,32 @@ describe("selectableAgentNames", () => {
 
 	it("returns nothing when every agent is the aggregator", () => {
 		expect(selectableAgentNames([makeAgent({ name: "Aggregator" })], [makeAgent({ name: "aggregator" })])).toEqual([])
+	})
+})
+
+describe("selectAllReviewerNames", () => {
+	it("names every user agent in the order the directory listed them", () => {
+		expect(selectAllReviewerNames([makeAgent({ name: "Bug Hunter" }), makeAgent({ name: "Security" })])).toEqual(["Bug Hunter", "Security"])
+	})
+
+	it("excludes the aggregator, which always runs last", () => {
+		expect(selectAllReviewerNames([makeAgent({ name: "Security" }), makeAgent({ name: "Aggregator" })])).toEqual(["Security"])
+	})
+
+	it("excludes the aggregator in any capitalization", () => {
+		expect(selectAllReviewerNames([makeAgent({ name: "aggregator" }), makeAgent({ name: "Security" })])).toEqual(["Security"])
+	})
+
+	it("falls back to the built-in Default reviewer when the repository ships no agent prompt", () => {
+		expect(selectAllReviewerNames([])).toEqual(["Default"])
+	})
+
+	it("falls back to the built-in Default reviewer when every prompt is the aggregator", () => {
+		expect(selectAllReviewerNames([makeAgent({ name: "Aggregator" })])).toEqual(["Default"])
+	})
+
+	it("adds no builtin reviewer to a set of user agents", () => {
+		// A builtin reviewer is never part of a run without selectors unless the repository ships no prompt of its own, so counting it would make every full review look partial.
+		expect(selectAllReviewerNames([makeAgent({ name: "Security" })])).toEqual(["Security"])
 	})
 })

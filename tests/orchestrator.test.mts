@@ -62,7 +62,7 @@ function makeSpawnGitWithDiff(diffText: string): SpawnGit {
 	}
 }
 
-function makeGithubFetch(options: { diffText?: string, baseCommit?: string, labelNames?: readonly string[], diffError?: Error, submitStatus?: number, submitResponses?: readonly { status: number; body?: string }[] } = {}): { githubFetch: GitHubFetch, submitCallCount: () => number, submittedReviews: () => readonly GitHubReviewPayload[], deletedLabelUrls: () => readonly string[] } {
+function makeGithubFetch(options: { diffText?: string, baseCommit?: string, labelNames?: readonly string[], diffError?: Error, submitStatus?: number, submitResponses?: readonly { status: number; body?: string }[], deleteLabelStatus?: number } = {}): { githubFetch: GitHubFetch, submitCallCount: () => number, submittedReviews: () => readonly GitHubReviewPayload[], deletedLabelUrls: () => readonly string[] } {
 	let submitIndex = 0
 	const reviewBodies: GitHubReviewPayload[] = []
 	const deleteUrls: string[] = []
@@ -96,6 +96,7 @@ function makeGithubFetch(options: { diffText?: string, baseCommit?: string, labe
 
 	const handleDeleteLabel = (url: string): Response => {
 		deleteUrls.push(url)
+		if (options.deleteLabelStatus !== undefined && options.deleteLabelStatus !== 200) return new Response("Error", { status: options.deleteLabelStatus, statusText: "Error" })
 		return new Response(null, { status: 200 })
 	}
 
@@ -179,6 +180,38 @@ describe("runOnPullRequest", () => {
 		expect(submittedReviews()).toHaveLength(1)
 		expect(submittedReviews()[0]!.event).toBe("COMMENT")
 		expect(submittedReviews()[0]!.body).toContain("Great work")
+		expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (1 of 1).")
+	})
+
+	it("warns when the configured AGENTS names only some of the reviewers", async () => {
+		const userAgents: Agent[] = [
+			{ name: "Bug Hunter", prompt: "Bug hunter prompt." },
+			{ name: "Security", prompt: "Security prompt." },
+			{ name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." },
+		]
+		const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF })
+
+		await runOnPullRequest(
+			{
+				spawnGit: makeSpawnGitOk(),
+				readAgents: makeReadAgents(userAgents),
+				githubFetch,
+				fetch: makeFetch("Great work"),
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makePullRequestConfiguration({ agents: ["Security"] }),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			100_000,
+			IDENTITY_PROFILE,
+		)
+
+		const partialNotice = "> **Reviewers: only 1 of 2 ran (`Security`). The remaining reviewers did not run, so this is not a full review.**"
+		expect(submittedReviews()[0]!.body.split(partialNotice)).toHaveLength(3)
 	})
 
 	it("removes no label, even when the trigger label is on the pull request", async () => {
@@ -369,6 +402,8 @@ describe("runOnPullRequest", () => {
 		expect(submittedReviews()[0]!.body).toContain("Second try")
 		expect(submittedReviews()[0]!.comments).toHaveLength(1)
 		expect(submittedReviews()[0]!.comments[0]!.line).toBe(1)
+		// The retried body is built from the corrected aggregator output alone, so the reviewer notice appears once rather than accumulating per attempt.
+		expect(submittedReviews()[0]!.body.split("Reviewers: All ran (1 of 1).")).toHaveLength(2)
 
 		const thirdAggregatorRequest = JSON.parse(capturedBodies[2]!)
 		const lastUserMessage = thirdAggregatorRequest.messages.at(-1)
@@ -451,6 +486,41 @@ describe("runOnLabelTrigger", () => {
 			for (const snapshot of deletedLabelSnapshots) expect(deletedLabelNames(snapshot)).toEqual([REVIEW_START_LABEL])
 			expect(submittedReviews()).toHaveLength(1)
 		})
+
+		it("removes the trigger label and every selector label before running any agent", async () => {
+			const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Security", "Reviewer - Bug Hunter"] })
+			const respond = makeFetch("Good work")
+			const deletedLabelSnapshots: (readonly string[])[] = []
+			const fetch: Fetch = async (signal, body, headers) => {
+				deletedLabelSnapshots.push([...deletedLabelUrls()])
+				return respond(signal, body, headers)
+			}
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch,
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			// The trigger label goes first and the selector labels follow in the order the pull request lists them.
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL, "Reviewer - Security", "Reviewer - Bug Hunter"])
+			expect(deletedLabelSnapshots.length).toBeGreaterThan(0)
+			for (const snapshot of deletedLabelSnapshots) expect(deletedLabelNames(snapshot)).toEqual([REVIEW_START_LABEL, "Reviewer - Security", "Reviewer - Bug Hunter"])
+			expect(submittedReviews()).toHaveLength(1)
+		})
 	})
 
 	describe("agent selection", () => {
@@ -481,6 +551,11 @@ describe("runOnLabelTrigger", () => {
 			expect(capturedBodies[0]!).toContain("Security prompt.")
 			expect(capturedBodies[0]!).not.toContain("Bug hunter prompt.")
 			expect(submittedReviews()).toHaveLength(1)
+
+			// A subset review carries the warning twice, once where a reader starts and once where a long review ends.
+			const partialNotice = "> **Reviewers: only 1 of 2 ran (`Security`). The remaining reviewers did not run, so this is not a full review.**"
+			expect(submittedReviews()[0]!.body.split(partialNotice)).toHaveLength(3)
+			expect(submittedReviews()[0]!.body.endsWith(partialNotice)).toBe(true)
 		})
 
 		it("runs every user agent when only the trigger label is present", async () => {
@@ -511,6 +586,36 @@ describe("runOnLabelTrigger", () => {
 			expect(agentNames.sort()).toEqual(["Bug Hunter", "Security"])
 			expect(capturedBodies).toHaveLength(3)
 			expect(submittedReviews()).toHaveLength(1)
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (2 of 2).")
+			expect(submittedReviews()[0]!.body).not.toContain("**")
+		})
+
+		it("reports a full review when every selector label is applied explicitly", async () => {
+			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Bug Hunter", "Reviewer - Security"] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			// Naming every reviewer one label at a time is the same set a run with no selectors uses, so the review must not read as a subset.
+			expect(submittedReviews()).toHaveLength(1)
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (2 of 2).")
+			expect(submittedReviews()[0]!.body).not.toContain("**")
 		})
 
 		it("ignores a label that does not look like a selector and runs every user agent", async () => {
@@ -598,7 +703,34 @@ describe("runOnLabelTrigger", () => {
 			expect(submitCallCount()).toBe(0)
 		})
 
-		it("rejects an unknown selector after removing the trigger label", async () => {
+		it("fails the run when a label removal fails and submits nothing", async () => {
+			const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Security"], deleteLabelStatus: 403 })
+
+			await expect(runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)).rejects.toThrow(`Failed to remove label "${REVIEW_START_LABEL}": 403 Error`)
+
+			// A failed removal stops the run at that label, so no agent runs and the labels it had not reached yet stay on the pull request.
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
+			expect(submitCallCount()).toBe(0)
+		})
+
+		it("rejects an unknown selector after removing the trigger label and that selector label", async () => {
 			const capturedBodies: string[] = []
 			const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Nope"] })
 
@@ -621,12 +753,13 @@ describe("runOnLabelTrigger", () => {
 				IDENTITY_PROFILE,
 			)).rejects.toThrow(`Invalid selector label "Reviewer - Nope": it names no available agent, and a label's agent name is matched case-sensitively. Available agents: Bug Hunter, Security.`)
 
-			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
+			// Removal runs before validation, so the label that failed the run is gone and the run is retryable by adding the trigger label back.
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL, "Reviewer - Nope"])
 			expect(capturedBodies).toHaveLength(0)
 			expect(submitCallCount()).toBe(0)
 		})
 
-		it("rejects an aggregator selector after removing the trigger label", async () => {
+		it("rejects an aggregator selector after removing the trigger label and that selector label", async () => {
 			const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Aggregator"] })
 
 			await expect(runOnLabelTrigger(
@@ -648,11 +781,38 @@ describe("runOnLabelTrigger", () => {
 				IDENTITY_PROFILE,
 			)).rejects.toThrow(`"Reviewer - Aggregator" is a configuration error`)
 
-			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL, "Reviewer - Aggregator"])
 			expect(submitCallCount()).toBe(0)
 		})
 
-		it("rejects a near-miss selector label after removing the trigger label", async () => {
+		it("rejects a leftover Reviewer - All label after removing every label that carries the selector prefix", async () => {
+			const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - All", "Reviewer - Security"] })
+
+			await expect(runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)).rejects.toThrow(`Invalid selector label "Reviewer - All": it names no available agent`)
+
+			// The label that fails the run is removed with the rest, so a leftover costs one failed run rather than a manual cleanup.
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL, "Reviewer - All", "Reviewer - Security"])
+			expect(submitCallCount()).toBe(0)
+		})
+
+		it("rejects a near-miss selector label after removing the trigger label and leaves that label in place", async () => {
 			for (const nearMissLabelName of ["reviewer - Security", "Reviewers - Security", "Reviewer- Security"]) {
 				const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, nearMissLabelName] })
 
@@ -675,6 +835,7 @@ describe("runOnLabelTrigger", () => {
 					IDENTITY_PROFILE,
 				)).rejects.toThrow(`Invalid selector label "${nearMissLabelName}": a selector label must be spelled "Reviewer - <Name>"`)
 
+				// Removal keys on the exact prefix, so a near miss survives and fails every run it is present on until someone corrects it.
 				expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
 				expect(submitCallCount()).toBe(0)
 			}

@@ -1,6 +1,6 @@
 import type { Fetch, Random, Sleep } from "./agent-loop.mts"
 import type { AgentNames, AgentReader } from "./agents.mts"
-import { loadAgents, loadAggregator, selectableAgentNames } from "./agents.mts"
+import { loadAgents, loadAggregator, selectAllReviewerNames, selectableAgentNames } from "./agents.mts"
 import { analyze } from "./ai.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
 import type { LabelTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
@@ -10,7 +10,7 @@ import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from
 import type { GitHubConfiguration } from "./github-types.mts"
 import type { GitHubFetch } from "./github.mts"
 import { fetchPullRequestDiff, fetchPullRequestMetadata, removePullRequestLabel, submitReview } from "./github.mts"
-import { selectAgentNamesFromLabels } from "./labels.mts"
+import { selectAgentNamesFromLabels, selectLabelNamesToRemove } from "./labels.mts"
 import type { Logger } from "./logger.mts"
 import type { ProviderProfile } from "./provider-profiles.mts"
 import type { AiReviewResult } from "./review.mts"
@@ -37,7 +37,7 @@ async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: A
 	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model, maxTokens, profile, submit)
 }
 
-async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, baseSha: string, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
+async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, allReviewerNames: readonly string[], baseSha: string, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const diffText = await fetchPullRequestDiff(dependencies, githubConfiguration)
 
 	if (diffText.trim() === "") {
@@ -46,7 +46,7 @@ async function submitPrReview(dependencies: OrchestratorDependencies, agentNames
 	}
 
 	const submit = async (result: AiReviewResult): Promise<AggregatorSubmitResult> => {
-		const outcome = await submitReview(dependencies, githubConfiguration, buildReviewPayload(result))
+		const outcome = await submitReview(dependencies, githubConfiguration, buildReviewPayload(result, agentNames, allReviewerNames))
 		if (outcome.ok) return { kind: "ok" }
 		if (outcome.status === 422) {
 			dependencies.logger.log(`GitHub rejected aggregator output with ${outcome.status}, sending feedback to aggregator`)
@@ -61,7 +61,9 @@ async function submitPrReview(dependencies: OrchestratorDependencies, agentNames
 
 export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
-	await submitPrReview(dependencies, configuration.agents, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
+	// The notice in the submitted review names every reviewer the run could have used, so the set is read before the review body is built.
+	const allReviewerNames = selectAllReviewerNames(await dependencies.readAgents(userAgentsDirectory))
+	await submitPrReview(dependencies, configuration.agents, allReviewerNames, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 
 export async function runOnLabelTrigger(dependencies: OrchestratorDependencies, configuration: LabelTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
@@ -69,13 +71,16 @@ export async function runOnLabelTrigger(dependencies: OrchestratorDependencies, 
 
 	if (!includes(metadata.labelNames, configuration.triggerLabel)) throw new Error(`Invalid PR labels: "${sanitizeForSingleLine(configuration.triggerLabel)}" is missing from pull request #${configuration.github.pullRequestNumber}. Re-add the label to start a new run.`)
 
-	// The trigger label is removed before any validation and before any agent runs, so a run that fails hard can be retried by adding the one label back.
-	await removePullRequestLabel(dependencies, configuration.github, configuration.triggerLabel)
+	// The trigger label and every selector label are removed before any validation and before any agent runs, so a run that fails hard can be retried by adding the one label back and no selector can narrow a later run.
+	for (const labelName of selectLabelNamesToRemove(metadata.labelNames, configuration.triggerLabel)) {
+		await removePullRequestLabel(dependencies, configuration.github, labelName)
+	}
 
 	const userAgents = await dependencies.readAgents(userAgentsDirectory)
 	const builtinAgents = await dependencies.readAgents(builtinAgentsDirectory)
 	const agentNames = selectAgentNamesFromLabels(metadata.labelNames, selectableAgentNames(userAgents, builtinAgents))
-	await submitPrReview(dependencies, agentNames, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
+	const allReviewerNames = selectAllReviewerNames(userAgents)
+	await submitPrReview(dependencies, agentNames, allReviewerNames, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 
 // workspaceDirectory is advisory and only appears in diagnostics.

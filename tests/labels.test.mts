@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { REVIEW_START_LABEL, REVIEWER_LABEL_PREFIX, selectAgentNamesFromLabels } from "../source/labels.mts"
+import { REVIEW_START_LABEL, REVIEWER_LABEL_PREFIX, selectAgentNamesFromLabels, selectLabelNamesToRemove } from "../source/labels.mts"
 
 const availableAgentNames = ["Architect", "Bug Hunter", "Defender", "Security", "Default"]
 
@@ -132,6 +132,68 @@ describe("selectAgentNamesFromLabels", () => {
 
 		it("throws when the selector has extra whitespace after the prefix", () => {
 			expect(() => selectAgentNamesFromLabels([selectorLabel(" Bug Hunter")], availableAgentNames)).toThrow("names no available agent")
+		})
+	})
+})
+
+describe("selectLabelNamesToRemove", () => {
+	describe("trigger label", () => {
+		it("removes the trigger label when it is the only label", () => {
+			expect(selectLabelNamesToRemove([REVIEW_START_LABEL], REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL])
+		})
+
+		it("removes nothing when the pull request carries no labels", () => {
+			expect(selectLabelNamesToRemove([], REVIEW_START_LABEL)).toEqual([])
+		})
+
+		it("removes the trigger label first even when it is listed last", () => {
+			expect(selectLabelNamesToRemove([selectorLabel("Security"), REVIEW_START_LABEL], REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL, selectorLabel("Security")])
+		})
+
+		it("names the trigger label once", () => {
+			expect(selectLabelNamesToRemove([REVIEW_START_LABEL, selectorLabel("Security")], REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL, selectorLabel("Security")])
+		})
+	})
+
+	describe("selector labels", () => {
+		it("removes every selector label after the trigger label, in the order the pull request lists them", () => {
+			const labelNames = [REVIEW_START_LABEL, selectorLabel("Security"), selectorLabel("Architect")]
+
+			expect(selectLabelNamesToRemove(labelNames, REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL, selectorLabel("Security"), selectorLabel("Architect")])
+		})
+
+		it("removes a selector label that no run could honour, because removal runs before validation", () => {
+			const labelNames = [REVIEW_START_LABEL, selectorLabel("Bogus"), selectorLabel("All"), selectorLabel("Aggregator")]
+
+			expect(selectLabelNamesToRemove(labelNames, REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL, selectorLabel("Bogus"), selectorLabel("All"), selectorLabel("Aggregator")])
+		})
+
+		it("removes a selector label whose agent name keeps the prefix spacing", () => {
+			expect(selectLabelNamesToRemove([selectorLabel(" Bug Hunter")], REVIEW_START_LABEL)).toEqual([selectorLabel(" Bug Hunter")])
+		})
+	})
+
+	describe("labels that are not selectors", () => {
+		it("keeps unrelated labels in place", () => {
+			expect(selectLabelNamesToRemove([REVIEW_START_LABEL, "bug", "documentation", "review pending", "needs-review"], REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL])
+		})
+
+		it("removes the trigger label and no other label when no selector is present", () => {
+			expect(selectLabelNamesToRemove(["bug", REVIEW_START_LABEL, "documentation"], REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL])
+		})
+	})
+
+	describe("near-miss spellings", () => {
+		it("keeps every near-miss spelling, because removal keys on the exact prefix", () => {
+			const nearMissLabelNames = ["reviewer - Security", "Reviewers - Security", "Reviewer- Security", "Reviewer -Security", "Review - Security", "reviewer-pending", "review-needed"]
+
+			expect(selectLabelNamesToRemove([REVIEW_START_LABEL, ...nearMissLabelNames], REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL])
+		})
+
+		it("keeps a near miss while removing the selector labels around it", () => {
+			const labelNames = [selectorLabel("Security"), "Reviewer- Architect", selectorLabel("Defender")]
+
+			expect(selectLabelNamesToRemove(labelNames, REVIEW_START_LABEL)).toEqual([selectorLabel("Security"), selectorLabel("Defender")])
 		})
 	})
 })

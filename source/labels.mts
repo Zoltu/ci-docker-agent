@@ -5,7 +5,7 @@ export const REVIEW_START_LABEL = "Review Start" as const
 
 // The trigger label and the selector prefix are this module's public contract, because the workflow gate, the label table, and the token documentation spell these values and a change here has to reach them.
 // Matching a label name against the available agents stays behind this module, since a caller that matched names itself would skip the aggregator, availability, and near-miss validation below.
-// A label selects an agent only when it starts with this exact prefix.
+// A label selects an agent only when it starts with this exact prefix, and a run removes every label that carries it.
 // A label that looks like a selector but misses the prefix fails the run, because a run that ignored it would review with every agent instead of the agents the label names.
 export const REVIEWER_LABEL_PREFIX = "Reviewer - " as const
 
@@ -42,4 +42,21 @@ export function selectAgentNamesFromLabels(labelNames: readonly string[], availa
 
 	if (selectedAgentNames.length === 0) return "run all agents"
 	return selectedAgentNames
+}
+
+// A selector label is consumed by the run it selected for, because one left behind would narrow the next run to a subset nobody asked for.
+// The trigger label leads the returned list, so the removals leave the pull request without the label that starts a run even when a later removal fails.
+// The list is built from the names the pull request actually carries, never from the prefix alone, so the caller never deletes a label that GitHub would report as missing.
+// Removal keys on the exact prefix and validates nothing, so a label that cannot select anything (`Reviewer - Bogus`, `Reviewer - All`, `Reviewer - Aggregator`) is still consumed before the run fails, and a near miss stays put to fail the next run too.
+export function selectLabelNamesToRemove(labelNames: readonly string[], triggerLabel: string): readonly string[] {
+	const labelNamesToRemove: string[] = []
+	if (includes(labelNames, triggerLabel)) labelNamesToRemove.push(triggerLabel)
+
+	for (const labelName of labelNames) {
+		if (labelName === triggerLabel) continue
+		if (!labelName.startsWith(REVIEWER_LABEL_PREFIX)) continue
+		labelNamesToRemove.push(labelName)
+	}
+
+	return labelNamesToRemove
 }
