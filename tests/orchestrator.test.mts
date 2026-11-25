@@ -552,6 +552,60 @@ describe("runOnLabelTrigger", () => {
 			expect(submittedReviews()).toHaveLength(1)
 		})
 
+		it("removes the label the pull request lists when the configuration spells it differently only in case", async () => {
+			const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents([makeAgent(), { name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." }]),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration({ triggerLabel: "review start" }),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			// The configured spelling is not a label the pull request carries, so only the listed name is a valid DELETE target.
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
+			expect(submittedReviews()).toHaveLength(1)
+		})
+
+		it("removes a trigger label the pull request spells in lowercase", async () => {
+			const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["review start"] })
+
+			await runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents([makeAgent(), { name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." }]),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration(),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)
+
+			// The configured value is the constant here, so a run that deleted it instead of the listed name would delete nothing.
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual(["review start"])
+			expect(submittedReviews()).toHaveLength(1)
+		})
+
 		it("removes the trigger label and every selector label before running any agent", async () => {
 			const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Security", "Reviewer - Bug Hunter"] })
 			const respond = makeFetch("Good work")

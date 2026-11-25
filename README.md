@@ -94,7 +94,6 @@ A new pull request is reviewed automatically with every agent, because the shipp
 - A run that removes no label leaves every label where it was:
   - A run that did not start from the trigger label, which is a newly opened pull request or a manual run, leaves every label applied.
   - A run that fails before or during the first removal, which is a failed metadata fetch or a token that lacks `issues: write`, leaves every label applied.
-  - A run whose `TRIGGER_LABEL` differs from `Review Start` only in case leaves every label applied, because it fails configuration parsing before it makes any GitHub request.
   - A run whose metadata read lists no `Review Start` label leaves every label in place, because the run stops before removing any of them, and the run reports the label as missing; add the label to start a run.
 - Because the removals run one label at a time and stop at the failing one, a failure after the first delete leaves `Review Start` off and every label from the failing one onward still applied; adding the trigger label back then reviews with only the agents those leftover selectors name, which is a full review when those selectors cover every reviewer a bare run would use, and a partial review whose warning reports the narrowing otherwise. The trigger label is already off in that case, so the remedy is to remove the leftover `Reviewer - ` labels first and add `Review Start` only afterwards.
 - Only `Review Start` starts a run; a `Reviewer - *` label applied on its own does nothing.
@@ -212,5 +211,4 @@ The workflow triggers on:
 - `workflow_dispatch` event (manual trigger of the workflow)
 
 A `labeled` run starts only for the `Review Start` label, and the workflow passes the applied label to the container as `TRIGGER_LABEL`, which is empty for `opened` and manual runs.
-A `TRIGGER_LABEL` set to anything other than exactly `Review Start` fails the run instead of reviewing the pull request.
-GitHub compares that label name with `==` case-insensitively, so a label that differs from `Review Start` only in case passes the workflow gate and is then rejected in code: the run fails closed and no agents run.
+A `TRIGGER_LABEL` is matched against `Review Start` ignoring case, and any other label name fails the run instead of reviewing the pull request.

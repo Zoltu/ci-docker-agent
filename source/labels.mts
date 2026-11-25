@@ -3,6 +3,13 @@ import { includes, sanitizeForSingleLine } from "./typescript-helpers.mts"
 
 export const REVIEW_START_LABEL = "Review Start" as const
 
+// The trigger label is matched ignoring case, so a label that differs from it only in case still starts a run.
+const TRIGGER_LABEL_KEY = REVIEW_START_LABEL.toLowerCase()
+
+export function isTriggerLabel(value: string): boolean {
+	return value.toLowerCase() === TRIGGER_LABEL_KEY
+}
+
 // The trigger label and the selector prefix are this module's public contract, because the workflow gate, the label table, and the token documentation spell these values and a change here has to reach them.
 // Matching a label name against the available agents stays behind this module, since a caller that matched names itself would skip the aggregator, availability, and near-miss validation below.
 // A label selects an agent only when it starts with this exact prefix, and a run removes every label that carries it.

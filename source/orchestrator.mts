@@ -10,12 +10,12 @@ import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from
 import type { GitHubConfiguration } from "./github-types.mts"
 import type { GitHubFetch } from "./github.mts"
 import { fetchPullRequestDiff, fetchPullRequestMetadata, removePullRequestLabel, submitReview } from "./github.mts"
-import { selectAgentNamesFromLabels, selectLabelNamesToRemove } from "./labels.mts"
+import { isTriggerLabel, selectAgentNamesFromLabels, selectLabelNamesToRemove } from "./labels.mts"
 import type { Logger } from "./logger.mts"
 import type { ProviderProfile } from "./provider-profiles.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
-import { includes, sanitizeForSingleLine } from "./typescript-helpers.mts"
+import { sanitizeForSingleLine } from "./typescript-helpers.mts"
 import type { AggregatorSubmitResult } from "./ai.mts"
 
 type OrchestratorDependencies = {
@@ -68,10 +68,12 @@ export async function runOnPullRequest(dependencies: OrchestratorDependencies, c
 export async function runOnLabelTrigger(dependencies: OrchestratorDependencies, configuration: LabelTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
 
-	if (!includes(metadata.labelNames, configuration.triggerLabel)) throw new Error(`Invalid PR labels: "${sanitizeForSingleLine(configuration.triggerLabel)}" is missing from pull request #${configuration.github.pullRequestNumber}. Re-add the label to start a new run.`)
+	// The label the pull request lists is the name every later step uses, because the configured value may differ from it in case and only the listed name is the one GitHub accepts in a DELETE.
+	const triggerLabelName = metadata.labelNames.find(isTriggerLabel)
+	if (triggerLabelName === undefined) throw new Error(`Invalid PR labels: "${sanitizeForSingleLine(configuration.triggerLabel)}" is missing from pull request #${configuration.github.pullRequestNumber}. Re-add the label to start a new run.`)
 
 	// The trigger label and every selector label are removed before any validation and before any agent runs, so a run that fails hard can be retried by adding the one label back and no selector can narrow a later run.
-	for (const labelName of selectLabelNamesToRemove(metadata.labelNames, configuration.triggerLabel)) {
+	for (const labelName of selectLabelNamesToRemove(metadata.labelNames, triggerLabelName)) {
 		await removePullRequestLabel(dependencies, configuration.github, labelName)
 		// A removed label is gone from the pull request, so the run's own log is the only record of what it consumed.
 		// A label name can carry an invisible character that would make that record read differently from the bytes deleted, so it is escaped like every other untrusted name.

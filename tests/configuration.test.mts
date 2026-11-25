@@ -97,6 +97,22 @@ describe("resolveConfiguration", () => {
 			})
 		})
 
+		it("accepts a trigger label that differs from the review start label only in case", () => {
+			const spellings = [REVIEW_START_LABEL.toLowerCase(), REVIEW_START_LABEL.toUpperCase(), "rEvIeW sTaRt"]
+			for (const triggerLabel of spellings) {
+				const configuration = getLabelTriggerConfiguration({ TRIGGER_LABEL: triggerLabel })
+
+				expect(configuration.type).toBe("label-trigger")
+			}
+		})
+
+		it("keeps the trigger label spelling the environment supplied", () => {
+			const configuration = getLabelTriggerConfiguration({ TRIGGER_LABEL: "review start" })
+
+			// The stored spelling names the label the run reports and removes, so a value replaced by the constant would make both of those miss a differently-cased label.
+			expect(configuration.triggerLabel).toBe("review start")
+		})
+
 		it("uses custom GITHUB_API_URL when provided", () => {
 			const configuration = getLabelTriggerConfiguration({ GITHUB_API_URL: "https://github.enterprise.com/api/v3" })
 
@@ -303,8 +319,8 @@ describe("resolveConfiguration", () => {
 				GITHUB_TOKEN: "my-token",
 				PR_NUMBER: "42",
 				REPO: "owner/repo",
-				TRIGGER_LABEL: "review start",
-			})).toThrow(`TRIGGER_LABEL must be "${REVIEW_START_LABEL}", got: "review start"`)
+				TRIGGER_LABEL: "Start Review",
+			})).toThrow(`TRIGGER_LABEL must be "${REVIEW_START_LABEL}" ignoring case, got: "Start Review"`)
 		})
 
 		it("throws when TRIGGER_LABEL has trailing whitespace", () => {
@@ -313,7 +329,7 @@ describe("resolveConfiguration", () => {
 				PR_NUMBER: "42",
 				REPO: "owner/repo",
 				TRIGGER_LABEL: `${REVIEW_START_LABEL} `,
-			})).toThrow(`TRIGGER_LABEL must be "${REVIEW_START_LABEL}", got: "${REVIEW_START_LABEL} "`)
+			})).toThrow(`TRIGGER_LABEL must be "${REVIEW_START_LABEL}" ignoring case, got: "${REVIEW_START_LABEL} "`)
 		})
 
 		it("escapes a line separator in TRIGGER_LABEL so the failure message stays on one line", () => {
@@ -324,12 +340,12 @@ describe("resolveConfiguration", () => {
 		})
 
 		it("reports the trigger label reason together with the reasons of the other configuration branches", () => {
-			const environment = { TRIGGER_LABEL: "review start" }
+			const environment = { TRIGGER_LABEL: "Start Review" }
 
 			// Each reason is asserted on its own, so this does not pin the order of the independent branches.
 			expect(() => resolveConfiguration(environment)).toThrow("No valid configuration found:")
 			expect(() => resolveConfiguration(environment)).toThrow("- BASE_COMMIT and HEAD_COMMIT are not set")
-			expect(() => resolveConfiguration(environment)).toThrow(`- TRIGGER_LABEL must be "${REVIEW_START_LABEL}", got: "review start"`)
+			expect(() => resolveConfiguration(environment)).toThrow(`- TRIGGER_LABEL must be "${REVIEW_START_LABEL}" ignoring case, got: "Start Review"`)
 			expect(() => resolveConfiguration(environment)).toThrow("- GitHub mode requires GITHUB_TOKEN and PR_NUMBER and REPO")
 		})
 
@@ -339,10 +355,10 @@ describe("resolveConfiguration", () => {
 		})
 
 		it("states that GitHub mode was rejected because TRIGGER_LABEL is set", () => {
-			const environment = { GITHUB_TOKEN: "my-token", PR_NUMBER: "42", REPO: "owner/repo", TRIGGER_LABEL: "review start" }
+			const environment = { GITHUB_TOKEN: "my-token", PR_NUMBER: "42", REPO: "owner/repo", TRIGGER_LABEL: "Start Review" }
 
-			expect(() => resolveConfiguration(environment)).toThrow(`- TRIGGER_LABEL must be "${REVIEW_START_LABEL}", got: "review start"`)
-			expect(() => resolveConfiguration(environment)).toThrow("- GitHub mode is ignored because TRIGGER_LABEL is set to \"review start\"")
+			expect(() => resolveConfiguration(environment)).toThrow(`- TRIGGER_LABEL must be "${REVIEW_START_LABEL}" ignoring case, got: "Start Review"`)
+			expect(() => resolveConfiguration(environment)).toThrow("- GitHub mode is ignored because TRIGGER_LABEL is set to \"Start Review\"")
 		})
 	})
 })

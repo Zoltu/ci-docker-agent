@@ -1,16 +1,13 @@
 import type { AgentNames } from "./agents.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
-import { REVIEW_START_LABEL } from "./labels.mts"
+import { REVIEW_START_LABEL, isTriggerLabel } from "./labels.mts"
 import type { TryResult } from "./typescript-helpers.mts"
 import { parseCommaSeparatedList, sanitizeForSingleLine } from "./typescript-helpers.mts"
 
-// The trigger label the run deletes from the pull request is the value the label-trigger parser compared against the workflow gate.
-// The type records the value that parsing validated; the isTriggerLabel guard, not the type, is what enforces the comparison, so a value of this type carries the fact that it is exactly REVIEW_START_LABEL rather than merely some string.
-export type TriggerLabel = typeof REVIEW_START_LABEL
-
 export interface LabelTriggerConfiguration {
 	type: "label-trigger"
-	triggerLabel: TriggerLabel
+	// The value is carried as written because it names the label the pull request carries, and the run reports and removes that name.
+	triggerLabel: string
 	github: GitHubConfiguration
 }
 
@@ -28,10 +25,6 @@ export interface LocalDiffConfiguration {
 }
 
 export type Configuration = LabelTriggerConfiguration | PullRequestConfiguration | LocalDiffConfiguration
-
-function isTriggerLabel(value: string): value is TriggerLabel {
-	return value === REVIEW_START_LABEL
-}
 
 // A dot segment, a path separator, whitespace, or a control character in either half would build a URL whose path resolves to a different endpoint, including the DELETE target.
 // A `?`, `#`, or `%` would move the tail of the request target into a query or fragment, or decode into a separator, and GitHub's own repository names contain none of them.
@@ -89,7 +82,7 @@ function tryGetLocalDiffConfiguration(environment: Record<string, string | undef
 function tryGetLabelTriggerConfiguration(environment: Record<string, string | undefined>): TryResult<LabelTriggerConfiguration | null> {
 	const triggerLabel = environment.TRIGGER_LABEL
 	if (!triggerLabel) return { ok: true, value: null }
-	if (!isTriggerLabel(triggerLabel)) return { ok: false, reason: `TRIGGER_LABEL must be "${REVIEW_START_LABEL}", got: ${sanitizeForSingleLine(JSON.stringify(triggerLabel))}` }
+	if (!isTriggerLabel(triggerLabel)) return { ok: false, reason: `TRIGGER_LABEL must be "${REVIEW_START_LABEL}" ignoring case, got: ${sanitizeForSingleLine(JSON.stringify(triggerLabel))}` }
 
 	const githubResult = tryParseGitHubConfiguration(environment)
 	if (!githubResult.ok) return githubResult
@@ -114,7 +107,7 @@ export function getConfiguration(environment: Record<string, string | undefined>
 	if (labelTriggerResult.ok && labelTriggerResult.value !== null) return labelTriggerResult.value
 
 	const pullRequestResult = tryGetPullRequestConfiguration(environment, agents)
-	// A set TRIGGER_LABEL means the workflow started this run from a label event, so the run must be label-triggered: a label the gate accepted but the label-trigger branch rejects fails here instead of reviewing the pull request with every agent.
+	// A set TRIGGER_LABEL means the workflow started this run from a label event, so the run must be label-triggered instead of reviewing the pull request with every agent.
 	if (pullRequestResult.ok && !environment.TRIGGER_LABEL) return pullRequestResult.value
 
 	// Both the label-trigger and the pull-request branches reach the same GitHub configuration parser, so identical reasons are reported once.

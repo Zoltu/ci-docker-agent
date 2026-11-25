@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { REVIEW_START_LABEL, REVIEWER_LABEL_PREFIX, selectAgentNamesFromLabels, selectLabelNamesToRemove } from "../source/labels.mts"
+import { REVIEW_START_LABEL, REVIEWER_LABEL_PREFIX, isTriggerLabel, selectAgentNamesFromLabels, selectLabelNamesToRemove } from "../source/labels.mts"
 
 const availableAgentNames = ["Architect", "Bug Hunter", "Defender", "Security", "Default"]
 
@@ -12,6 +12,45 @@ function selectorLabel(agentName: string): string {
 function nearMissSelectorMessage(labelName: string): string {
 	return `Invalid selector label "${labelName}": a selector label must be spelled "${REVIEWER_LABEL_PREFIX}<Name>", with a capital "R", a spaced hyphen, and <Name> matching an agent prompt file name exactly and case-sensitively. Remove the label or correct its spelling.`
 }
+
+describe("isTriggerLabel", () => {
+	describe("accepted spellings", () => {
+		it("accepts the review start label itself", () => {
+			expect(isTriggerLabel(REVIEW_START_LABEL)).toBe(true)
+		})
+
+		it("accepts a lowercased spelling", () => {
+			expect(isTriggerLabel(REVIEW_START_LABEL.toLowerCase())).toBe(true)
+		})
+
+		it("accepts an uppercased spelling", () => {
+			expect(isTriggerLabel(REVIEW_START_LABEL.toUpperCase())).toBe(true)
+		})
+
+		it("accepts a spelling whose capitalization varies per letter", () => {
+			expect(isTriggerLabel("rEvIeW sTaRt")).toBe(true)
+		})
+	})
+
+	describe("other values", () => {
+		it("rejects a label whose words are swapped", () => {
+			expect(isTriggerLabel("Start Review")).toBe(false)
+		})
+
+		it("rejects a pluralized label", () => {
+			expect(isTriggerLabel("Review Starts")).toBe(false)
+		})
+
+		it("rejects the review start label with trailing whitespace", () => {
+			// Ignoring case is the only tolerance, so a value that differs by anything else stays a mismatch.
+			expect(isTriggerLabel(`${REVIEW_START_LABEL} `)).toBe(false)
+		})
+
+		it("rejects an empty value", () => {
+			expect(isTriggerLabel("")).toBe(false)
+		})
+	})
+})
 
 describe("selectAgentNamesFromLabels", () => {
 	describe("no selector", () => {
