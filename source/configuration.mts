@@ -6,7 +6,7 @@ import { parseCommaSeparatedList, sanitizeForSingleLine } from "./typescript-hel
 
 export interface LabelTriggerConfiguration {
 	type: "label-trigger"
-	// The value is carried as written because it names the label the pull request carries, and the run reports and removes that name.
+	// The value is carried as written, and it reaches only the missing-label error, because the run matches, logs and removes the listed spelling, which may differ from it in case.
 	triggerLabel: string
 	github: GitHubConfiguration
 }
@@ -107,7 +107,7 @@ export function getConfiguration(environment: Record<string, string | undefined>
 	if (labelTriggerResult.ok && labelTriggerResult.value !== null) return labelTriggerResult.value
 
 	const pullRequestResult = tryGetPullRequestConfiguration(environment, agents)
-	// A set TRIGGER_LABEL means the workflow started this run from a label event, so the run must be label-triggered instead of reviewing the pull request with every agent.
+	// A set TRIGGER_LABEL means the run must be label-triggered, so it must not fall back to reviewing the pull request with every agent.
 	if (pullRequestResult.ok && !environment.TRIGGER_LABEL) return pullRequestResult.value
 
 	// Both the label-trigger and the pull-request branches reach the same GitHub configuration parser, so identical reasons are reported once.

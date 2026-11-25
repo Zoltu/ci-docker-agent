@@ -1,24 +1,22 @@
 import { formatAggregatorSelectionError, isAggregatorName, type AgentNames } from "./agents.mts"
 import { includes, sanitizeForSingleLine } from "./typescript-helpers.mts"
 
+// This module supplies the trigger label value, the `Reviewer - ` selector prefix, the trigger-label match ignoring case, and the agent selection and label removal a label-triggered run derives from them.
+// The workflow gate, the README label table, and the README's `TRIGGER_LABEL` prose spell these values out, so a change here has to change them too.
 export const REVIEW_START_LABEL = "Review Start" as const
 
 // The trigger label is matched ignoring case, so a label that differs from it only in case still starts a run.
 const TRIGGER_LABEL_KEY = REVIEW_START_LABEL.toLowerCase()
 
-export function isTriggerLabel(value: string): boolean {
-	return value.toLowerCase() === TRIGGER_LABEL_KEY
-}
-
-// The trigger label and the selector prefix are this module's public contract, because the workflow gate, the label table, and the token documentation spell these values and a change here has to reach them.
-// Matching a label name against the available agents stays behind this module, since a caller that matched names itself would skip the aggregator, availability, and near-miss validation below.
-// A label selects an agent only when it starts with this exact prefix, and a run removes every label that carries it.
-// A label that looks like a selector but misses the prefix fails the run, because a run that ignored it would review with every agent instead of the agents the label names.
 export const REVIEWER_LABEL_PREFIX = "Reviewer - " as const
 
 // Both patterns key on the leading word rather than on REVIEWER_LABEL_PREFIX, so a label whose prefix drifted is still caught when the real prefix changes.
 const REVIEWER_WORD_PREFIX = /^reviewer/i
 const REVIEW_WORD_WITH_HYPHEN = /^review\s*-/i
+
+export function isTriggerLabel(value: string): boolean {
+	return value.toLowerCase() === TRIGGER_LABEL_KEY
+}
 
 // The check stays deliberately loose: an unrelated label such as `reviewer-needed` fails the run with a message that shows the spelling it has to have, which costs less than a selector whose typo silently selected nothing.
 function isNearMissSelectorLabel(labelName: string): boolean {
@@ -30,6 +28,9 @@ function formatNearMissSelectorError(labelName: string): string {
 	return `Invalid selector label "${sanitizeForSingleLine(labelName)}": a selector label must be spelled "${REVIEWER_LABEL_PREFIX}<Name>", with a capital "R", a spaced hyphen, and <Name> matching an agent prompt file name exactly and case-sensitively. Remove the label or correct its spelling.`
 }
 
+// Matching label names against the available agents stays behind this function, because a caller that compared them itself would skip the aggregator, availability, and near-miss validation below.
+// A label selects an agent only when it starts with the exact `Reviewer - ` prefix.
+// A label that looks like a botched selector attempt fails the run with the spelling it has to have instead of being ignored.
 // The caller supplies the selectable names with the aggregator already excluded, so the failure message cannot offer a selector that always fails.
 export function selectAgentNamesFromLabels(labelNames: readonly string[], availableAgentNames: readonly string[]): AgentNames {
 	const selectedAgentNames: string[] = []
@@ -54,13 +55,14 @@ export function selectAgentNamesFromLabels(labelNames: readonly string[], availa
 // A selector label is consumed by the run it selected for, because one left behind would narrow the next run to a subset nobody asked for.
 // The trigger label leads the returned list, so the removals leave the pull request without the label that starts a run even when a later removal fails.
 // The list is built from the names the pull request actually carries, never from the prefix alone, so the caller never deletes a label that GitHub would report as missing.
-// Removal keys on the exact prefix and validates nothing, so a label that cannot select anything (`Reviewer - Bogus`, `Reviewer - All`, `Reviewer - Aggregator`) is still consumed before the run fails, and a near miss stays put to fail the next run too.
-export function selectLabelNamesToRemove(labelNames: readonly string[], triggerLabel: string): readonly string[] {
+// Removal keys on the exact prefix and validates nothing, so every label that carries the prefix is consumed before the run fails, even one that can select nothing (`Reviewer - Bogus`, `Reviewer - All`, `Reviewer - Aggregator`), while a near miss stays put to fail the next run too.
+// `listedTriggerLabel` has to be the trigger label's listed spelling, not the configured `TRIGGER_LABEL` value, because the trigger entry is keyed on an exact match: a listed spelling that differs from the configured value only in case gets no entry, so the trigger label stays on the pull request.
+export function selectLabelNamesToRemove(labelNames: readonly string[], listedTriggerLabel: string): readonly string[] {
 	const labelNamesToRemove: string[] = []
-	if (includes(labelNames, triggerLabel)) labelNamesToRemove.push(triggerLabel)
+	if (includes(labelNames, listedTriggerLabel)) labelNamesToRemove.push(listedTriggerLabel)
 
 	for (const labelName of labelNames) {
-		if (labelName === triggerLabel) continue
+		if (labelName === listedTriggerLabel) continue
 		if (!labelName.startsWith(REVIEWER_LABEL_PREFIX)) continue
 		labelNamesToRemove.push(labelName)
 	}

@@ -192,6 +192,13 @@ describe("selectLabelNamesToRemove", () => {
 		it("removes the trigger label first even when it is listed last", () => {
 			expect(selectLabelNamesToRemove([selectorLabel("Security"), REVIEW_START_LABEL], REVIEW_START_LABEL)).toEqual([REVIEW_START_LABEL, selectorLabel("Security")])
 		})
+
+		it("keeps a trigger label the pull request spells 'rEvIeW sTaRt' when the passed spelling is 'Review Start', and removes the selectors around it", () => {
+			// A pull request carries the trigger label once, under the spelling it was added with, and removal keys on the exact spelling the caller passes.
+			const labelNames = ["rEvIeW sTaRt", selectorLabel("Security")]
+
+			expect(selectLabelNamesToRemove(labelNames, REVIEW_START_LABEL)).toEqual([selectorLabel("Security")])
+		})
 	})
 
 	describe("selector labels", () => {

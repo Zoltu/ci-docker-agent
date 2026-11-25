@@ -109,7 +109,7 @@ describe("resolveConfiguration", () => {
 		it("keeps the trigger label spelling the environment supplied", () => {
 			const configuration = getLabelTriggerConfiguration({ TRIGGER_LABEL: "review start" })
 
-			// The stored spelling names the label the run reports and removes, so a value replaced by the constant would make both of those miss a differently-cased label.
+			// The configured spelling is what the missing-label error echoes, and the run removes and logs the listed spelling, so a value replaced by the constant would change only what that error names.
 			expect(configuration.triggerLabel).toBe("review start")
 		})
 
@@ -133,6 +133,18 @@ describe("resolveConfiguration", () => {
 				TRIGGER_LABEL: REVIEW_START_LABEL,
 			})
 
+			expect(configuration.type).toBe("label-trigger")
+		})
+
+		it("takes priority over pull-request when the trigger label differs from the review start label only in case", () => {
+			const configuration = resolveConfiguration({
+				GITHUB_TOKEN: "my-token",
+				PR_NUMBER: "42",
+				REPO: "owner/repo",
+				TRIGGER_LABEL: "review start",
+			})
+
+			// The GitHub variables alone would satisfy a pull-request run, which removes no label, so only the match ignoring case makes this resolve to label-trigger.
 			expect(configuration.type).toBe("label-trigger")
 		})
 

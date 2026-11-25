@@ -552,13 +552,14 @@ describe("runOnLabelTrigger", () => {
 			expect(submittedReviews()).toHaveLength(1)
 		})
 
-		it("removes the label the pull request lists when the configuration spells it differently only in case", async () => {
-			const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL] })
+		it("removes the trigger label's listed spelling together with every selector label when the configuration spells it differently only in case", async () => {
+			// The pull request lists the lowercase spelling while the configuration carries the uppercase one, so no value but the listed spelling can key the removal of the trigger label.
+			const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["review start", "Reviewer - Security"] })
 
 			await runOnLabelTrigger(
 				{
 					spawnGit: makeSpawnGitOk(),
-					readAgents: makeReadAgents([makeAgent(), { name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." }]),
+					readAgents: makeReadAgents(namedAgents),
 					githubFetch,
 					fetch: makeFetch("Good work"),
 					logger: silentLogger,
@@ -566,7 +567,7 @@ describe("runOnLabelTrigger", () => {
 					sleep: instantSleep,
 					random: fixedRandom,
 				},
-				makeLabelTriggerConfiguration({ triggerLabel: "review start" }),
+				makeLabelTriggerConfiguration({ triggerLabel: "REVIEW START" }),
 				userAgentsDirectory,
 				builtinAgentsDirectory,
 				"test-model",
@@ -574,35 +575,8 @@ describe("runOnLabelTrigger", () => {
 				IDENTITY_PROFILE,
 			)
 
-			// The configured spelling is not a label the pull request carries, so only the listed name is a valid DELETE target.
-			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
-			expect(submittedReviews()).toHaveLength(1)
-		})
-
-		it("removes a trigger label the pull request spells in lowercase", async () => {
-			const { githubFetch, deletedLabelUrls, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["review start"] })
-
-			await runOnLabelTrigger(
-				{
-					spawnGit: makeSpawnGitOk(),
-					readAgents: makeReadAgents([makeAgent(), { name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." }]),
-					githubFetch,
-					fetch: makeFetch("Good work"),
-					logger: silentLogger,
-					debugWriter: noopDebugWriter,
-					sleep: instantSleep,
-					random: fixedRandom,
-				},
-				makeLabelTriggerConfiguration(),
-				userAgentsDirectory,
-				builtinAgentsDirectory,
-				"test-model",
-				100_000,
-				IDENTITY_PROFILE,
-			)
-
-			// The configured value is the constant here, so a run that deleted it instead of the listed name would delete nothing.
-			expect(deletedLabelNames(deletedLabelUrls())).toEqual(["review start"])
+			// The listed spelling leads the removal list and the selector label follows it, so a removal keyed on the constant or on the configured spelling would leave the trigger label applied.
+			expect(deletedLabelNames(deletedLabelUrls())).toEqual(["review start", "Reviewer - Security"])
 			expect(submittedReviews()).toHaveLength(1)
 		})
 
@@ -975,6 +949,33 @@ describe("runOnLabelTrigger", () => {
 				100_000,
 				IDENTITY_PROFILE,
 			)).rejects.toThrow(`Invalid PR labels: "${REVIEW_START_LABEL}" is missing from pull request #42`)
+
+			expect(deletedLabelUrls()).toHaveLength(0)
+			expect(submitCallCount()).toBe(0)
+		})
+
+		it("echoes the configured trigger label spelling when the pull request carries no trigger label", async () => {
+			const { githubFetch, deletedLabelUrls, submitCallCount } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: ["Reviewer - Security"] })
+
+			// The configuration carries the lowercase spelling, so the message has to echo that value rather than the constant it is matched against.
+			await expect(runOnLabelTrigger(
+				{
+					spawnGit: makeSpawnGitOk(),
+					readAgents: makeReadAgents(namedAgents),
+					githubFetch,
+					fetch: makeFetch("Good work"),
+					logger: silentLogger,
+					debugWriter: noopDebugWriter,
+					sleep: instantSleep,
+					random: fixedRandom,
+				},
+				makeLabelTriggerConfiguration({ triggerLabel: "review start" }),
+				userAgentsDirectory,
+				builtinAgentsDirectory,
+				"test-model",
+				100_000,
+				IDENTITY_PROFILE,
+			)).rejects.toThrow(`Invalid PR labels: "review start" is missing from pull request #42`)
 
 			expect(deletedLabelUrls()).toHaveLength(0)
 			expect(submitCallCount()).toBe(0)

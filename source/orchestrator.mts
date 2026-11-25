@@ -68,12 +68,13 @@ export async function runOnPullRequest(dependencies: OrchestratorDependencies, c
 export async function runOnLabelTrigger(dependencies: OrchestratorDependencies, configuration: LabelTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
 
-	// The label the pull request lists is the name every later step uses, because the configured value may differ from it in case and only the listed name is the one GitHub accepts in a DELETE.
-	const triggerLabelName = metadata.labelNames.find(isTriggerLabel)
-	if (triggerLabelName === undefined) throw new Error(`Invalid PR labels: "${sanitizeForSingleLine(configuration.triggerLabel)}" is missing from pull request #${configuration.github.pullRequestNumber}. Re-add the label to start a new run.`)
+	// `selectLabelNamesToRemove` removes the trigger label under the listed spelling, so the value it takes is this match rather than the configured `TRIGGER_LABEL`.
+	const listedTriggerLabel = metadata.labelNames.find(isTriggerLabel)
+	// The guard has no listed spelling to name because none matched, so the message echoes the configured `TRIGGER_LABEL`, a value configuration already accepted as matching `Review Start` ignoring case.
+	if (listedTriggerLabel === undefined) throw new Error(`Invalid PR labels: "${sanitizeForSingleLine(configuration.triggerLabel)}" is missing from pull request #${configuration.github.pullRequestNumber}. Re-add the label to start a new run.`)
 
 	// The trigger label and every selector label are removed before any validation and before any agent runs, so a run that fails hard can be retried by adding the one label back and no selector can narrow a later run.
-	for (const labelName of selectLabelNamesToRemove(metadata.labelNames, triggerLabelName)) {
+	for (const labelName of selectLabelNamesToRemove(metadata.labelNames, listedTriggerLabel)) {
 		await removePullRequestLabel(dependencies, configuration.github, labelName)
 		// A removed label is gone from the pull request, so the run's own log is the only record of what it consumed.
 		// A label name can carry an invisible character that would make that record read differently from the bytes deleted, so it is escaped like every other untrusted name.
