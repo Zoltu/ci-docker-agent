@@ -54,18 +54,12 @@ export function selectAgentNamesFromLabels(labelNames: readonly string[], availa
 
 // A selector label is consumed by the run it selected for, because one left behind would narrow the next run to a subset nobody asked for.
 // The trigger label leads the returned list, so the removals leave the pull request without the label that starts a run even when a later removal fails.
-// The list is built from the names the pull request actually carries, never from the prefix alone, so the caller never deletes a label that GitHub would report as missing.
+// Every name in the returned list is one the pull request carries, so the run deletes the trigger label under the spelling the pull request lists and never asks GitHub to delete a label the pull request lacks.
 // Removal keys on the exact prefix and validates nothing, so every label that carries the prefix is consumed before the run fails, even one that can select nothing (`Reviewer - Bogus`, `Reviewer - All`, `Reviewer - Aggregator`), while a near miss stays put to fail the next run too.
-// `listedTriggerLabel` has to be the trigger label's listed spelling, not the configured `TRIGGER_LABEL` value, because the trigger entry is keyed on an exact match: a listed spelling that differs from the configured value only in case gets no entry, so the trigger label stays on the pull request.
-export function selectLabelNamesToRemove(labelNames: readonly string[], listedTriggerLabel: string): readonly string[] {
-	const labelNamesToRemove: string[] = []
-	if (includes(labelNames, listedTriggerLabel)) labelNamesToRemove.push(listedTriggerLabel)
+// GitHub keeps label names unique ignoring case, so at most one listed label matches the trigger label and the trigger label is removed once.
+export function selectLabelNamesToRemove(labelNames: readonly string[]): readonly string[] {
+	const listedTriggerLabelNames = labelNames.filter(isTriggerLabel)
+	const selectorLabelNames = labelNames.filter(labelName => labelName.startsWith(REVIEWER_LABEL_PREFIX))
 
-	for (const labelName of labelNames) {
-		if (labelName === listedTriggerLabel) continue
-		if (!labelName.startsWith(REVIEWER_LABEL_PREFIX)) continue
-		labelNamesToRemove.push(labelName)
-	}
-
-	return labelNamesToRemove
+	return [...listedTriggerLabelNames, ...selectorLabelNames]
 }
