@@ -42,7 +42,7 @@ export function buildReviewPayload(aiResult: AiReviewResult, coverage: ReviewerC
 	const reviewerRunNotice = formatReviewerRunNotice(coverage)
 	const bodyLines = ["## CI Agent Review", "", reviewerRunNotice, "", aiResult.body]
 
-	// A long review scrolls the first line out of view, so a partial review states the same warning again as the last line; AI-written body content can hide or deform that repeat, and hardening against it was judged not worth the cost relative to the risk, because the first warning cannot be affected by body content.
+	// A long review scrolls the first line out of view, so a partial review repeats the same warning as the last line of the body.
 	if (coverage.kind === "partial") bodyLines.push("", reviewerRunNotice)
 
 	return { event: "COMMENT", body: bodyLines.join("\n"), comments: aiResult.comments }

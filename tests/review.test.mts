@@ -72,6 +72,18 @@ describe("buildReviewPayload", () => {
 			body: "Another comment",
 		})
 	})
+
+	it("inserts the AI body unchanged, so its fence, comment opener and details tag reach GitHub as written", () => {
+		const aiResult: AiReviewResult = {
+			body: "Opened a fence it never closes:\n\n```ts\nconst reviewerCount = 2\n<!-- an HTML comment opener -->\n<details><summary>More</summary>",
+			comments: [],
+		}
+
+		const payload = buildReviewPayload(aiResult, fullCoverage(2))
+
+		expect(firstContentLineAfterHeading(payload.body)).toBe("Reviewers: All 2 reviewers ran.")
+		expect(payload.body.endsWith(`\n\n${aiResult.body}`)).toBe(true)
+	})
 })
 
 describe("reviewer notice", () => {
