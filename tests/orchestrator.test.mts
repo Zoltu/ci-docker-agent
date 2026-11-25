@@ -187,7 +187,7 @@ describe("runOnPullRequest", () => {
 		expect(submittedReviews()).toHaveLength(1)
 		expect(submittedReviews()[0]!.event).toBe("COMMENT")
 		expect(submittedReviews()[0]!.body).toContain("Great work")
-		expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (1 of 1).")
+		expect(submittedReviews()[0]!.body).toContain("Reviewers: All 1 reviewer ran.")
 	})
 
 	it("reports a full review of the built-in Default when the repository ships no prompt", async () => {
@@ -214,7 +214,7 @@ describe("runOnPullRequest", () => {
 
 		// A repository without .ci-agents resolves the built-in Default alone, so an automatic run on an opened pull request is a full review of one reviewer and its total cannot fall below that count.
 		expect(submittedReviews()).toHaveLength(1)
-		expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (1 of 1).")
+		expect(submittedReviews()[0]!.body).toContain("Reviewers: All 1 reviewer ran.")
 		expect(submittedReviews()[0]!.body).not.toContain("**")
 		expect(submittedReviews()[0]!.body).not.toContain("> ")
 	})
@@ -246,7 +246,7 @@ describe("runOnPullRequest", () => {
 			IDENTITY_PROFILE,
 		)
 
-		const partialNotice = "> **Reviewers: only 1 of 2 ran (`Security`). The remaining reviewers did not run, so this is not a full review.**"
+		const partialNotice = "⚠️ **PARTIAL REVIEW — 1 of 2 reviewers ran: `Security`. This is not a full review.**"
 		expect(submittedReviews()[0]!.body.split(partialNotice)).toHaveLength(3)
 	})
 
@@ -275,7 +275,7 @@ describe("runOnPullRequest", () => {
 
 		// AGENTS can name the built-in Default too, so a selection that names every selectable reviewer left nobody out and must not report more reviewers than the run had.
 		expect(submittedReviews()).toHaveLength(1)
-		expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (2 of 2).")
+		expect(submittedReviews()[0]!.body).toContain("Reviewers: All 2 reviewers ran.")
 		expect(submittedReviews()[0]!.body).not.toContain("**")
 	})
 
@@ -468,7 +468,7 @@ describe("runOnPullRequest", () => {
 		expect(submittedReviews()[0]!.comments).toHaveLength(1)
 		expect(submittedReviews()[0]!.comments[0]!.line).toBe(1)
 		// The retried body is built from the corrected aggregator output alone, so the reviewer notice appears once rather than accumulating per attempt.
-		expect(submittedReviews()[0]!.body.split("Reviewers: All ran (1 of 1).")).toHaveLength(2)
+		expect(submittedReviews()[0]!.body.split("Reviewers: All 1 reviewer ran.")).toHaveLength(2)
 
 		const thirdAggregatorRequest = JSON.parse(capturedBodies[2]!)
 		const lastUserMessage = thirdAggregatorRequest.messages.at(-1)
@@ -658,7 +658,7 @@ describe("runOnLabelTrigger", () => {
 			expect(submittedReviews()).toHaveLength(1)
 
 			// A subset review carries the warning twice, once where a reader starts and once where a long review ends.
-			const partialNotice = "> **Reviewers: only 1 of 2 ran (`Security`). The remaining reviewers did not run, so this is not a full review.**"
+			const partialNotice = "⚠️ **PARTIAL REVIEW — 1 of 2 reviewers ran: `Security`. This is not a full review.**"
 			expect(submittedReviews()[0]!.body.split(partialNotice)).toHaveLength(3)
 			expect(submittedReviews()[0]!.body.endsWith(partialNotice)).toBe(true)
 		})
@@ -691,7 +691,7 @@ describe("runOnLabelTrigger", () => {
 			expect(agentNames.sort()).toEqual(["Bug Hunter", "Security"])
 			expect(capturedBodies).toHaveLength(3)
 			expect(submittedReviews()).toHaveLength(1)
-			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (2 of 2).")
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All 2 reviewers ran.")
 			expect(submittedReviews()[0]!.body).not.toContain("**")
 		})
 
@@ -722,7 +722,7 @@ describe("runOnLabelTrigger", () => {
 			expect(deletedLabelNames(deletedLabelUrls())).toEqual([REVIEW_START_LABEL])
 			expect(capturedBodies).toHaveLength(2)
 			expect(submittedReviews()).toHaveLength(1)
-			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (1 of 1).")
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All 1 reviewer ran.")
 			expect(submittedReviews()[0]!.body).not.toContain("**")
 			expect(submittedReviews()[0]!.body).not.toContain("> ")
 		})
@@ -751,7 +751,7 @@ describe("runOnLabelTrigger", () => {
 
 			// Naming every reviewer one label at a time is the same set a run with no selectors uses, so the review must not read as a subset.
 			expect(submittedReviews()).toHaveLength(1)
-			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (2 of 2).")
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All 2 reviewers ran.")
 			expect(submittedReviews()[0]!.body).not.toContain("**")
 		})
 
@@ -779,7 +779,7 @@ describe("runOnLabelTrigger", () => {
 
 			// The shipped built-in Default is selectable but opt-in, so a run that labels every prompt of its own reviews exactly the reviewers a bare run uses and must not read as narrowed.
 			expect(submittedReviews()).toHaveLength(1)
-			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (2 of 2).")
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All 2 reviewers ran.")
 			expect(submittedReviews()[0]!.body).not.toContain("**")
 		})
 
@@ -807,11 +807,11 @@ describe("runOnLabelTrigger", () => {
 
 			// A selector label can name the built-in Default too, so this run left nobody out and a subset warning here would carry a total smaller than the selection.
 			expect(submittedReviews()).toHaveLength(1)
-			expect(submittedReviews()[0]!.body).toContain("Reviewers: All ran (3 of 3).")
+			expect(submittedReviews()[0]!.body).toContain("Reviewers: All 3 reviewers ran.")
 			expect(submittedReviews()[0]!.body).not.toContain("**")
 		})
 
-		it("reports the reference denominator when a selection adds the built-in Default but leaves a repository prompt out", async () => {
+		it("reports a total above its count when a selection adds the built-in Default but leaves a repository prompt out", async () => {
 			const { githubFetch, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF, labelNames: [REVIEW_START_LABEL, "Reviewer - Security", "Reviewer - Default"] })
 
 			await runOnLabelTrigger(
@@ -833,10 +833,10 @@ describe("runOnLabelTrigger", () => {
 				IDENTITY_PROFILE,
 			)
 
-			// `namedAgents` holds Bug Hunter and Security, so this run left Bug Hunter out while adding the built-in Default: one of the two reference reviewers ran, and the list names both reviewers that ran.
+			// `namedAgents` holds Bug Hunter and Security, so this run left Bug Hunter out while adding the built-in Default: the count follows the two reviewers that ran, and the total also counts the reviewer no bare run uses.
 			expect(submittedReviews()).toHaveLength(1)
-			expect(submittedReviews()[0]!.body).toContain("> **Reviewers: only 1 of 2 ran (`Security`, `Default`). The remaining reviewers did not run, so this is not a full review.**")
-			expect(submittedReviews()[0]!.body).not.toContain("Reviewers: All ran")
+			expect(submittedReviews()[0]!.body).toContain("⚠️ **PARTIAL REVIEW — 2 of 3 reviewers ran: `Security`, `Default`. This is not a full review.**")
+			expect(submittedReviews()[0]!.body).not.toContain("Reviewers: All ")
 		})
 
 		it("ignores a label that does not look like a selector and runs every user agent", async () => {
@@ -894,6 +894,8 @@ describe("runOnLabelTrigger", () => {
 			expect(capturedBodies).toHaveLength(2)
 			expect(capturedBodies[0]!).toContain("Builtin default prompt.")
 			expect(submittedReviews()).toHaveLength(1)
+			// The run reviewed with a reviewer no bare run of this repository would use, so the total counts that reviewer beside the two reference reviewers it left out.
+			expect(submittedReviews()[0]!.body).toContain("⚠️ **PARTIAL REVIEW — 1 of 3 reviewers ran: `Default`. This is not a full review.**")
 		})
 	})
 

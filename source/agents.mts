@@ -13,12 +13,12 @@ export interface Agent {
 
 export type AgentReader = (directory: string) => Promise<Agent[]>
 
-// A full claim carries only the number of reviewers that ran; a partial claim carries both counts, because the reference reviewers that ran and the reviewers that ran differ whenever a selection adds a reviewer the reference set does not hold.
+// A full claim carries only the number of reviewers that ran; a partial claim carries the reviewers that ran and the number the pull request could run, which is the union of those reviewers and the ones a run with no selector labels would use.
 export type ReviewerCoverage =
 	| { readonly kind: "full"; readonly reviewerCount: number }
-	| { readonly kind: "partial"; readonly ranReviewerNames: readonly string[]; readonly ranReferenceReviewerCount: number; readonly referenceReviewerCount: number }
+	| { readonly kind: "partial"; readonly ranReviewerNames: readonly string[]; readonly possibleReviewerCount: number }
 
-// A run's agents together with the coverage claim about exactly those agents, so a caller cannot pair a full claim with a list that leaves a reference reviewer out.
+// A run's agents together with the coverage claim about those agents; `loadReviewerRun` is what pairs them, because both fields are plain data and the types cannot stop a caller from assembling another pair.
 export interface ReviewerRun {
 	readonly agents: readonly Agent[]
 	readonly coverage: ReviewerCoverage
@@ -98,7 +98,7 @@ export function selectableAgentNames(userAgents: readonly Agent[], builtinAgents
 
 // The reviewers a run with no selector resolves: every user prompt in the order the directory listed them, or the built-in Default when the repository ships none, with the aggregator excluded because it always runs last.
 // The coverage claim compares a run against this same list, so a duplicate prompt name fails here rather than being counted as one reviewer and reported as a full review.
-export function selectAllReviewerNames(userAgents: readonly Agent[]): readonly string[] {
+function selectAllReviewerNames(userAgents: readonly Agent[]): readonly string[] {
 	assertDistinctAgentNames(userAgents)
 
 	const reviewerNames = filterOutAggregator(userAgents).map(agent => agent.name)
@@ -109,12 +109,13 @@ export function selectAllReviewerNames(userAgents: readonly Agent[]): readonly s
 // A run is narrowed only when it leaves out a reviewer a run with no selector labels would have used, so the comparison asks whether the reference set is covered, not whether the two lists match.
 // A selection may cover that set and add a reviewer that no bare run uses, such as `Reviewer - Default` beside every `.ci-agents` prompt, and such a run reviews strictly more than a bare run does.
 // Names are compared in lowercase because agent selection matches a requested name against the prompt file name case-insensitively, so `security` and `Security` are the same reviewer and comparing them as different would report a full review as narrowed.
-// Every count treats two spellings of one reviewer name as one reviewer, while the listed names stay every reviewer that ran, in run order, because those are the names the warning shows.
+// A partial claim states the union of both sets, because its total answers how many reviewers the pull request could run: a swap of a reference reviewer for an outsider leaves that total above the number that ran, where the bare reference size could equal it and read as complete coverage.
+// The union outgrows the number that ran exactly when a reference reviewer is missing, so the same comparison decides the full and the partial case.
 function deriveReviewerCoverage(agents: readonly Agent[], referenceReviewerNames: readonly string[]): ReviewerCoverage {
 	const ranReviewerNameKeys = new Set(agents.map(agent => agent.name.toLowerCase()))
 	const referenceReviewerNameKeys = new Set(referenceReviewerNames.map(name => name.toLowerCase()))
-	const ranReferenceReviewerCount = [...referenceReviewerNameKeys].filter(key => ranReviewerNameKeys.has(key)).length
-	if (ranReferenceReviewerCount !== referenceReviewerNameKeys.size) return { kind: "partial", ranReviewerNames: agents.map(agent => agent.name), ranReferenceReviewerCount, referenceReviewerCount: referenceReviewerNameKeys.size }
+	const possibleReviewerCount = new Set([...ranReviewerNameKeys, ...referenceReviewerNameKeys]).size
+	if (possibleReviewerCount !== ranReviewerNameKeys.size) return { kind: "partial", ranReviewerNames: agents.map(agent => agent.name), possibleReviewerCount }
 	return { kind: "full", reviewerCount: ranReviewerNameKeys.size }
 }
 
@@ -168,12 +169,12 @@ function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinA
 }
 
 // One read of each prompt directory, one resolution against that read, and one coverage claim about exactly the agents that came back.
-// The caller supplies how a selection is made so the selector vocabulary and the credentials the selection came from are read once, beside the read the claim describes.
-export async function loadReviewerRun(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, requestAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<ReviewerRun> {
+// The caller supplies how a selection is made so the selector vocabulary and the selection input are read once, beside the read the claim describes.
+export async function loadReviewerRun(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, selectAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<ReviewerRun> {
 	const userAgents = await dependencies.readAgents(userAgentsDirectory)
 	const builtinAgents = await dependencies.readAgents(builtinAgentsDirectory)
 
-	const agents = resolveAgents(requestAgentNames(selectableAgentNames(userAgents, builtinAgents)), userAgents, builtinAgents)
+	const agents = resolveAgents(selectAgentNames(selectableAgentNames(userAgents, builtinAgents)), userAgents, builtinAgents)
 	return { agents, coverage: deriveReviewerCoverage(agents, selectAllReviewerNames(userAgents)) }
 }
 

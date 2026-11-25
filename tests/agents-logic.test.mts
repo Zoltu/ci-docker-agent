@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test"
-import { buildAgentPrompt, selectAllReviewerNames, selectableAgentNames, type PromptMessage } from "../source/agents.mts"
+import { describe, it, expect } from "bun:test"
+import { buildAgentPrompt, loadReviewerRun, selectableAgentNames, type Agent, type AgentReader, type PromptMessage } from "../source/agents.mts"
 import { makeAgent, makeBaseCommitContext } from "./helpers.mts"
 
 const SAMPLE_DIFF = [
@@ -13,6 +13,19 @@ const SAMPLE_DIFF = [
 
 function filterByRole(messages: readonly PromptMessage[], role: "system" | "user"): string[] {
 	return messages.filter(m => m.role === role).map(m => m.content)
+}
+
+const referenceUserDirectory = "/user"
+const referenceBuiltinDirectory = "/builtins"
+
+// The reference set is internal to agents.mts, so it is exercised through the entry point that uses it: a run with no selector label resolves exactly that set.
+async function resolvedReviewerNames(userAgents: readonly Agent[]): Promise<readonly string[]> {
+	const readAgents: AgentReader = async (directory) => {
+		if (directory === referenceUserDirectory) return [...userAgents]
+		return [{ name: "Default", prompt: "Builtin default prompt." }, { name: "Aggregator", prompt: "Aggregate." }]
+	}
+	const reviewerRun = await loadReviewerRun({ readAgents }, referenceUserDirectory, referenceBuiltinDirectory, () => "run all agents")
+	return reviewerRun.agents.map(agent => agent.name)
 }
 
 describe("buildAgentPrompt", () => {
@@ -246,42 +259,42 @@ describe("selectableAgentNames", () => {
 	})
 })
 
-describe("selectAllReviewerNames", () => {
-	it("names every user agent in the order the directory listed them", () => {
-		expect(selectAllReviewerNames([makeAgent({ name: "Bug Hunter" }), makeAgent({ name: "Security" })])).toEqual(["Bug Hunter", "Security"])
+describe("loadReviewerRun with no selector labels", () => {
+	it("names every user agent in the order the directory listed them", async () => {
+		expect(await resolvedReviewerNames([makeAgent({ name: "Bug Hunter" }), makeAgent({ name: "Security" })])).toEqual(["Bug Hunter", "Security"])
 	})
 
-	it("excludes the aggregator, which always runs last", () => {
-		expect(selectAllReviewerNames([makeAgent({ name: "Security" }), makeAgent({ name: "Aggregator" })])).toEqual(["Security"])
+	it("excludes the aggregator, which always runs last", async () => {
+		expect(await resolvedReviewerNames([makeAgent({ name: "Security" }), makeAgent({ name: "Aggregator" })])).toEqual(["Security"])
 	})
 
-	it("excludes the aggregator in any capitalization", () => {
-		expect(selectAllReviewerNames([makeAgent({ name: "aggregator" }), makeAgent({ name: "Security" })])).toEqual(["Security"])
+	it("excludes the aggregator in any capitalization", async () => {
+		expect(await resolvedReviewerNames([makeAgent({ name: "aggregator" }), makeAgent({ name: "Security" })])).toEqual(["Security"])
 	})
 
-	it("rejects two prompt files that differ only by case, because one of them could never run", () => {
+	it("rejects two prompt files that differ only by case, because one of them could never run", async () => {
 		// Resolution matches a requested name case-insensitively, so a run that accepted both names would review with one prompt where a maintainer wrote two and never learn about it.
-		expect(() => selectAllReviewerNames([makeAgent({ name: "Security" }), makeAgent({ name: "security", prompt: "Lowercase prompt." })])).toThrow(
+		await expect(resolvedReviewerNames([makeAgent({ name: "Security" }), makeAgent({ name: "security", prompt: "Lowercase prompt." })])).rejects.toThrow(
 			'Duplicate agent prompt file names: "Security" and "security"'
 		)
 	})
 
-	it("escapes a prompt file name that would forge a line in the duplicate message", () => {
-		expect(() => selectAllReviewerNames([makeAgent({ name: "Evil\u000aFORGED LOG LINE" }), makeAgent({ name: "EVIL\u000aFORGED LOG LINE" })])).toThrow(
+	it("escapes a prompt file name that would forge a line in the duplicate message", async () => {
+		await expect(resolvedReviewerNames([makeAgent({ name: "Evil\u000aFORGED LOG LINE" }), makeAgent({ name: "EVIL\u000aFORGED LOG LINE" })])).rejects.toThrow(
 			'Duplicate agent prompt file names: "Evil\\u000aFORGED LOG LINE" and "EVIL\\u000aFORGED LOG LINE"'
 		)
 	})
 
-	it("falls back to the built-in Default reviewer when the repository ships no agent prompt", () => {
-		expect(selectAllReviewerNames([])).toEqual(["Default"])
+	it("falls back to the built-in Default reviewer when the repository ships no agent prompt", async () => {
+		expect(await resolvedReviewerNames([])).toEqual(["Default"])
 	})
 
-	it("falls back to the built-in Default reviewer when every prompt is the aggregator", () => {
-		expect(selectAllReviewerNames([makeAgent({ name: "Aggregator" })])).toEqual(["Default"])
+	it("falls back to the built-in Default reviewer when every prompt is the aggregator", async () => {
+		expect(await resolvedReviewerNames([makeAgent({ name: "Aggregator" })])).toEqual(["Default"])
 	})
 
-	it("adds no builtin reviewer to a set of user agents", () => {
+	it("adds no builtin reviewer to a set of user agents", async () => {
 		// A builtin reviewer is never part of a run without selectors unless the repository ships no prompt of its own, so counting it would make every full review look partial.
-		expect(selectAllReviewerNames([makeAgent({ name: "Security" })])).toEqual(["Security"])
+		expect(await resolvedReviewerNames([makeAgent({ name: "Security" })])).toEqual(["Security"])
 	})
 })

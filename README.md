@@ -63,7 +63,7 @@ docker container run --rm -it --env="GITHUB_TOKEN=$GITHUB_TOKEN" --env="PR_NUMBE
 See [./.github/workflows/ci-agent.yml](./.github/workflows/ci-agent.yml) for an example.
 
 #### Requirements
-- A `GITHUB_TOKEN` with `pull-requests: write` to submit the review and `issues: write` to remove the `Review Start` label and every `Reviewer - ` label from the pull request, which is the permission pair the workflow grants because GitHub serves pull request labels through the issues endpoint; the removals happen before any agent runs, so a token without the label permission fails a labeled run with those labels still applied and no reviewer run
+- A `GITHUB_TOKEN` with `pull-requests: write` to submit the review and `issues: write` to remove the `Review Start` label and every `Reviewer - ` label from the pull request, which is the permission pair the workflow grants because GitHub serves pull request labels through the issues endpoint; the removals happen before any agent runs, so a token without the label permission fails a labeled run and leaves those labels applied
 
 #### Secrets and Variables
 
@@ -73,11 +73,11 @@ Setup a GitHub repository/organization variable for `AI_API_URL`, `AI_MODEL`, an
 
 ### Trigger Labels (GitHub Mode)
 
-A new pull request is reviewed automatically with every agent, so labels are only needed to choose a subset of agents or to request another review of the same pull request.
+A new pull request is reviewed automatically with every agent, because the shipped workflow does not pass `AGENTS`. Labels are only needed to change that selection for a single run or to request another review of the same pull request. A custom workflow that passes `AGENTS` uses that selection for the automatic run and ignores labels there.
 
 | Label | Purpose |
 | --- | --- |
-| `Review Start` | Starts a run for the selected `Reviewer - *` labels, or for every agent when none are present. A label-triggered run removes this label and every `Reviewer - ` label, so a later run reviews with every reviewer unless the selectors are applied again; see [Selection Rules](#selection-rules) for the cases that leave them applied. |
+| `Review Start` | Starts a run for the selected agents, and the run removes `Review Start` and every `Reviewer - ` label; see [Selection Rules](#selection-rules). |
 | `Reviewer - Architect` | Selects the `Architect` agent from `.ci-agents/Architect.md` for the run. |
 | `Reviewer - Bug Hunter` | Selects the `Bug Hunter` agent from `.ci-agents/Bug Hunter.md` for the run. |
 | `Reviewer - Default` | Selects the built-in `Default` agent from `agents/Default.md` for the run. |
@@ -87,32 +87,30 @@ A new pull request is reviewed automatically with every agent, so labels are onl
 #### Selection Rules
 
 - Apply the `Reviewer - *` labels first, then add `Review Start`.
-- To request a re-review, remove the `Review Start` label and add it again: GitHub is expected to emit no `labeled` event for a label that is already applied, so removing it first is what makes the next addition a new event. The selector labels are consumed by the run that used them, so re-adding `Review Start` alone reviews with every agent unless the selectors are applied again.
-- Consuming the selector labels is what keeps a one-off subset run one-off. Without it, a one-off run leaves its selectors behind and the next `Review Start` silently reviews a subset nobody asked for, so removal makes the normal state of a pull request a review with every reviewer. The automatic run on a newly opened pull request is unaffected either way: it takes its reviewers from the `AGENTS` variable rather than from labels, and an unset `AGENTS` means every agent.
-- A `Reviewer - All` label left over from the earlier label scheme costs one failed run rather than a manual cleanup: it looks like a selector but names no agent, so the run removes it and then fails selection.
-- A pull request opened with `Review Start` already applied starts only the automatic `opened` run, because GitHub is expected to emit no `labeled` event for a label the pull request was created with. That run reviews with every agent, ignores the `Reviewer - *` labels, and leaves `Review Start` applied, so remove the label by hand before it can start a label-triggered run.
-- Only a run that started from the `Review Start` label removes labels, and it does so after reading the pull request metadata and confirming the label is on the pull request, before it selects agents, validates their selector labels, or runs any agent. It removes `Review Start` first and then every label that carries the exact `Reviewer - ` prefix; GitHub returns those labels sorted by name, so the order among them means nothing. A run that fails after that point, which includes an unknown selector label, a near-miss selector label, a `Reviewer - Aggregator` label, a diff or model failure, and a rejected review, ends with the trigger label and the selector labels off.
-- The labels stay applied in every other case, so a pull request that ends a run with them still on it needs them removed by hand before it can start another run:
-  - A run that reviews a pull request without a trigger label, which is a newly opened pull request or a manual run, removes no label, including a pull request opened with `Review Start` already applied.
-  - A run that fails before the removals or cannot complete them, which is a failed metadata fetch or a removal request that fails, such as with a token that lacks `issues: write`.
-  - A `TRIGGER_LABEL` that differs from `Review Start` only in case never reaches the removals, because it fails configuration parsing before any GitHub request.
-- A metadata read that lists no `Review Start` label leaves every label in place, because the run stops before removing any of them, and the run reports it as missing; add the label to start a run.
+- To request a re-review, add `Review Start` again: a successful label-triggered run has already removed it, so the add is the whole step. Remove it first only when it is still on the pull request, which is what a run that removed no label leaves behind. Consuming the selector labels is what keeps a one-off subset run one-off: a leftover selector narrows the next label-triggered run to the agents it names, so a run that leaves out a reviewer a bare run would use reports the narrowing in its partial-review warning, and removal is what lets a label-triggered run review with every agent again. Automatic runs ignore labels entirely, so leftover selectors do not affect them.
+- A `Reviewer - All` label left over from the earlier label scheme costs one failed run rather than a manual cleanup, because it names no agent unless the repository ships a prompt called `All`: the run removes it and then fails selection.
+- A pull request opened with `Review Start` already applied starts only the automatic `opened` run, because GitHub is expected to emit no `labeled` event for a label the pull request was created with.
+- Only a run that started from the `Review Start` label removes labels, and it does so after reading the pull request metadata and confirming the label is on the pull request, before it selects agents, validates their selector labels, or runs any agent. It removes `Review Start` first and then every label that carries the exact `Reviewer - ` prefix. A failed removal request ends the run without submitting a review. A run that fails after removing every one of those labels leaves the trigger label and every selector label off; such failures include an unknown selector label, a near-miss selector label, a `Reviewer - Aggregator` label, a diff or model failure, and a rejected review.
+- A run that removes no label leaves every label where it was:
+  - A run that did not start from the trigger label, which is a newly opened pull request or a manual run, leaves every label applied.
+  - A run that fails before or during the first removal, which is a failed metadata fetch or a token that lacks `issues: write`, leaves every label applied.
+  - A run whose `TRIGGER_LABEL` differs from `Review Start` only in case leaves every label applied, because it fails configuration parsing before it makes any GitHub request.
+  - A run whose metadata read lists no `Review Start` label leaves every label in place, because the run stops before removing any of them, and the run reports the label as missing; add the label to start a run.
+- Because the removals run one label at a time and stop at the failing one, a failure after the first delete leaves `Review Start` off and every label from the failing one onward still applied; adding the trigger label back then reviews with only the agents those leftover selectors name, which is a full review when those selectors cover every reviewer a bare run would use, and a partial review whose warning reports the narrowing otherwise. The trigger label is already off in that case, so the remedy is to remove the leftover `Reviewer - ` labels first and add `Review Start` only afterwards.
 - Only `Review Start` starts a run; a `Reviewer - *` label applied on its own does nothing.
-- A label selects an agent only when it starts with the exact `Reviewer - ` prefix, and the run reviews with every agent when no label is a selector and none is a botched selector attempt.
+- A label selects an agent only when it starts with the exact `Reviewer - ` prefix, and every label outside the trigger label, a selector, and a botched selector attempt is ignored, so the run reviews with every agent when no label is a selector and none is a botched selector attempt; a label such as `bug`, `documentation`, `needs-review`, or `review pending` therefore changes nothing.
 - A botched selector attempt fails the run as a configuration error, and the run never falls back to every agent. Ignoring case, a label that is neither the trigger label nor a selector is a botched selector attempt when it begins with `reviewer`, as in `reviewer - Security`, `Reviewers - Security`, `Reviewer- Security`, `Reviewer -Security`, and `reviewer-pending`, or when it begins with `review` followed by optional spaces and a hyphen, as in `Review - Security` and `review-needed`. The message names the offending label and the required spelling: `Reviewer - <Name>`, with a capital `R`, a spaced hyphen, and `<Name>` matching an agent prompt file name exactly and case-sensitively.
-- A near-miss spelling is not removed, because removal keys on the exact prefix, so it keeps failing every run it is present on until it is corrected or deleted by hand.
-- Every label outside the trigger label, a selector, and a botched selector attempt is ignored by agent selection, so a label such as `bug`, `documentation`, `needs-review`, or `review pending` changes nothing and leaves the all-agent selection in place.
-- A repository label that begins, ignoring case, with `reviewer`, or with `review` and a hyphen after optional spaces, therefore has to be spelled as a selector or removed, because it fails every `Review Start` run it is present on.
+- A near-miss spelling is not removed, because removal keys on the exact prefix, so it keeps failing every label-triggered run it is present on until it is corrected or deleted by hand.
 - The agent name that follows the prefix is matched exactly and case-sensitively, including spaces and capitalization; the aggregator name is the one exception and is matched case-insensitively.
 - A well-formed selector whose agent name matches no agent prompt file, in `.ci-agents/` or among the built-in agents, fails the run as a configuration error, and the message states that a label's agent name is matched case-sensitively while listing the available agent names.
-- A selector naming the aggregator in any capitalization, such as `Reviewer - Aggregator` or `Reviewer - aggregator`, fails the run as a configuration error, because the aggregator always runs last automatically.
+- A selector naming the aggregator in any capitalization, such as `Reviewer - Aggregator` or `Reviewer - aggregator`, fails the run as a configuration error, because the aggregator always runs last automatically, including in a repository that overrides `.ci-agents/Aggregator.md`.
 - Label-triggered runs ignore the `AGENTS` environment variable.
 
 #### Per-Repository Setup
 
 GitHub labels are per-repository, so every repository that runs the workflow needs its own copy, created by hand: `Review Start` plus one `Reviewer - <Name>` label per selectable agent, the five in the table above.
-The name that follows the prefix selects an agent from either prompt location, a markdown file in the repository's own `.ci-agents/` directory or one of the built-in agents, so `Reviewer - Default` selects the built-in `Default` agent even in a repository with no `.ci-agents` directory at all.
-Do not create a `Reviewer - Aggregator` label: the aggregator always runs last automatically, so a selector naming it fails every label-triggered run it is present on, including in a repository that overrides `.ci-agents/Aggregator.md`.
+The name that follows the prefix selects an agent from either prompt location, a markdown file in the repository's own `.ci-agents/` directory or one of the built-in agents, so `Reviewer - Default` selects the built-in `Default` agent even in a repository with no `.ci-agents/` directory at all.
+Do not create a `Reviewer - Aggregator` label; [Selection Rules](#selection-rules) states why it fails, including for a repository that overrides `.ci-agents/Aggregator.md`, and what the failed run leaves behind.
 A selector whose agent name matches no agent in either location fails the run; see [Selection Rules](#selection-rules) for the message it reports.
 
 ## Agents
@@ -141,7 +139,9 @@ This is designed for well-maintained and focused repositories with reasonable si
 
 ### Agent Resolution
 
-If the user provides any agents, the built-in `Default` agent will not be used.
+A run with no agent selection uses the repository's own prompts instead of the built-in `Default` agent, which stays selectable: naming it in `AGENTS` or with a `Reviewer - Default` label runs it, alone or alongside user prompts.
+Agent prompt file names are matched case-insensitively, in `.ci-agents/` and among the built-in agents alike, so two files whose names differ only by case name one agent and only one of them would ever run.
+Such a repository fails the run as a configuration error instead, naming both files: `Duplicate agent prompt file names: "<a>" and "<b>"`. Rename or delete one of them.
 
 ### The Aggregator Agent
 
@@ -177,23 +177,32 @@ Output is printed to stdout in a human-readable format:
 - other.ts:10 (LEFT): [Specific feedback]
 ```
 
+No notice appears in the console review output.
+
 ### GitHub PR Mode
 
 A review is submitted to the pull request with:
-- A line directly under the `## CI Agent Review` heading, above the AI summary, stating which reviewers ran, such as `Reviewers: All ran (4 of 4).` when every reviewer ran, or a bold warning naming which reviewers ran and how many of the reference reviewers they cover when only a subset did
-- The same warning repeated as the last line of a subset review, because a long review scrolls the first warning out of view
+- A notice below the `## CI Agent Review` heading and above the AI summary, stating which reviewers ran: a plain line when every reviewer ran, or a bold warning naming the reviewers that ran when only a subset did
+- For a subset review, the same warning repeated after the AI summary, because a long review scrolls the first one out of view
 - An overall comment containing the AI summary
 - Line-specific comments on relevant code changes
 
+The notice's own strings call each agent that ran a reviewer; the two words name the same thing.
 The full-review line is deliberately plain and the partial-review warning is deliberately loud.
 Almost every review is a full review, so emphasis on that line would become wallpaper, while a partial review is a security signal a human auditor has to notice before trusting the review.
-`All` means the run's reviewers include every reviewer a run with no selector labels would use, so applying every selector label explicitly also reads as a full review.
-A selector that adds a reviewer on top of them also leaves nothing out, so that review is full too, and its total still counts every reviewer that ran.
-In a partial review the denominator is the number of reviewers a run with no selector labels would use and the numerator is how many of those ran, while the listed names are the reviewers that actually ran, because a selection can add a reviewer the reference set does not hold.
-Line comments carry no notice.
+A full review reads `Reviewers: All 4 reviewers ran.`, and a run with a single reviewer reads `Reviewers: All 1 reviewer ran.`
+A partial review reads ``⚠️ **PARTIAL REVIEW — 2 of 4 reviewers ran: `Security`, `Architect`. This is not a full review.**``, and a run that selects one of the two prompts a repository ships, and no other, reads ``⚠️ **PARTIAL REVIEW — 1 of 2 reviewers ran: `Security`. This is not a full review.**``.
+The notice follows these rules for its numbers and names:
+- The number before `of` is how many reviewers ran, and it matches the names after the colon when there are any.
+- The number after `of` is how many reviewers the pull request could run: the reviewers a run with no selector labels would use, plus any selected reviewer outside that set, so it is always above the number before it in a partial review and no partial review reads as complete coverage.
+- A partial review whose selection ran no reviewer has no names to list, so it drops the colon and reads `0 of 2 reviewers ran` in a repository with two prompts; the gap the previous point describes also makes its noun `reviewers` even when the number after `of` is one.
+- The names after the colon are every reviewer that ran, in selection order.
 
-The top notice is the primary signal: it sits above the AI summary, where no body content can affect it.
-The repeated warning is defence in depth and best effort, so the agent neutralises HTML comment openers in the review body and closes a code fence the body leaves open, but it does not attempt to defeat every construct a body could leave open, such as an unclosed `<details>` element.
+`All` means the run covered every reviewer a run with no selector labels would use, so applying every selector label explicitly also reads as a full review, and a selector that adds a reviewer on top of them also leaves nothing out, with its count still covering every reviewer that ran.
+The `All` in the notice is unrelated to the legacy `Reviewer - All` label; see [Selection Rules](#selection-rules) for what that label does.
+
+The first warning is the primary signal, because the tool writes it into the review itself, where no body content can affect it, while the repeat is defence in depth and best effort.
+The tool neutralises HTML comment openers in the review body and closes a code fence the body leaves open, but it does not attempt to defeat every construct a body could leave open, such as an unclosed `<details>` element, which can still swallow the repeat.
 
 The workflow run itself owns the check status; the agent submits a review only.
 

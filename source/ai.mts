@@ -311,7 +311,9 @@ async function aggregatorOutputValidator(submit: ((result: AiReviewResult) => Pr
 }
 
 export async function analyze(dependencies: { fetch: Fetch; spawnGit: SpawnGit; logger: Logger; debugWriter: DebugWriter; sleep: Sleep; random: Random }, baseCommitContext: BaseCommitContext, diffText: string, agents: readonly Agent[], aggregator: Agent, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
-	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agents.map(a => sanitizeForSingleLine(a.name)).join(", ") : "Default"}`)
+	// A separator-only `AGENTS` value selects no agent, so the log names none rather than reporting a built-in agent that never ran.
+	const agentNames = agents.map(agent => sanitizeForSingleLine(agent.name)).join(", ")
+	dependencies.logger.log(`Using agents: ${agents.length > 0 ? agentNames : "none"}`)
 
 	const agentOutputs = await runAgents(dependencies, baseCommit, baseCommitContext, diffText, agents, model, maxTokens, profile)
 	const finalOutput = await runAgent(dependencies, aggregator, baseCommit, baseCommitContext, diffText, model, maxTokens, profile, agentOutputs, content => aggregatorOutputValidator(submit, content))

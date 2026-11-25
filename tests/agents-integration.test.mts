@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test"
+import { describe, it, expect } from "bun:test"
 import { loadAggregator, loadReviewerRun } from "../source/agents.mts"
 import type { AgentNames, AgentReader, Agent } from "../source/agents.mts"
 
@@ -288,7 +288,7 @@ describe("loadReviewerRun", () => {
 			expect(reviewerRun.coverage).toEqual({ kind: "full", reviewerCount: 3 })
 		})
 
-		it("claims a partial run with its reference numerator and every reviewer that ran in run order", async () => {
+		it("claims a partial run with every reviewer that ran, in selection order, against the reviewers the pull request could run", async () => {
 			const readAgents = mockReader(new Map([
 				[userDirectory, [{ name: "Bug Hunter", prompt: "Bug hunter prompt" }, { name: "Security", prompt: "Security prompt" }, { name: "Architect", prompt: "Architect prompt" }]],
 				[builtinDirectory, []],
@@ -296,11 +296,11 @@ describe("loadReviewerRun", () => {
 
 			const reviewerRun = await loadReviewerRun({ readAgents }, userDirectory, builtinDirectory, () => ["Security", "Architect"])
 
-			// The listed names follow the selection, not the directory, because they are the reviewers that ran in the order they ran.
-			expect(reviewerRun.coverage).toEqual({ kind: "partial", ranReviewerNames: ["Security", "Architect"], ranReferenceReviewerCount: 2, referenceReviewerCount: 3 })
+			// The listed names follow the selection rather than the directory, because they are the reviewers the run selected, in the order the selection named them.
+			expect(reviewerRun.coverage).toEqual({ kind: "partial", ranReviewerNames: ["Security", "Architect"], possibleReviewerCount: 3 })
 		})
 
-		it("claims a partial run whose numerator is zero when a selection names only a built-in reviewer", async () => {
+		it("claims a partial run when a selection names only a built-in reviewer", async () => {
 			const readAgents = mockReader(new Map([
 				[userDirectory, [{ name: "Bug Hunter", prompt: "Bug hunter prompt" }, { name: "Security", prompt: "Security prompt" }]],
 				[builtinDirectory, [{ name: "Default", prompt: "Default prompt" }]],
@@ -308,8 +308,37 @@ describe("loadReviewerRun", () => {
 
 			const reviewerRun = await loadReviewerRun({ readAgents }, userDirectory, builtinDirectory, () => ["Default"])
 
-			// The denominator counts reference reviewers only, so a run of one reviewer no bare run uses is 0 of 2 rather than 1 of 3.
-			expect(reviewerRun.coverage).toEqual({ kind: "partial", ranReviewerNames: ["Default"], ranReferenceReviewerCount: 0, referenceReviewerCount: 2 })
+			// The denominator counts every reviewer the pull request could run, so a reviewer no bare run uses is measured against the two reference reviewers plus itself.
+			expect(reviewerRun.coverage).toEqual({ kind: "partial", ranReviewerNames: ["Default"], possibleReviewerCount: 3 })
+		})
+
+		it("claims a partial total above the number of reviewers that ran, whatever the selection", async () => {
+			// The total is every reviewer the pull request could run, so a partial claim whose total equalled its count would state complete coverage on the warning that denies it.
+			const readAgents = mockReader(new Map([
+				[userDirectory, [{ name: "Bug Hunter", prompt: "Bug hunter prompt" }, { name: "Security", prompt: "Security prompt" }]],
+				[builtinDirectory, [{ name: "Default", prompt: "Default prompt" }]],
+			]))
+			const selections: readonly (readonly string[])[] = [[], ["Security"], ["Default"], ["Security", "Default"]]
+
+			for (const selection of selections) {
+				const reviewerRun = await loadReviewerRun({ readAgents }, userDirectory, builtinDirectory, () => selection)
+				const coverage = reviewerRun.coverage
+				if (coverage.kind !== "partial") throw new Error(`selection "${selection.join(", ")}" left no reviewer out`)
+				expect(coverage.possibleReviewerCount).toBeGreaterThan(coverage.ranReviewerNames.length)
+			}
+		})
+
+		it("claims a partial run of no reviewer when the selection names none", async () => {
+			// A separator-only `AGENTS` value parses to an empty selection, so the run reviews with the aggregator alone.
+			const readAgents = mockReader(new Map([
+				[userDirectory, [{ name: "Bug Hunter", prompt: "Bug hunter prompt" }]],
+				[builtinDirectory, [{ name: "Default", prompt: "Default prompt" }]],
+			]))
+
+			const reviewerRun = await loadReviewerRun({ readAgents }, userDirectory, builtinDirectory, () => [])
+
+			expect(reviewerRun.agents).toEqual([])
+			expect(reviewerRun.coverage).toEqual({ kind: "partial", ranReviewerNames: [], possibleReviewerCount: 1 })
 		})
 
 		it("claims a full run for a selection spelled in a different case", async () => {

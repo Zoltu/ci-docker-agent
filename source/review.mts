@@ -7,33 +7,38 @@ export type AiReviewResult = {
 	comments: LineComment[]
 }
 
-// The reviewers are named "All" rather than listed, so a full review says the same thing however many reviewers it had.
+// The reviewers are named "All" rather than listed, so a full review names no individual reviewer; the count beside the name still changes with the run.
 const ALL_REVIEWERS_NAME = "All" as const
 
-// Both notices open with the same lead, so a reader can search the review body for which reviewers ran.
+// The lead is a stable anchor for the full-review line in a submitted review; the partial warning opens with its own lead instead and never carries this one.
 const REVIEWER_RUN_LEAD = "Reviewers: " as const
 
-// A reviewer name arrives from a prompt file name on the base branch, so it is untrusted here: a newline or a bidi override would deform the notice, and a backtick would close the code span and render the rest of the name as markup.
-// A backslash escape inside a code span renders literally and still ends it, so a backtick becomes the `\u0060` escape sanitizeForSingleLine uses for its own hazards.
+// A reviewer name arrives from a prompt file name on the base branch, so it is untrusted here: a newline or a bidi override would deform the notice, and a backtick would close the code span and render the rest of the name as markup, which no backslash escape can prevent inside a code span.
 const INLINE_CODE_BACKTICK_PATTERN = /`/g
 
 function formatReviewerNames(reviewerNames: readonly string[]): string {
 	return reviewerNames.map(name => `\`${sanitizeForSingleLine(name).replace(INLINE_CODE_BACKTICK_PATTERN, "\\u0060")}\``).join(", ")
 }
 
-// The full-review line is deliberately plain, because nearly every review is a full review and emphasis there would become wallpaper.
-// The partial-review warning is deliberately loud, because a human auditor has to notice that reviewers were left out of the review they are reading.
-// The notice is derived from the coverage value alone, so no caller can pair a warning with a covered reference set or a plain line with a narrowed one.
+// The full-review line agrees with its count, so a single reviewer reads "All 1 reviewer ran." rather than "All 1 reviewers ran.".
+function formatReviewerCount(reviewerCount: number): string {
+	return `${reviewerCount} ${reviewerCount === 1 ? "reviewer" : "reviewers"}`
+}
+
+// `resolveAgents` rejects two spellings of one reviewer, so that list's length is the number of reviewers that ran.
+// A selection that names no reviewer leaves no name to list, so the warning drops the colon and the list rather than rendering a dangling one.
+// Only `loadReviewerRun` guarantees that the claim describes exactly the agents that ran; this function takes the value as plain data and cannot check it.
 function formatReviewerRunNotice(coverage: ReviewerCoverage): string {
-	if (coverage.kind === "full") return `${REVIEWER_RUN_LEAD}${ALL_REVIEWERS_NAME} ran (${coverage.reviewerCount} of ${coverage.reviewerCount}).`
-	return `> **${REVIEWER_RUN_LEAD}only ${coverage.ranReferenceReviewerCount} of ${coverage.referenceReviewerCount} ran (${formatReviewerNames(coverage.ranReviewerNames)}). The remaining reviewers did not run, so this is not a full review.**`
+	if (coverage.kind === "full") return `${REVIEWER_RUN_LEAD}${ALL_REVIEWERS_NAME} ${formatReviewerCount(coverage.reviewerCount)} ran.`
+	// A partial notice always has a denominator above its numerator, so the denominator is plural even when it is one.
+	const countedReviewers = `${coverage.ranReviewerNames.length} of ${coverage.possibleReviewerCount} reviewers ran`
+	if (coverage.ranReviewerNames.length === 0) return `⚠️ **PARTIAL REVIEW — ${countedReviewers}. This is not a full review.**`
+	return `⚠️ **PARTIAL REVIEW — ${countedReviewers}: ${formatReviewerNames(coverage.ranReviewerNames)}. This is not a full review.**`
 }
 
 // The review body is model output about the pull request diff, so a pull request author can steer it, and an HTML comment it leaves open turns the repeated warning into comment text and hides it.
 // Counting openers against closers cannot settle that, because a closer inside a fenced code block renders as nothing while an opener after it still takes effect, so every opener outside a fenced block is rewritten and cannot start a comment.
-// The rewritten opener is an entity reference, which renders as the same text a reader of prose would have seen; a fenced block renders its content literally and cannot open a comment, so its text stays byte-exact.
-// The hardening is deliberately cheap and bounded. The text above the body is the primary signal and no body content can reach it, while the repeat at the end is defence in depth and best effort.
-// So the design does not attempt to defeat every construct a body could leave open: a raw HTML block such as an unclosed `<details>` element, or a fence line the body placed inside one, can still swallow the repeat.
+// The rewritten opener is an entity reference, which renders as the same text a reader of prose would have seen, while a fenced block renders its content literally and cannot open a comment, so its text stays byte-exact.
 const HTML_COMMENT_OPENER = "<!--" as const
 const NEUTRAL_HTML_COMMENT_OPENER = "&lt;!--" as const
 
@@ -69,7 +74,6 @@ function isFenceCloser(line: string, fence: Fence): boolean {
 	return fenceRun.charAt(0) === fence.character && fenceRun.length >= fence.length
 }
 
-// A closing fence must carry the opening marker character and run at least as long as the opening fence, so the generated closer repeats that marker to that length.
 function formatFenceCloser(fence: Fence): string {
 	return fence.character.repeat(fence.length)
 }
@@ -107,13 +111,13 @@ function neutralizeReviewBody(body: string): NeutralizedBody {
 }
 
 export function buildReviewPayload(aiResult: AiReviewResult, coverage: ReviewerCoverage): GitHubReviewPayload {
-	// The full-review claim describes the reviewers the run asked for, not what came back, and it is true only because `runAgents` awaits `Promise.all` over them, so one reviewer's failure aborts the run before a review is submitted.
+	// The coverage claim is derived from the resolved agents, not from the per-reviewer results, and it holds only because `runAgents` awaits `Promise.all` over them, so one reviewer's failure aborts the run before a review is submitted.
 	// Per-reviewer fault tolerance would make this notice report a reviewer as having run that never returned a result.
 	const reviewerRunNotice = formatReviewerRunNotice(coverage)
 	const neutralizedBody = neutralizeReviewBody(aiResult.body)
 	const bodyLines = ["## CI Agent Review", "", reviewerRunNotice, "", neutralizedBody.text]
 
-	// A long review scrolls the first line out of view, so a partial review states it again as the last line.
+	// A long review scrolls the first line out of view, so a partial review states the same warning again as the last line.
 	// A fence the body left open renders that repeat as literal code, so it is closed first, adding a line and leaving the fenced content byte-exact.
 	if (coverage.kind === "partial") {
 		if (neutralizedBody.openFence !== null) bodyLines.push(formatFenceCloser(neutralizedBody.openFence))
@@ -124,7 +128,7 @@ export function buildReviewPayload(aiResult: AiReviewResult, coverage: ReviewerC
 }
 
 export function formatReviewForConsole(aiResult: AiReviewResult): string {
-	const lines = [ "## CI Agent Review", "", aiResult.body ]
+	const lines = ["## CI Agent Review", "", aiResult.body]
 
 	if (aiResult.comments.length > 0) {
 		lines.push("", "### Line Comments")
