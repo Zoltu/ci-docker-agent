@@ -168,27 +168,23 @@ function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinA
 	return agents
 }
 
-// Both prompt directories are read once and every value a caller needs is derived from that read, so a selection and the reference set it is measured against cannot describe different directory states.
-// The reference reviewer names the coverage claim rests on are derived from that same read of the user directory and returned beside the agents, so this step resolves a selection and supplies its reference set, not a resolved selection alone.
-// The caller supplies how a selection is made, so the selector vocabulary and the selection input are read once, beside the read.
-async function readAgentsAndResolveSelection(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, selectAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<{ agents: Agent[]; referenceReviewerNames: readonly string[] }> {
+// Each prompt directory is read once here, so a selection and a coverage claim derived from that read cannot describe different directory states.
+async function resolveAgentsFromPromptDirectories(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, selectAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<{ agents: Agent[]; userAgents: readonly Agent[] }> {
 	const userAgents = await dependencies.readAgents(userAgentsDirectory)
 	const builtinAgents = await dependencies.readAgents(builtinAgentsDirectory)
 
 	const agents = resolveAgents(selectAgentNames(selectableAgentNames(userAgents, builtinAgents)), userAgents, builtinAgents)
-	return { agents, referenceReviewerNames: selectAllReviewerNames(userAgents) }
+	return { agents, userAgents }
 }
 
-// Pairs the agents with the coverage claim about exactly those agents; the pairing is possible because both come from the one read the shared read-and-resolve step performs.
 export async function loadReviewerRun(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, selectAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<ReviewerRun> {
-	const { agents, referenceReviewerNames } = await readAgentsAndResolveSelection(dependencies, userAgentsDirectory, builtinAgentsDirectory, selectAgentNames)
-	return { agents, coverage: deriveReviewerCoverage(agents, referenceReviewerNames) }
+	const { agents, userAgents } = await resolveAgentsFromPromptDirectories(dependencies, userAgentsDirectory, builtinAgentsDirectory, selectAgentNames)
+	return { agents, coverage: deriveReviewerCoverage(agents, selectAllReviewerNames(userAgents)) }
 }
 
 // Local-diff mode prints the review and carries no coverage claim, so the selection is the whole result.
-// It reads each prompt directory exactly once, whichever selection the caller asks for.
 export async function loadSelectedAgents(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, selectAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<readonly Agent[]> {
-	const { agents } = await readAgentsAndResolveSelection(dependencies, userAgentsDirectory, builtinAgentsDirectory, selectAgentNames)
+	const { agents } = await resolveAgentsFromPromptDirectories(dependencies, userAgentsDirectory, builtinAgentsDirectory, selectAgentNames)
 	return agents
 }
 

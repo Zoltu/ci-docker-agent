@@ -60,7 +60,6 @@ async function submitPrReview(dependencies: OrchestratorDependencies, reviewerRu
 
 export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
 	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
-	// The configured selection and the notice's coverage claim come from one read of the prompt directories, so the notice cannot describe a different set of reviewers than the run used.
 	const reviewerRun = await loadReviewerRun(dependencies, userAgentsDirectory, builtinAgentsDirectory, () => configuration.agents)
 	await submitPrReview(dependencies, reviewerRun, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
@@ -93,7 +92,6 @@ export async function runOnLocalDiff(dependencies: OrchestratorDependencies, con
 
 	if (diffText.trim() === "") return "No files changed, nothing to review"
 
-	// Local-diff mode prints the review and never renders a coverage claim, so it takes the loader that returns only the agents.
 	const agents = await loadSelectedAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, () => configuration.agents)
 	const aiResult = await runAnalysis(dependencies, agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, maxTokens, profile)
 	return formatReviewForConsole(aiResult)

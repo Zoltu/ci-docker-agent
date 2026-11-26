@@ -159,6 +159,7 @@ function assertLabelNameTargetsOnePathSegment(labelName: string): void {
 
 export async function removePullRequestLabel(dependencies: { githubFetch: GitHubFetch }, configuration: GitHubConfiguration, labelName: string): Promise<void> {
 	assertLabelNameTargetsOnePathSegment(labelName)
+	// `pull-requests: write` suffices for this DELETE by GitHub's documented either-scope rule, and no test verifies that.
 	// The caller must have verified the label is on the pull request, so a 404 here is a real failure rather than a no-op.
 	const { token } = configuration
 	const url = buildRepoUrl(configuration, ["issues", String(configuration.pullRequestNumber), "labels", encodeURIComponent(labelName)])

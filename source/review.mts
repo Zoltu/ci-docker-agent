@@ -37,7 +37,7 @@ function formatReviewerRunNotice(coverage: ReviewerCoverage): string {
 }
 
 export function buildReviewPayload(aiResult: AiReviewResult, coverage: ReviewerCoverage): GitHubReviewPayload {
-	// The coverage claim is derived from the resolved agents, not from the per-reviewer results, and it holds only because `runAgents` awaits `Promise.all` over them, so one reviewer's failure aborts the run before a review is submitted.
+	// The coverage claim is derived from the resolved agents, not from the per-reviewer results, and it holds only because `Promise.all` in `runAgents` rejects as soon as one reviewer fails and nothing between there and the submit path catches that, so a failure aborts the run before any review is submitted.
 	// Per-reviewer fault tolerance would make this notice report a reviewer as having run that never returned a result.
 	const reviewerRunNotice = formatReviewerRunNotice(coverage)
 	const bodyLines = ["## CI Agent Review", "", reviewerRunNotice, "", aiResult.body]

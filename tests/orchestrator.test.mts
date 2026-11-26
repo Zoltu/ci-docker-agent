@@ -301,7 +301,6 @@ describe("runOnPullRequest", () => {
 			IDENTITY_PROFILE,
 		)
 
-		// Pull-request mode performs no label removal, so it never depends on any label permission.
 		expect(deletedLabelUrls()).toEqual([])
 		expect(submitCallCount()).toBe(1)
 	})

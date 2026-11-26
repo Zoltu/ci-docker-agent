@@ -48,7 +48,7 @@ docker container run --rm -it --env="GITHUB_TOKEN=$GITHUB_TOKEN" --env="PR_NUMBE
 ```
 
 #### Environment Variables
-- `GITHUB_TOKEN` - Your GitHub token, which in a workflow run is the workflow's scoped installation token (required)
+- `GITHUB_TOKEN` - Your GitHub personal access token (required)
 - `PR_NUMBER` - The pull request number (required)
 - `REPO` - The repository in `owner/name` format (required)
 - `AI_API_URL` - Base URL of the OpenAI-compatible API (required, e.g. `https://api.openai.com/v1`)
@@ -63,7 +63,7 @@ docker container run --rm -it --env="GITHUB_TOKEN=$GITHUB_TOKEN" --env="PR_NUMBE
 See [./.github/workflows/ci-agent.yml](./.github/workflows/ci-agent.yml) for an example.
 
 #### Requirements
-- A `GITHUB_TOKEN` with `pull-requests: write` to submit the review, which the workflow grants with `contents: read` for the checkout; the label DELETE that removes, from the pull request, the trigger label and every selector label documents `issues: write` or `pull-requests: write` as its requirement, and the workflow grants the latter; the workflow therefore relies on that documented either-scope rule, and no test verifies that the grant suffices for that DELETE; the removals happen before any agent runs, so a token granting neither of the two fails a labeled run and leaves those labels applied
+- A `GITHUB_TOKEN` with `pull-requests: write` to submit the review and remove the trigger label and every selector label, and `contents: read` to check out the repository and fetch the base commit; the removals happen before any agent runs, so a token without `pull-requests: write` fails a labeled run and leaves the labels applied
 
 #### Secrets and Variables
 
@@ -93,7 +93,7 @@ A new pull request is reviewed automatically with every agent, because the shipp
 - Which labels a run removes depends on how it started. A run that started from the trigger label begins removing them only after reading the pull request metadata and confirming the label is on the pull request, and does so before it selects agents, validates their selector labels, or runs any agent. It removes the trigger label first, under its listed spelling, which may differ from `Review Start` in case. It then removes every label that carries the exact `Reviewer - ` prefix. A failed removal request ends the run without submitting a review. A run that fails after removing every one of those labels leaves the trigger label and every selector label off; such failures include an unknown selector label, a near-miss selector label, a `Reviewer - Aggregator` label, a diff or model failure, and a rejected review.
 - A run that removes no label leaves every label where it was:
 	- A run that did not start from the trigger label, which is a newly opened pull request or a manual run, leaves every label applied.
-	- A run whose metadata read fails, or whose first removal request fails because GitHub rejects it, for instance because the token was narrowed further, leaves every label applied. A rejected removal is expected to answer with a 403 reading `Resource not accessible by integration`, so the scopes to check are the two the label DELETE documents: `issues: write` and `pull-requests: write`. If a labeled run fails this way, the endpoint may be requiring `issues: write`, which this workflow does not grant, and the remedy is to widen the grant, updating this repository's pin test with it, or to stop using the label trigger.
+	- A run whose metadata read fails, or whose first removal request is rejected by GitHub, fails and leaves every label applied.
 	- A run whose metadata read lists no label matching `Review Start` ignoring case leaves every label applied and fails with a message naming the configured `TRIGGER_LABEL` value; add the label to start a run.
 - Because the removals run one label at a time and stop at the failing one, a failure after the first delete leaves the trigger label off and every label from the failing one onward still applied; adding the trigger label back then reviews with only the agents those leftover selectors name, which is a full review when those selectors cover every reviewer a bare run would use, and a partial review whose warning reports the narrowing otherwise. The trigger label is already off in that case, so the remedy is to remove the leftover `Reviewer - ` labels first and add the trigger label back only afterwards.
 - Only a label matching `Review Start` ignoring case starts a run; a `Reviewer - *` label applied on its own does nothing.

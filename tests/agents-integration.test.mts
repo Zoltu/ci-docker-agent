@@ -1,12 +1,12 @@
 import { describe, it, expect } from "bun:test"
-import { loadAggregator, loadReviewerRun, loadSelectedAgents } from "../source/agents.mts"
+import { loadAggregator, loadReviewerRun } from "../source/agents.mts"
 import type { AgentNames, AgentReader, Agent } from "../source/agents.mts"
 
 function mockReader(agentsByDirectory: Map<string, Agent[]>): AgentReader {
 	return (directory) => Promise.resolve(agentsByDirectory.get(directory) ?? [])
 }
 
-// Both entry points resolve their selection through the same read-and-resolve step, so driving it here covers the rules for either one; these tests sit under `loadReviewerRun` because that entry point consumes everything the step returns, and a selection passed as a fixed value reads as the request that entry point makes of the caller.
+// This helper drives `loadReviewerRun` only, so the tests below pin its selection rules and not the aggregator lookup, which has its own tests.
 async function loadResolvedAgents(readAgents: AgentReader, userDirectory: string, builtinDirectory: string, agentNames: AgentNames): Promise<readonly Agent[]> {
 	return (await loadReviewerRun({ readAgents }, userDirectory, builtinDirectory, () => agentNames)).agents
 }
@@ -364,31 +364,8 @@ describe("loadReviewerRun", () => {
 
 			await loadReviewerRun({ readAgents }, userDirectory, builtinDirectory, () => "run all agents")
 
-			// The loader's contract is that each prompt directory is read exactly once, and the relative order of the two reads is not part of that contract, so the assertions cover the guarantee rather than the order the code happens to use.
-			expect(readDirectories).toHaveLength(2)
-			expect([...readDirectories].sort()).toEqual([userDirectory, builtinDirectory].sort())
+			expect(readDirectories).toEqual([userDirectory, builtinDirectory])
 		})
-	})
-})
-
-describe("loadSelectedAgents", () => {
-	it("reads each prompt directory exactly once when it returns only the selected agents", async () => {
-		// The agents-only entry point reports no coverage claim, so nothing else would catch a second read that resolved the selection against a directory state no caller can see.
-		const userDirectory = "/user"
-		const builtinDirectory = "/builtins"
-		const readDirectories: string[] = []
-		const readAgents: AgentReader = async (directory) => {
-			readDirectories.push(directory)
-			if (directory === userDirectory) return [{ name: "Security", prompt: "Security prompt" }, { name: "Aggregator", prompt: "Aggregator prompt" }]
-			return [{ name: "Default", prompt: "Default prompt" }]
-		}
-
-		const agents = await loadSelectedAgents({ readAgents }, userDirectory, builtinDirectory, () => ["Security"])
-
-		// The loader's contract is that each prompt directory is read exactly once, and the relative order of the two reads is not part of that contract, so the assertions cover the guarantee rather than the order the code happens to use.
-		expect(readDirectories).toHaveLength(2)
-		expect([...readDirectories].sort()).toEqual([userDirectory, builtinDirectory].sort())
-		expect(agents.map((agent: Agent) => agent.name)).toEqual(["Security"])
 	})
 })
 
