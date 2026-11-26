@@ -18,7 +18,7 @@ function filterByRole(messages: readonly PromptMessage[], role: "system" | "user
 const referenceUserDirectory = "/user"
 const referenceBuiltinDirectory = "/builtins"
 
-// The reference set is internal to agents.mts, so it is exercised through the entry point that uses it: a run with no selector label resolves exactly that set.
+// The reference set stays internal to agents.mts, where the shared read-and-resolve step derives it and the coverage derivation consumes it, so it is exercised through an entry point that resolves against it: a run with no selector label resolves exactly that set.
 async function resolvedReviewerNames(userAgents: readonly Agent[]): Promise<readonly string[]> {
 	const readAgents: AgentReader = async (directory) => {
 		if (directory === referenceUserDirectory) return [...userAgents]

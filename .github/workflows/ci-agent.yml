@@ -18,7 +18,7 @@ on:
         required: false
         type: string
 
-# A labeled run is gated by GitHub's permission to apply the label (triage or above), and the token is the only limit on what the run can do: `pull-requests: write` submits the review and removes the trigger label and every selector label.
+# A labeled run is gated by GitHub's permission to apply the label (triage or above), and the token is the only limit on what the run can do: `pull-requests: write` submits the review, and the label DELETE that removes the trigger label and every selector label documents `issues: write` or `pull-requests: write` as its requirement, so the workflow relies on that documented either-scope rule and grants only `pull-requests: write` of the two; no test verifies that the grant suffices for that DELETE.
 # `contents: read` is all the checkout and the base commit fetch need.
 permissions:
   pull-requests: write

@@ -301,7 +301,7 @@ describe("runOnPullRequest", () => {
 			IDENTITY_PROFILE,
 		)
 
-		// Pull-request mode needs only pull-requests: write, so a label removal through the issues endpoint would be a permission it does not ask for.
+		// Pull-request mode performs no label removal, so it never depends on any label permission.
 		expect(deletedLabelUrls()).toEqual([])
 		expect(submitCallCount()).toBe(1)
 	})
@@ -504,21 +504,19 @@ describe("runOnPullRequest", () => {
 		}
 	})
 
-	// The notice claims coverage of the resolved agents, which holds only because the reviewers run under `Promise.all`, so a single reviewer's failure must abort the run before any review is submitted.
+	// The notice claims coverage of every resolved agent, so a reviewer failure must propagate and abort the run before any review is submitted; a failure that is settled or caught per reviewer would submit a review claiming a reviewer that never ran.
 	it("submits no review when one reviewer fails", async () => {
 		const userAgents: Agent[] = [
 			{ name: "Bug Hunter", prompt: "Bug hunter prompt." },
 			{ name: "Security", prompt: "Security prompt." },
 			{ name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." },
 		]
+		const capturedBodies: string[] = []
 		const respond = makeFetch("Good work")
-		let failingReviewerRequested = false
 		// Reviewers run concurrently, so the failing request is keyed on the prompt it carries rather than on request order or call index.
 		const fetch: Fetch = async (signal, body, headers) => {
-			if (JSON.parse(body).messages[0].content === "Security prompt.") {
-				failingReviewerRequested = true
-				throw new Error("Security reviewer failed")
-			}
+			capturedBodies.push(body)
+			if (JSON.parse(body).messages[0].content === "Security prompt.") throw new Error("Security reviewer failed")
 			return respond(signal, body, headers)
 		}
 		const { githubFetch, submitCallCount, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF })
@@ -542,7 +540,9 @@ describe("runOnPullRequest", () => {
 			IDENTITY_PROFILE,
 		)).rejects.toThrow("Security reviewer failed")
 
-		expect(failingReviewerRequested).toBe(true)
+		// The run aborts before the aggregator is requested, so the captured bodies are the reviewer prompts alone and both reviewers were dispatched.
+		expect(requestedAgentNames(capturedBodies, userAgents).sort()).toEqual(["Bug Hunter", "Security"])
+		expect(capturedBodies).toHaveLength(2)
 		expect(submitCallCount()).toBe(0)
 		expect(submittedReviews()).toHaveLength(0)
 	})

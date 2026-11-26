@@ -16,10 +16,18 @@ const REVIEWER_LABEL_ROW = /^\| `Reviewer - ([^`]+)` \|/gm
 const WORKFLOW_COMMENT_LINE = /^\s*#/
 const TYPESCRIPT_COMMENT_LINE = /^\s*\/\//
 const WORKFLOW_REF_DECLARATION = /(?:^|[{,])\s*(?:"|')?ref(?:"|')?\s*:/m
-const WORKFLOW_PERMISSION_ENTRY = /^ {2}([a-z-]+):\s*(\S+)\s*$/
+// A permissions entry is exactly two spaces, a lowercase scope, a colon and a space, and a lowercase level: every other spelling GitHub also honours fails the grant parse below instead of being skipped.
+const WORKFLOW_PERMISSION_ENTRY = /^ {2}([a-z-]+): ([a-z-]+)$/
+// A job key at column two declares a job in block style only, so a line with that shape that carries anything after the colon except an optional trailing comment is a flow mapping.
+const WORKFLOW_JOB_KEY_SHAPE = /^ {2}[A-Za-z0-9_-]+:/
 const WORKFLOW_JOB_DECLARATION = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/
 const WORKFLOW_TRIGGER_EVENT_KEY = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/
-const WORKFLOW_JOB_PERMISSIONS_KEY = /^ {4}permissions:/
+// A top-level permissions: key starts in column zero, and the quoted and space-before-colon spellings count too, so counting the lines that match separates a second workflow-level block from the job-level keys below.
+const WORKFLOW_TOP_LEVEL_PERMISSIONS_KEY = /^["']?permissions["']?\s*:/
+// The block slice starts after this header, so every line the grant parse sees is an entry or a line it has to reject.
+const WORKFLOW_PERMISSIONS_BLOCK_HEADER = "\npermissions:\n"
+// A job-level permissions: key can sit at any depth under its job and may be quoted, and both spellings replace the workflow-level grant; the workflow-level block starts in column zero and cannot match.
+const WORKFLOW_JOB_PERMISSIONS_KEY = /^\s+["']?permissions["']?\s*:/
 const WORKFLOW_JOB_GATE_KEY = /^ {4}if:/
 const CHECKOUT_ACTION_PREFIX = "actions/checkout@"
 const STEP_USES_LINE = /^ {8,}uses:\s*(.+)$/
@@ -288,19 +296,23 @@ function readRunCiAgentStepEnvironmentBlock(): string {
 
 function readWorkflowPermissionsBlock(): string {
 	const workflow = readWorkflow()
-	const permissionsStart = workflow.indexOf("\npermissions:\n")
-	if (permissionsStart === -1) throw new Error("ci-agent.yml has no permissions block, so the workflow cannot grant the `pull-requests: write` scope that submitting the review and removing the trigger label need")
-	const permissionsEnd = workflow.indexOf("\njobs:", permissionsStart)
-	return workflow.slice(permissionsStart, permissionsEnd === -1 ? undefined : permissionsEnd)
+	const permissionsStart = workflow.indexOf(WORKFLOW_PERMISSIONS_BLOCK_HEADER)
+	if (permissionsStart === -1) throw new Error("ci-agent.yml has no permissions block in the expected form, a column-zero `permissions:` line followed by two-space `scope: level` entries, so this test cannot tell which scopes the workflow grants: the review POST needs `pull-requests: write`, and the label DELETE documents either `issues: write` or `pull-requests: write`")
+	const entriesStart = permissionsStart + WORKFLOW_PERMISSIONS_BLOCK_HEADER.length
+	const permissionsEnd = workflow.indexOf("\njobs:", entriesStart)
+	return workflow.slice(entriesStart, permissionsEnd === -1 ? undefined : permissionsEnd)
 }
 
+// GitHub grants an entry in any YAML spelling it accepts, so every line of the block is significant: a line that is neither blank nor a whole-line comment has to be an entry this matcher reads exactly, and any other spelling fails here instead of being skipped.
 function readWorkflowPermissionGrants(): ReadonlyArray<string> {
 	const grants: Array<string> = []
 	for (const line of readWorkflowPermissionsBlock().split("\n")) {
+		// GitHub ignores a whole-line comment, so it cannot grant a scope, and a blank line carries nothing.
+		if (line.trim().length === 0 || WORKFLOW_COMMENT_LINE.test(line)) continue
 		const match = WORKFLOW_PERMISSION_ENTRY.exec(line)
 		const scope = match?.[1]
 		const level = match?.[2]
-		if (scope === undefined || level === undefined) continue
+		if (scope === undefined || level === undefined) throw new Error(`ci-agent.yml has a permissions line that is neither blank nor a whole-line comment nor a two-space lowercase \`scope: level\` entry, so this test cannot tell which scopes the workflow grants: ${JSON.stringify(line)}`)
 		grants.push(`${scope}: ${level}`)
 	}
 	return grants
@@ -324,6 +336,8 @@ function readWorkflowJobs(): ReadonlyArray<WorkflowJob> {
 	const jobs: Array<{ name: string; lines: Array<string> }> = []
 	for (const line of readWorkflowJobLines()) {
 		const jobName = WORKFLOW_JOB_DECLARATION.exec(line)?.[1]
+		// A column-two job key that carries anything but an optional trailing comment after its colon is a flow mapping, and the scan here would attribute it to the job above it, so its own permissions: key and steps would reach no assertion.
+		if (jobName === undefined && WORKFLOW_JOB_KEY_SHAPE.test(line)) throw new Error(`ci-agent.yml declares a job that is not in block style, so its keys would be attributed to the job above it: ${JSON.stringify(line)}`)
 		if (jobName !== undefined) {
 			jobs.push({ name: jobName, lines: [line] })
 			continue
@@ -515,7 +529,10 @@ describe("integration", () => {
 		expect(triggerTypesLines).toEqual([`types: [${WORKFLOW_PULL_REQUEST_TARGET_TYPES.join(", ")}]`])
 	})
 
-	it("grants the workflow exactly the permissions its GitHub calls need and no other scope", () => {
+	it("grants the workflow exactly the permissions its GitHub calls are documented to accept, either one where a call documents two, and no other scope", () => {
+		// The allowlist reads only the block between the first column-zero permissions: line and jobs:, so this count is what fails when a second block appears outside it, in the quoted and space-before-colon column-zero spellings too.
+		// Inside the block, a spelling readWorkflowPermissionGrants does not read, such as a quoted key, a space before the colon, a value on the following line, or a tab indent, fails there instead of being skipped.
+		expect(readWorkflow().split("\n").filter(line => WORKFLOW_TOP_LEVEL_PERMISSIONS_KEY.test(line))).toHaveLength(1)
 		// An allowlist rather than a denylist: any scope beyond these two widens the token the reviewed pull request runs with, so a `contents: write`, `actions: write`, `id-token: write`, `checks: write`, or `issues: write` entry fails here.
 		expect([...readWorkflowPermissionGrants()].sort()).toEqual(["contents: read", "pull-requests: write"])
 		const jobs = readWorkflowJobs()

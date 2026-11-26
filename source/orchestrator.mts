@@ -93,6 +93,7 @@ export async function runOnLocalDiff(dependencies: OrchestratorDependencies, con
 
 	if (diffText.trim() === "") return "No files changed, nothing to review"
 
+	// Local-diff mode prints the review and never renders a coverage claim, so it takes the loader that returns only the agents.
 	const agents = await loadSelectedAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, () => configuration.agents)
 	const aiResult = await runAnalysis(dependencies, agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, maxTokens, profile)
 	return formatReviewForConsole(aiResult)
