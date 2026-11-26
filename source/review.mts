@@ -25,6 +25,7 @@ function formatReviewerCount(reviewerCount: number): string {
 	return `${reviewerCount} ${reviewerCount === 1 ? "reviewer" : "reviewers"}`
 }
 
+// Emphasis on the full-review line would become wallpaper, because almost every review is a full review; a partial review is loud instead, because a human auditor has to notice it before trusting the review.
 // `resolveAgents` rejects two spellings of one reviewer, so that list's length is the number of reviewers that ran.
 // A selection that names no reviewer leaves no name to list, so the warning drops the colon and the list rather than rendering a dangling one.
 // Only `loadReviewerRun` guarantees that the claim describes exactly the agents that ran; this function takes the value as plain data and cannot check it.

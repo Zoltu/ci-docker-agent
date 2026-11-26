@@ -88,7 +88,7 @@ A new pull request is reviewed automatically with every agent, because the shipp
 
 - Apply the `Reviewer - *` labels first, then add `Review Start`.
 - To request a re-review, add `Review Start` again: a successful label-triggered run has already removed it, so the add is the whole step. Remove it first only when it is still on the pull request, which is what a run that removed no label leaves behind. Consuming the selector labels is what keeps a one-off subset run one-off: a leftover selector narrows the next label-triggered run to the agents it names, so a run that leaves out a reviewer a bare run would use reports the narrowing in its partial-review warning, and removal is what lets a label-triggered run review with every agent again. Automatic runs ignore labels entirely, so leftover selectors do not affect them.
-- A `Reviewer - All` label left over from the earlier label scheme costs one failed run rather than a manual cleanup, because it names no agent unless the repository ships a prompt called `All`: the run removes it and then fails selection.
+- A `Reviewer - All` label costs one failed run rather than a manual cleanup, because it names no agent unless the repository ships a prompt called `All`: the run removes it and then fails selection.
 - A pull request opened with `Review Start` already applied starts only the automatic `opened` run, because GitHub is expected to emit no `labeled` event for a label the pull request was created with.
 - Which labels a run removes depends on how it started. A run that started from the trigger label begins removing them only after reading the pull request metadata and confirming the label is on the pull request, and does so before it selects agents, validates their selector labels, or runs any agent. It removes the trigger label first, under its listed spelling, which may differ from `Review Start` in case. It then removes every label that carries the exact `Reviewer - ` prefix. A failed removal request ends the run without submitting a review. A run that fails after removing every one of those labels leaves the trigger label and every selector label off; such failures include an unknown selector label, a near-miss selector label, a `Reviewer - Aggregator` label, a diff or model failure, and a rejected review.
 - A run that removes no label leaves every label where it was:
@@ -187,8 +187,6 @@ A review is submitted to the pull request with:
 - Line-specific comments on relevant code changes
 
 The notice's own strings call each agent that ran a reviewer; the two words name the same thing.
-The full-review line is deliberately plain and the partial-review warning is deliberately loud.
-Almost every review is a full review, so emphasis on that line would become wallpaper, while a partial review is a security signal a human auditor has to notice before trusting the review.
 A full review reads `Reviewers: All 4 reviewers ran.`, and a run with a single reviewer reads `Reviewers: All 1 reviewer ran.`
 A partial review reads ``⚠️ **PARTIAL REVIEW — 2 of 4 reviewers ran: `Security`, `Architect`. This is not a full review.**``, and a run that selects one of the two prompts a repository ships, and no other, reads ``⚠️ **PARTIAL REVIEW — 1 of 2 reviewers ran: `Security`. This is not a full review.**``.
 The notice follows these rules for its numbers and names:
@@ -198,7 +196,7 @@ The notice follows these rules for its numbers and names:
 - The names after the colon are every reviewer that ran, in selection order.
 
 `All` means the run covered every reviewer a run with no selector labels would use, so applying every selector label explicitly also reads as a full review, and a selector that adds a reviewer on top of them also leaves nothing out, with its count still covering every reviewer that ran.
-The `All` in the notice is unrelated to the legacy `Reviewer - All` label; see [Selection Rules](#selection-rules) for what that label does.
+The `All` in the notice is unrelated to the `Reviewer - All` label; see [Selection Rules](#selection-rules) for what that label does.
 
 The workflow run itself owns the check status; the agent submits a review only.
 

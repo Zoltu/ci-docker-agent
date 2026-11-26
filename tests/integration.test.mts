@@ -19,6 +19,8 @@ const WORKFLOW_REF_DECLARATION = /(?:^|[{,])\s*(?:"|')?ref(?:"|')?\s*:/m
 // A grant is one lowercase `scope: level` entry at the block's own two-space indentation, which is the only form ci-agent.yml uses.
 const WORKFLOW_PERMISSION_ENTRY = /^ {2}[a-z-]+: [a-z-]+$/
 const WORKFLOW_JOB_DECLARATION = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/
+// A job declares itself with a key at the jobs block's own two-space indentation, whether its mapping is written below that key or inline, so counting these keys counts the declared jobs.
+const WORKFLOW_JOB_KEY = /^ {2}[A-Za-z0-9_-]+:/
 const WORKFLOW_TRIGGER_EVENT_KEY = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/
 // A job-level permissions: key replaces the workflow-level grant, and a job's own keys sit four spaces in, so a deeper run body line cannot match.
 const WORKFLOW_JOB_PERMISSIONS_KEY = /^ {4}permissions:/
@@ -323,7 +325,12 @@ function readWorkflowJobLines(): ReadonlyArray<string> {
 	return jobLines
 }
 
-// Every job declared under jobs: is parsed, so a job declared before or after ci-agent cannot carry a permissions: key past the scan.
+// A job that declares its keys below its own declaration line is parsed, so such a job before or after ci-agent cannot carry a permissions: key past the scan.
+// A job whose declaration line also carries its mapping matches no declaration pattern and folds into the job above it, so the permissions test compares the job declaration count instead.
+function readWorkflowJobDeclarationCount(): number {
+	return readWorkflowJobLines().filter(line => WORKFLOW_JOB_KEY.test(line)).length
+}
+
 function readWorkflowJobs(): ReadonlyArray<WorkflowJob> {
 	const jobs: Array<{ name: string; lines: Array<string> }> = []
 	for (const line of readWorkflowJobLines()) {
@@ -526,5 +533,7 @@ describe("integration", () => {
 		// A job-level permissions: key replaces the workflow-level grant, so a job that declares one bypasses the allowlist above whatever its own entries say.
 		expect(jobs.map(job => job.name)).toContain("ci-agent")
 		expect(jobs.filter(job => job.lines.some(line => WORKFLOW_JOB_PERMISSIONS_KEY.test(line))).map(job => job.name)).toEqual([])
+		// A job whose declaration line also carries its mapping folds into the job above it, so the parsed jobs miss it; ci-agent.yml declares exactly one job, and this count is what catches a second.
+		expect(readWorkflowJobDeclarationCount()).toBe(1)
 	})
 })
