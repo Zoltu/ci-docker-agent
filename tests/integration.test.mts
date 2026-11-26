@@ -412,7 +412,7 @@ describe("integration", () => {
 	it("documents that TRIGGER_LABEL is matched against the review start label ignoring case", () => {
 		const readme = readProjectFile("README.md")
 		// The trigger section's prose is the only place that tells a direct-container user what a set TRIGGER_LABEL must be, so it has to name the accepted value, the match that ignores case, and the failure a wrong one causes.
-		expect(readme).toContain(`A \`TRIGGER_LABEL\` is matched against \`${REVIEW_START_LABEL}\` ignoring case, and any other label name fails the run instead of reviewing the pull request.`)
+		expect(readme).toContain(`A \`TRIGGER_LABEL\` is matched against \`${REVIEW_START_LABEL}\` ignoring case, and any other label name fails the run.`)
 	})
 
 	it("documents GitHub mode environment variables under the GitHub PR Review list only", () => {
