@@ -289,7 +289,7 @@ function readRunCiAgentStepEnvironmentBlock(): string {
 function readWorkflowPermissionsBlock(): string {
 	const workflow = readWorkflow()
 	const permissionsStart = workflow.indexOf("\npermissions:\n")
-	if (permissionsStart === -1) throw new Error("ci-agent.yml has no permissions block, so the workflow cannot grant the scope that removing the trigger label needs")
+	if (permissionsStart === -1) throw new Error("ci-agent.yml has no permissions block, so the workflow cannot grant the `pull-requests: write` scope that submitting the review and removing the trigger label need")
 	const permissionsEnd = workflow.indexOf("\njobs:", permissionsStart)
 	return workflow.slice(permissionsStart, permissionsEnd === -1 ? undefined : permissionsEnd)
 }
@@ -516,8 +516,8 @@ describe("integration", () => {
 	})
 
 	it("grants the workflow exactly the permissions its GitHub calls need and no other scope", () => {
-		// An allowlist rather than a denylist: any scope beyond these three widens the token the reviewed pull request runs with, so a `contents: write`, `actions: write`, `id-token: write`, or `checks: write` entry fails here.
-		expect([...readWorkflowPermissionGrants()].sort()).toEqual(["contents: read", "issues: write", "pull-requests: write"])
+		// An allowlist rather than a denylist: any scope beyond these two widens the token the reviewed pull request runs with, so a `contents: write`, `actions: write`, `id-token: write`, `checks: write`, or `issues: write` entry fails here.
+		expect([...readWorkflowPermissionGrants()].sort()).toEqual(["contents: read", "pull-requests: write"])
 		const jobs = readWorkflowJobs()
 		// A job-level permissions: key replaces the workflow-level grant, so a job that declares one bypasses the allowlist above whatever its own entries say.
 		expect(jobs.map(job => job.name)).toContain("ci-agent")

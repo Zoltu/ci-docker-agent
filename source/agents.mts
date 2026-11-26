@@ -168,14 +168,25 @@ function resolveAgents(requestedNames: AgentNames, userAgents: Agent[], builtinA
 	return agents
 }
 
-// One read of each prompt directory, one resolution against that read, and one coverage claim about exactly the agents that came back.
-// The caller supplies how a selection is made so the selector vocabulary and the selection input are read once, beside the read the claim describes.
-export async function loadReviewerRun(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, selectAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<ReviewerRun> {
+// The read and the selection against it are one step, so the agents and any claim about them cannot describe different reads of the prompt directories.
+// The caller supplies how a selection is made, so the selector vocabulary and the selection input are read once, beside the read.
+async function resolveRunAgents(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, selectAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<{ agents: Agent[]; userAgents: Agent[] }> {
 	const userAgents = await dependencies.readAgents(userAgentsDirectory)
 	const builtinAgents = await dependencies.readAgents(builtinAgentsDirectory)
 
 	const agents = resolveAgents(selectAgentNames(selectableAgentNames(userAgents, builtinAgents)), userAgents, builtinAgents)
+	return { agents, userAgents }
+}
+
+export async function loadReviewerRun(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, selectAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<ReviewerRun> {
+	const { agents, userAgents } = await resolveRunAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, selectAgentNames)
 	return { agents, coverage: deriveReviewerCoverage(agents, selectAllReviewerNames(userAgents)) }
+}
+
+// Local-diff mode prints the review and carries no coverage claim, so the selection is the whole result.
+export async function loadSelectedAgents(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string, selectAgentNames: (availableAgentNames: readonly string[]) => AgentNames): Promise<readonly Agent[]> {
+	const { agents } = await resolveRunAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, selectAgentNames)
+	return agents
 }
 
 export async function loadAggregator(dependencies: { readAgents: AgentReader }, userAgentsDirectory: string, builtinAgentsDirectory: string): Promise<Agent> {

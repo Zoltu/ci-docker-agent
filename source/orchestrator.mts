@@ -1,6 +1,6 @@
 import type { Fetch, Random, Sleep } from "./agent-loop.mts"
 import type { Agent, AgentReader, ReviewerRun } from "./agents.mts"
-import { loadAggregator, loadReviewerRun } from "./agents.mts"
+import { loadAggregator, loadReviewerRun, loadSelectedAgents } from "./agents.mts"
 import { analyze } from "./ai.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
 import type { LabelTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
@@ -93,7 +93,7 @@ export async function runOnLocalDiff(dependencies: OrchestratorDependencies, con
 
 	if (diffText.trim() === "") return "No files changed, nothing to review"
 
-	const reviewerRun = await loadReviewerRun(dependencies, userAgentsDirectory, builtinAgentsDirectory, () => configuration.agents)
-	const aiResult = await runAnalysis(dependencies, reviewerRun.agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, maxTokens, profile)
+	const agents = await loadSelectedAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, () => configuration.agents)
+	const aiResult = await runAnalysis(dependencies, agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, maxTokens, profile)
 	return formatReviewForConsole(aiResult)
 }

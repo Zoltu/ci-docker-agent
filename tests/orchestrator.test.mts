@@ -503,6 +503,49 @@ describe("runOnPullRequest", () => {
 			expect(submitCallCount()).toBe(1)
 		}
 	})
+
+	// The notice claims coverage of the resolved agents, which holds only because the reviewers run under `Promise.all`, so a single reviewer's failure must abort the run before any review is submitted.
+	it("submits no review when one reviewer fails", async () => {
+		const userAgents: Agent[] = [
+			{ name: "Bug Hunter", prompt: "Bug hunter prompt." },
+			{ name: "Security", prompt: "Security prompt." },
+			{ name: AGGREGATOR_AGENT_NAME, prompt: "Aggregate." },
+		]
+		const respond = makeFetch("Good work")
+		let failingReviewerRequested = false
+		// Reviewers run concurrently, so the failing request is keyed on the prompt it carries rather than on request order or call index.
+		const fetch: Fetch = async (signal, body, headers) => {
+			if (JSON.parse(body).messages[0].content === "Security prompt.") {
+				failingReviewerRequested = true
+				throw new Error("Security reviewer failed")
+			}
+			return respond(signal, body, headers)
+		}
+		const { githubFetch, submitCallCount, submittedReviews } = makeGithubFetch({ diffText: SAMPLE_DIFF })
+
+		await expect(runOnPullRequest(
+			{
+				spawnGit: makeSpawnGitOk(),
+				readAgents: makeReadAgents(userAgents),
+				githubFetch,
+				fetch,
+				logger: silentLogger,
+				debugWriter: noopDebugWriter,
+				sleep: instantSleep,
+				random: fixedRandom,
+			},
+			makePullRequestConfiguration(),
+			userAgentsDirectory,
+			builtinAgentsDirectory,
+			"test-model",
+			100_000,
+			IDENTITY_PROFILE,
+		)).rejects.toThrow("Security reviewer failed")
+
+		expect(failingReviewerRequested).toBe(true)
+		expect(submitCallCount()).toBe(0)
+		expect(submittedReviews()).toHaveLength(0)
+	})
 })
 
 describe("runOnLabelTrigger", () => {

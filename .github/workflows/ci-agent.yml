@@ -18,12 +18,11 @@ on:
         required: false
         type: string
 
-# A labeled run is gated by GitHub's permission to apply the label (triage or above), and the token is the only limit on what the run can do: `issues: write` removes the trigger label and every selector label, and `pull-requests: write` submits the review.
+# A labeled run is gated by GitHub's permission to apply the label (triage or above), and the token is the only limit on what the run can do: `pull-requests: write` submits the review and removes the trigger label and every selector label.
 # `contents: read` is all the checkout and the base commit fetch need.
 permissions:
   pull-requests: write
   contents: read
-  issues: write
 
 jobs:
   ci-agent:
