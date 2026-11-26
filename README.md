@@ -54,34 +54,23 @@ This mode also needs [AI Settings](#ai-settings).
 
 ### Mode 3: GitHub Action
 
-Review every new pull request automatically with all agents and post the review.
+Review every new pull request automatically and post the review.
 
 #### Setup
 
 - Copy [./.github/workflows/ci-agent.yml](./.github/workflows/ci-agent.yml) into `.github/workflows/` on the default branch.
-- The workflow runs `ghcr.io/zoltu/ci-docker-agent:latest`, published by [./.github/workflows/publish.yml](./.github/workflows/publish.yml); change `container.image` to use your own build.
+- Use `ghcr.io/zoltu/ci-docker-agent:latest`, published by [./.github/workflows/publish.yml](./.github/workflows/publish.yml), or change `container.image` to use your own build.
 - Set the repository secret `AI_API_KEY` and variables `AI_API_URL`, `AI_MODEL`, and optionally `AI_MAX_TOKENS`; the workflow declares `contents: read` and `pull-requests: write`.
-- Run `gh workflow run ci-agent.yml -F pr_number=123` to post to the pull request.
-- Run `gh workflow run ci-agent.yml -F base_commit=abc1234 -F head_commit=def5678` to write to the run log. Both commits must already be in the checkout, so set `fetch-depth: 0` on the workflow's checkout step.
+- For your own agents, create the [trigger labels](#trigger-labels) and the [custom agent files](#custom-agents).
 
-Every run uploads a `debug-traces` artifact to the run page for 7 days.
+Every run uploads a `debug-traces` artifact to the run page for seven days.
 
 ## Trigger Labels
 
-| Label | Purpose |
-| --- | --- |
-| `Review Start` | Starts a review run. |
-| `Reviewer - Architect` | Runs the `Architect` agent. |
-| `Reviewer - Bug Hunter` | Runs the `Bug Hunter` agent. |
-| `Reviewer - Default` | Runs the built-in `Default` agent. |
-| `Reviewer - Defender` | Runs the `Defender` agent. |
-| `Reviewer - Security` | Runs the `Security` agent. |
-
-- Copy `.ci-agents/` into your repository: each `Reviewer - <Name>` label needs its prompt file on the default branch.
-- Create these labels in repository settings before the first label-triggered run.
-- Add `Reviewer - <Name>` labels to choose which agents run, then add `Review Start`.
-- Spell `Reviewer - <Name>` to match an agent prompt file: a malformed or unknown name fails the run.
-- Add `Review Start` again for another review: the run clears it and all `Reviewer - <Name>` labels, and ignores `AGENTS`.
+Create `Review Start` in repository settings.
+Create one `Reviewer - <Name>` label per [custom agent](#custom-agents) in `.ci-agents/`; a label naming no agent aborts the run.
+Apply `Reviewer - <Name>` labels to a pull request to choose the agents; with no such label, every agent in `.ci-agents/` runs.
+Apply `Review Start` to start a review; the run removes `Review Start` and every `Reviewer - <Name>` label from the pull request.
 
 A `TRIGGER_LABEL` is matched against `Review Start` ignoring case, and any other label name fails the run instead of reviewing the pull request.
 
@@ -98,10 +87,14 @@ Agents are prompts that review the diff; an `Aggregator` merges their results in
 
 ### Custom Agents
 
-Drop a markdown file per agent in `.ci-agents/` at your repository root; the name without `.md` is the agent name.
-The built-in `Default` agent stays selectable.
+Create `.ci-agents/` at your repository root and add one `<Name>.md` file per reviewer agent.
+Commit the folder to the default branch.
+Without `.ci-agents/`, run only the built-in `Default` agent.
 
-- `AGENTS` - Comma-separated agent names to run (optional, defaults to all user agents or `Default`).
+In Mode 3, choose agents with the [trigger labels](#trigger-labels).
+For Modes 1 and 2, choose them explicitly:
+
+- `AGENTS` - Comma-separated agent names to run (optional, defaults to every agent in `.ci-agents/`).
 
 To override the `Aggregator`, add `.ci-agents/Aggregator.md`; [./agents/Aggregator.md](./agents/Aggregator.md) shows a JSON-returning example.
 

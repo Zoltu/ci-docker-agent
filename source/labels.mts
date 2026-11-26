@@ -2,7 +2,7 @@ import { formatAggregatorSelectionError, isAggregatorName, type AgentNames } fro
 import { includes, sanitizeForSingleLine } from "./typescript-helpers.mts"
 
 // This module supplies the trigger label value, the `Reviewer - ` selector prefix, the trigger-label match ignoring case, and the agent selection and label removal a label-triggered run derives from them.
-// The workflow gate, the README label table, and the README's `TRIGGER_LABEL` prose spell these values out, so a change here has to change them too.
+// The workflow's gate expression, the README's trigger-label prose, and the README's `Reviewer - <Name>` wording spell these values out, so a change here has to change them too.
 export const REVIEW_START_LABEL = "Review Start" as const
 
 // The trigger label is matched ignoring case, so a label that differs from it only in case still starts a run.

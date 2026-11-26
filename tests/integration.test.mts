@@ -1,7 +1,6 @@
 import { describe, it, expect } from "bun:test"
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { selectableAgentNames, type Agent } from "../source/agents.mts"
 import { REVIEW_START_LABEL, REVIEWER_LABEL_PREFIX } from "../source/labels.mts"
 import { BUILTIN_AGENTS_DIRECTORY, DEBUG_DIRECTORY, getWorkspaceDirectory } from "../source/paths.mts"
 
@@ -12,7 +11,6 @@ const LOCAL_DIFF_MODE_HEADING = "### Mode 1: Local Diff Analysis"
 const GITHUB_PR_MODE_HEADING = "### Mode 2: GitHub PR Review"
 const ENVIRONMENT_VARIABLE_REFERENCE = /environment\.([A-Z][A-Z0-9_]*)/g
 const DOCUMENTED_VARIABLE_BULLET = /^- `([A-Z][A-Z0-9_]*)` - /gm
-const REVIEWER_LABEL_ROW = /^\| `Reviewer - ([^`]+)` \|/gm
 const WORKFLOW_COMMENT_LINE = /^\s*#/
 const TYPESCRIPT_COMMENT_LINE = /^\s*\/\//
 const WORKFLOW_REF_DECLARATION = /(?:^|[{,])\s*(?:"|')?ref(?:"|')?\s*:/m
@@ -97,31 +95,6 @@ function readDocumentedVariableNames(heading: string): ReadonlySet<string> {
 		names.add(name)
 	}
 	return names
-}
-
-function readAgentNames(directory: string): ReadonlyArray<string> {
-	return readdirSync(directory)
-		.filter(entry => entry.toLowerCase().endsWith(".md"))
-		.map(entry => entry.replace(/\.md$/i, ""))
-}
-
-// The name is all these agents need to carry, because the selectable-agent rule reads no prompt.
-function readAgentsNamed(directory: string): ReadonlyArray<Agent> {
-	return readAgentNames(directory).map(name => ({ name, prompt: "" }))
-}
-
-function readUserAgents(): ReadonlyArray<Agent> {
-	return readAgentsNamed(join(PROJECT_ROOT, ".ci-agents"))
-}
-
-// BUILTIN_AGENTS_DIRECTORY is the in-container path, so the checked-out repository's agents directory stands in for it here.
-function readBuiltinAgents(): ReadonlyArray<Agent> {
-	return readAgentsNamed(join(PROJECT_ROOT, "agents"))
-}
-
-function readReviewerLabelRowAgentNames(): ReadonlyArray<string> {
-	const readme = readProjectFile("README.md")
-	return [...readme.matchAll(REVIEWER_LABEL_ROW)].flatMap(row => row[1] === undefined ? [] : [row[1]])
 }
 
 // The workflow cannot import a constant, so every workflow assertion below compares a literal in ci-agent.yml with the constant it has to match.
@@ -425,20 +398,6 @@ describe("integration", () => {
 		expect(gitHubVariableNames.filter(name => localDiffDocumented.has(name))).toEqual([])
 	})
 
-	it("documents a Reviewer label for every agent prompt in .ci-agents and no name outside the selectable agents", () => {
-		const userAgents = readUserAgents()
-		const userAgentNames = userAgents.map(agent => agent.name)
-		// The label table is where a reader learns which labels to create by hand, so a missing row makes a reviewer unreachable and a row for an unselectable name guarantees a failed run.
-		expect(userAgentNames.length).toBeGreaterThan(0)
-		// source/agents.mts owns the aggregator exclusion and the de-duplication, so the documented labels are checked against the same rule the run applies.
-		const selectableNames = selectableAgentNames(userAgents, readBuiltinAgents())
-		const reviewerLabelAgentNames = readReviewerLabelRowAgentNames()
-		expect(userAgentNames.filter(name => !reviewerLabelAgentNames.includes(name))).toEqual([])
-		expect(reviewerLabelAgentNames.filter(name => !selectableNames.includes(name))).toEqual([])
-		expect(new Set(reviewerLabelAgentNames).size).toBe(reviewerLabelAgentNames.length)
-		expect(readProjectFile("README.md")).toContain(`| \`${REVIEW_START_LABEL}\` |`)
-	})
-
 	it("workflow passes AI_MAX_TOKENS through to the agent", () => {
 		expect(readRunCiAgentStepEnvironmentBlock()).toContain("\n          AI_MAX_TOKENS: ${{ vars.AI_MAX_TOKENS }}\n")
 	})
@@ -497,7 +456,7 @@ describe("integration", () => {
 	it("binds the reviewer selector prefix to the documented labels", () => {
 		const readme = readProjectFile("README.md")
 		// The prefix is what makes a label a selector, so a README that documented an older prefix would leave every selector label silently inert.
-		expect(readme).toContain(`| \`${REVIEWER_LABEL_PREFIX}`)
+		expect(readme).toContain(REVIEWER_LABEL_PREFIX)
 	})
 
 	it("binds the workflow job gate to the review start label constant", () => {
