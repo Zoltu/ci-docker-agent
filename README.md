@@ -67,10 +67,9 @@ Every run uploads a `debug-traces` artifact to the run page for seven days.
 
 ## Trigger Labels
 
-Create `Review Start` in repository settings.
-Create one `Reviewer - <Name>` label per [custom agent](#custom-agents) in `.ci-agents/`; a label naming no agent aborts the run.
-Apply `Reviewer - <Name>` labels to a pull request to choose the agents; with no such label, every agent in `.ci-agents/` runs.
-Apply `Review Start` to start a review; the run removes `Review Start` and every `Reviewer - <Name>` label from the pull request.
+Add `Review Start` to a pull request to start a review with every reviewer.
+To review with only some, add the matching `Reviewer - <Name>` labels first, then add `Review Start`; the run removes both, so add `Review Start` again to review again.
+The label names follow your `.ci-agents/` prompt files, so they differ between repositories, and a label naming no agent fails the run.
 
 A `TRIGGER_LABEL` is matched against `Review Start` ignoring case, and any other label name fails the run instead of reviewing the pull request.
 
@@ -87,9 +86,9 @@ Agents are prompts that review the diff; an `Aggregator` merges their results in
 
 ### Custom Agents
 
-Create `.ci-agents/` at your repository root and add one `<Name>.md` file per reviewer agent.
-Commit the folder to the default branch.
-Without `.ci-agents/`, run only the built-in `Default` agent.
+Create one `.ci-agents/<Name>.md` file per reviewer agent, for example with GitHub's `Add file` button, which creates the `.ci-agents/` folder along with the file; the file name without `.md` is the agent name.
+Commit them to the branch your pull requests target.
+Without `.ci-agents/`, the built-in `Default` is the only reviewer.
 
 In Mode 3, choose agents with the [trigger labels](#trigger-labels).
 For Modes 1 and 2, choose them explicitly:
