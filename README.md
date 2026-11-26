@@ -1,8 +1,10 @@
 # CI Agent
 
-A container image that reviews a git diff with AI and prints the review to stdout or posts it to a GitHub pull request.
+A container image that reviews a git diff with AI and prints it to stdout or posts it to a GitHub pull request.
 
 ## Build
+
+Modes 1 and 2 run an image built from this repository:
 
 ```bash
 docker image build --tag='ci-agent:latest' .
@@ -12,7 +14,7 @@ docker image build --tag='ci-agent:latest' .
 
 ### Mode 1: Local Diff Analysis
 
-Review the diff between two commits in a mounted repository and print the review to stdout.
+Review the diff between two commits in a mounted repository and print it to stdout.
 
 #### Example
 
@@ -25,82 +27,84 @@ docker container run --rm -it --mount="type=bind,source=$(pwd),target=/workspace
 - `BASE_COMMIT` - The base commit hash (required).
 - `HEAD_COMMIT` - The head commit hash (required).
 
-This mode also needs the settings in [AI Settings](#ai-settings).
+This mode also needs [AI Settings](#ai-settings).
 
 ### Mode 2: GitHub PR Review
 
-Fetch a pull request from GitHub and submit a review with AI-generated feedback.
+Review a pull request from a mounted repository and post the review to it.
 
 #### Example
 
+Replace the angle-bracket placeholders and the example `REPO` value.
+
 ```bash
-docker container run --rm -it --env="GITHUB_TOKEN=$GITHUB_TOKEN" --env="PR_NUMBER=$PR_NUMBER" --env="REPO=Zoltu/ci-docker-agent" --env="AI_API_URL=https://api.ppq.ai" --env="AI_MODEL=deepseek/deepseek-v4.1-flash" --env="AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxx" ci-agent:latest
+docker container run --rm -it --mount="type=bind,source=$(pwd),target=/workspace" --env="GITHUB_TOKEN=<token>" --env="PR_NUMBER=<number>" --env="REPO=Zoltu/ci-docker-agent" --env="AI_API_URL=https://api.ppq.ai" --env="AI_MODEL=deepseek/deepseek-v4.1-flash" --env="AI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxx" ci-agent:latest
 ```
 
 #### Environment Variables
 
 - `GITHUB_TOKEN` - A token with `pull-requests: write` (required).
 - `PR_NUMBER` - The pull request number (required).
-- `REPO` - The repository in `owner/name` format (required).
-- `GITHUB_API_URL` - Custom GitHub API URL (optional, defaults to `https://api.github.com`).
+- `REPO` - The `owner/name` repository under review (required).
+- `GITHUB_API_URL` - GitHub API URL (optional, defaults to `https://api.github.com`).
 
-This mode also needs the settings in [AI Settings](#ai-settings).
+This mode also needs [AI Settings](#ai-settings).
 
 ### Mode 3: GitHub Action
 
-Copy [./.github/workflows/ci-agent.yml](./.github/workflows/ci-agent.yml) into your repository's `.github/workflows/` to review every new pull request automatically.
-
-#### Example
-
-```bash
-gh workflow run ci-agent.yml -f pr_number=123
-```
+Review every new pull request automatically with every agent and post the review to the pull request.
 
 #### Setup
 
-Set the repository secret `AI_API_KEY` and the repository variables `AI_API_URL`, `AI_MODEL`, and optionally `AI_MAX_TOKENS`. The workflow declares `pull-requests: write` to submit the review and `contents: read` to check out the repository. A manual run takes `pr_number`, or `base_commit` and `head_commit`. A run uploads a `debug-traces` artifact, kept for 7 days.
+- Copy [./.github/workflows/ci-agent.yml](./.github/workflows/ci-agent.yml) into `.github/workflows/`.
+- Set the repository secret `AI_API_KEY` and variables `AI_API_URL`, `AI_MODEL`, and optionally `AI_MAX_TOKENS`.
+- Run `gh workflow run ci-agent.yml -F pr_number=123` to post to the pull request, or `gh workflow run ci-agent.yml -F base_commit=abc1234 -F head_commit=def5678` to write to the run log; both commits must already be in the checkout, so set `fetch-depth: 0` on the workflow's checkout step.
+
+The workflow declares `contents: read` and `pull-requests: write`.
+Every run, including a failed one, uploads a `debug-traces` artifact to the run page for 7 days.
 
 ## Trigger Labels
 
-The workflow reviews every new pull request with every agent. Add `Reviewer - <Name>` labels to narrow which agents run and `Review Start` last to start the run; each name must match an agent prompt file, and a malformed or unknown name fails the run.
-
 | Label | Purpose |
 | --- | --- |
-| `Review Start` | Starts a run for the selected agents. |
-| `Reviewer - Architect` | Runs the `Architect` agent from `.ci-agents/Architect.md`. |
-| `Reviewer - Bug Hunter` | Runs the `Bug Hunter` agent from `.ci-agents/Bug Hunter.md`. |
-| `Reviewer - Default` | Runs the built-in `Default` agent from `agents/Default.md`. |
-| `Reviewer - Defender` | Runs the `Defender` agent from `.ci-agents/Defender.md`. |
-| `Reviewer - Security` | Runs the `Security` agent from `.ci-agents/Security.md`. |
+| `Review Start` | Starts a review run. |
+| `Reviewer - Architect` | Runs the `Architect` agent. |
+| `Reviewer - Bug Hunter` | Runs the `Bug Hunter` agent. |
+| `Reviewer - Default` | Runs the built-in `Default` agent. |
+| `Reviewer - Defender` | Runs the `Defender` agent. |
+| `Reviewer - Security` | Runs the `Security` agent. |
 
-GitHub labels are per-repository: create each label by hand in every repository that runs the workflow. A label-triggered run clears the trigger label and every selector label, so add `Review Start` again to request another review.
+- Create these labels in repository settings before the first label-triggered run.
+- Add `Reviewer - <Name>` labels to choose which agents run, then add `Review Start`.
+- Spell `Reviewer - <Name>` to match an agent prompt file: a malformed or unknown name fails the run.
+- Add `Review Start` again for another review: the run clears it and all `Reviewer - <Name>` labels, and ignores `AGENTS`.
 
-A `TRIGGER_LABEL` is matched against `Review Start` ignoring case, and any other label name fails the run.
+A label-triggered run sets `TRIGGER_LABEL` to the label that started it.
+A `TRIGGER_LABEL` is matched against `Review Start` ignoring case, and any other label name fails the run instead of reviewing the pull request.
 
 ## AI Settings
 
-Every mode needs these settings:
-
 - `AI_API_URL` - Base URL of the OpenAI-compatible API (required).
-- `AI_MODEL` - Model name to use (required).
-- `AI_API_KEY` - API key for authentication (optional, omit for a local model that needs no auth).
-- `AI_MAX_TOKENS` - Maximum output tokens per response as a plain integer (optional, defaults to `100000`).
+- `AI_MODEL` - Model name (required).
+- `AI_API_KEY` - API key (optional).
+- `AI_MAX_TOKENS` - Maximum output tokens as a plain integer (optional, defaults to `100000`).
 
 ## Agents
 
-An agent is a prompt that reviews the diff, and an `Aggregator` agent merges the agents' results into the final review and always runs last.
+Agents are prompts that review the diff; an `Aggregator` merges their results into the review and runs last.
 
 ### Custom Agents
 
-Drop a markdown file per agent in `<project root>/.ci-agents/`; the file name without `.md` is the agent name. The built-in `Default` agent stays selectable.
+Drop a markdown file per agent in `.ci-agents/` at your repository root; the name without `.md` is the agent name.
+The built-in `Default` agent stays selectable.
 
-- `AGENTS` - Comma-separated agent names to run (optional, defaults to all user agents or `Default`; ignored on a label-triggered run).
+- `AGENTS` - Comma-separated agent names to run (optional, defaults to all user agents or `Default`).
 
-To override the `Aggregator`, add `.ci-agents/Aggregator.md`; see [./agents/Aggregator.md](./agents/Aggregator.md) for an example that returns valid JSON.
+To override the `Aggregator`, add `.ci-agents/Aggregator.md`; [./agents/Aggregator.md](./agents/Aggregator.md) shows a JSON-returning example.
 
 ## Output
 
-Local diff mode prints the review to stdout:
+Mode 1 prints the review to stdout:
 
 ```
 ## CI Agent Review
@@ -109,7 +113,11 @@ Local diff mode prints the review to stdout:
 
 ### Line Comments
 - file.ts:42 (RIGHT): [Specific feedback]
-- other.ts:10 (LEFT): [Specific feedback]
 ```
 
-GitHub mode submits one review comment with the AI summary and line comments on the changed code. A partial review includes a `⚠️ **PARTIAL REVIEW` warning naming the reviewers that ran.
+Modes 2 and 3 post the summary and line comments as a single review to the pull request.
+A partial pull request review carries this warning below its `## CI Agent Review` heading:
+
+```
+⚠️ **PARTIAL REVIEW — 1 of 4 reviewers ran: `Security`. This is not a full review.**
+```
