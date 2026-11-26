@@ -67,7 +67,7 @@ Every run uploads a `debug-traces` artifact to the run page for seven days.
 
 ## Trigger Labels
 
-Add `Review Start` to a pull request to start a review with every reviewer.
+Create `Review Start` in your repository's labels, then add it to a pull request to start a review with every reviewer.
 To review with only some, add the matching `Reviewer - <Name>` labels first, then add `Review Start`; the run removes both, so add `Review Start` again to review again.
 The label names follow your `.ci-agents/` prompt files, so they differ between repositories, and a label naming no agent fails the run.
 
