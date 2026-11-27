@@ -2,9 +2,7 @@ name: CI Agent
 
 on:
   pull_request_target:
-    types: [opened]
-  issue_comment:
-    types: [created]
+    types: [opened, labeled]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -20,16 +18,16 @@ on:
         required: false
         type: string
 
+# `pull-requests: write` submits the review and removes the trigger label and every selector label.
+# `contents: read` checks out the repository and fetches the base commit.
 permissions:
   pull-requests: write
   contents: read
-  checks: write
 
 jobs:
-  # Magic string: the `ci-agent` job id below must not change as the agent looks for a job with this name to update reviews with result details
   ci-agent:
-    # if triggered by an issue_comment, the issue must be a Pull Request comment and the commentor must be semi-trusted (not internet rando)
-    if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]'), github.event.comment.author_association))
+    # GitHub is expected to emit no labeled event for a pull request opened with the label already applied, so only that pull request's opened run reviews it and the label stays on the pull request until it is removed by hand.
+    if: github.event_name != 'pull_request_target' || github.event.action != 'labeled' || github.event.label.name == 'Review Start'
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/zoltu/ci-docker-agent:latest
@@ -44,9 +42,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_API_URL: ${{ github.api_url }}
-          PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.issue.number || github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
+          # GitHub sets this only for labeled events, so opened and manual runs leave it empty.
+          TRIGGER_LABEL: ${{ github.event.label.name }}
           BASE_COMMIT: ${{ github.event.inputs.base_commit }}
           HEAD_COMMIT: ${{ github.event.inputs.head_commit }}
           AI_API_URL: ${{ vars.AI_API_URL }}

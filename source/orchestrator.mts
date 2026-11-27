@@ -1,20 +1,21 @@
 import type { Fetch, Random, Sleep } from "./agent-loop.mts"
-import type { AgentNames, AgentReader } from "./agents.mts"
-import { loadAgents, loadAggregator } from "./agents.mts"
+import type { Agent, AgentReader, ReviewerRun } from "./agents.mts"
+import { loadAggregator, loadReviewerRun, loadSelectedAgents } from "./agents.mts"
 import { analyze } from "./ai.mts"
 import { getBaseCommitContext } from "./base-commit.mts"
-import type { CommentTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
+import type { LabelTriggerConfiguration, LocalDiffConfiguration, PullRequestConfiguration } from "./configuration.mts"
 import type { DebugWriter } from "./debug.mts"
 import type { SpawnGit } from "./diff.mts"
 import { ensureCommitAvailable, generateLocalDiff, validateGitEnvironment } from "./diff.mts"
 import type { GitHubConfiguration } from "./github-types.mts"
-import type { CheckRunOutput, GitHubFetch } from "./github.mts"
-import { createCheckRun, fetchPullRequestBaseCommit, fetchPullRequestDiff, fetchPullRequestHeadSha, findActiveCheckRunByName, submitReview, updateCheckRun } from "./github.mts"
+import type { GitHubFetch } from "./github.mts"
+import { fetchPullRequestDiff, fetchPullRequestMetadata, removePullRequestLabel, submitReview } from "./github.mts"
+import { isTriggerLabel, selectAgentNamesFromLabels, selectLabelNamesToRemove } from "./labels.mts"
 import type { Logger } from "./logger.mts"
 import type { ProviderProfile } from "./provider-profiles.mts"
 import type { AiReviewResult } from "./review.mts"
 import { buildReviewPayload, formatReviewForConsole } from "./review.mts"
-import { getAgentsFromComment } from "./trigger.mts"
+import { sanitizeForSingleLine } from "./typescript-helpers.mts"
 import type { AggregatorSubmitResult } from "./ai.mts"
 
 type OrchestratorDependencies = {
@@ -28,61 +29,15 @@ type OrchestratorDependencies = {
 	random: Random
 }
 
-const COMMENT_REVIEW_CHECK_RUN_NAME = "CI Agent Comment Reviewer"
-const PULL_REQUEST_REVIEW_CHECK_RUN_NAME = "CI Agent Pull Request Reviewer"
-
-// Magic string: must match the `id:` of the job in .github/workflows/ci-agent.yml that creates a check run before invoking CI Agent. The integration test in tests/integration.test.mts enforces this.
-export const EXISTING_CHECK_RUN_JOB_NAME = "ci-agent"
-
-type CheckRunIdSource = (dependencies: OrchestratorDependencies, githubConfiguration: GitHubConfiguration, headSha: string) => Promise<number>
-
-function extractErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message
-	return String(error)
-}
-
-function formatCheckRunErrorOutput(error: unknown, name: string): CheckRunOutput {
-	return {
-		title: `${name} failed`,
-		summary: "The CI Agent encountered an error while reviewing this pull request. See details below or check the GitHub Actions logs for more context.",
-		text: `## Error\n\n> ${extractErrorMessage(error)}`,
-	}
-}
-
-async function runWithCheckRun(dependencies: OrchestratorDependencies, githubConfiguration: GitHubConfiguration, name: string, getCheckRunId: CheckRunIdSource, operation: () => Promise<void>): Promise<void> {
-	const headSha = await fetchPullRequestHeadSha(dependencies, githubConfiguration)
-	const checkRunId = await getCheckRunId(dependencies, githubConfiguration, headSha)
-
-	try {
-		await operation()
-	} catch (error) {
-		await updateCheckRun(dependencies, githubConfiguration, checkRunId, "failure", formatCheckRunErrorOutput(error, name)).catch(reportingError => {
-			dependencies.logger.log(`Failed to update check run ${checkRunId} with error: ${reportingError}`)
-		})
-		throw error
-	}
-
-	await updateCheckRun(dependencies, githubConfiguration, checkRunId, "success", {
-		title: name,
-		summary: "Review submitted successfully.",
-	}).catch(reportingError => {
-		dependencies.logger.log(`Failed to update check run ${checkRunId} with success status: ${reportingError}`)
-	})
-}
-
-async function runAnalysis(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
-	const agents = await loadAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, agentNames)
+async function runAnalysis(dependencies: OrchestratorDependencies, agents: readonly Agent[], userAgentsDirectory: string, builtinAgentsDirectory: string, diffText: string, baseCommit: string, model: string, maxTokens: number, profile: ProviderProfile, submit?: (result: AiReviewResult) => Promise<AggregatorSubmitResult>): Promise<AiReviewResult> {
 	const aggregator = await loadAggregator(dependencies, userAgentsDirectory, builtinAgentsDirectory)
 	await ensureCommitAvailable(dependencies, baseCommit)
 	const baseCommitContext = await getBaseCommitContext(dependencies, baseCommit)
 	return analyze(dependencies, baseCommitContext, diffText, agents, aggregator, baseCommit, model, maxTokens, profile, submit)
 }
 
-async function submitPrReview(dependencies: OrchestratorDependencies, agentNames: AgentNames, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
-	const [diffText, baseCommit] = await Promise.all([
-		fetchPullRequestDiff(dependencies, githubConfiguration),
-		fetchPullRequestBaseCommit(dependencies, githubConfiguration),
-	])
+async function submitPrReview(dependencies: OrchestratorDependencies, reviewerRun: ReviewerRun, baseSha: string, userAgentsDirectory: string, builtinAgentsDirectory: string, githubConfiguration: GitHubConfiguration, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
+	const diffText = await fetchPullRequestDiff(dependencies, githubConfiguration)
 
 	if (diffText.trim() === "") {
 		dependencies.logger.log("No files changed, nothing to review")
@@ -90,54 +45,46 @@ async function submitPrReview(dependencies: OrchestratorDependencies, agentNames
 	}
 
 	const submit = async (result: AiReviewResult): Promise<AggregatorSubmitResult> => {
-		const outcome = await submitReview(dependencies, githubConfiguration, buildReviewPayload(result))
+		const outcome = await submitReview(dependencies, githubConfiguration, buildReviewPayload(result, reviewerRun.coverage))
 		if (outcome.ok) return { kind: "ok" }
 		if (outcome.status === 422) {
 			dependencies.logger.log(`GitHub rejected aggregator output with ${outcome.status}, sending feedback to aggregator`)
 			return { kind: "retry", feedback: `Your previous output failed on submission to GitHub:\nHTTP Status: ${outcome.status}\n${outcome.body}` }
 		}
-		return { kind: "fatal", message: `Failed to submit review: ${outcome.status} ${outcome.body}` }
+		// main prints the fatal message, so a multi-line body would forge extra log lines; the retry feedback above is read by the aggregator as data and keeps the body byte-exact.
+		return { kind: "fatal", message: `Failed to submit review: ${outcome.status} ${sanitizeForSingleLine(outcome.body)}` }
 	}
-	await runAnalysis(dependencies, agentNames, userAgentsDirectory, builtinAgentsDirectory, diffText, baseCommit, model, maxTokens, profile, submit)
+	await runAnalysis(dependencies, reviewerRun.agents, userAgentsDirectory, builtinAgentsDirectory, diffText, baseSha, model, maxTokens, profile, submit)
 	dependencies.logger.log("PR review submitted successfully")
 }
 
-export async function runOnCommentTrigger(dependencies: OrchestratorDependencies, configuration: CommentTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
-	const triggerResult = getAgentsFromComment(configuration.commentBody)
+export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
+	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
+	const reviewerRun = await loadReviewerRun(dependencies, userAgentsDirectory, builtinAgentsDirectory, () => configuration.agents)
+	await submitPrReview(dependencies, reviewerRun, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
+}
 
-	if (triggerResult === "no review triggered") {
-		dependencies.logger.log("No /review trigger found in comment")
-		return
+export async function runOnLabelTrigger(dependencies: OrchestratorDependencies, configuration: LabelTriggerConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
+	const metadata = await fetchPullRequestMetadata(dependencies, configuration.github)
+
+	// The guard has no listed spelling to name because none matched, so the message echoes the configured `TRIGGER_LABEL`, a value configuration already accepted as matching `Review Start` ignoring case.
+	if (!metadata.labelNames.some(isTriggerLabel)) throw new Error(`Invalid PR labels: "${sanitizeForSingleLine(configuration.triggerLabel)}" is missing from pull request #${configuration.github.pullRequestNumber}. Re-add the label to start a new run.`)
+
+	// The trigger label and every selector label are removed before any validation and before any agent runs, so a run that fails hard can be retried by adding the one label back and no selector can narrow a later run.
+	for (const labelName of selectLabelNamesToRemove(metadata.labelNames)) {
+		await removePullRequestLabel(dependencies, configuration.github, labelName)
+		// A removed label is gone from the pull request, so the run's own log is the only record of what it consumed.
+		// A label name can carry an invisible character that would make that record read differently from the bytes deleted, so it is escaped like every other untrusted name.
+		dependencies.logger.log(`Removed label "${sanitizeForSingleLine(labelName)}"`)
 	}
 
-	await runWithCheckRun(
-		dependencies,
-		configuration.github,
-		COMMENT_REVIEW_CHECK_RUN_NAME,
-		async (deps, config, headSha) => createCheckRun(deps, config, headSha, COMMENT_REVIEW_CHECK_RUN_NAME, {
-			title: COMMENT_REVIEW_CHECK_RUN_NAME,
-			summary: "Review is in progress.",
-		}),
-		() => submitPrReview(dependencies, triggerResult, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile),
-	)
+	// The labels the pull request carried are the selection input even though they are now gone, so the selection is made from the metadata read before removal.
+	const reviewerRun = await loadReviewerRun(dependencies, userAgentsDirectory, builtinAgentsDirectory, availableAgentNames => selectAgentNamesFromLabels(metadata.labelNames, availableAgentNames))
+	await submitPrReview(dependencies, reviewerRun, metadata.baseSha, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile)
 }
 
-export async function runOnPullRequest(dependencies: OrchestratorDependencies, configuration: PullRequestConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, profile: ProviderProfile): Promise<void> {
-	await runWithCheckRun(
-		dependencies,
-		configuration.github,
-		PULL_REQUEST_REVIEW_CHECK_RUN_NAME,
-		async (deps, config, headSha) => {
-			const existingId = await findActiveCheckRunByName(deps, config, headSha, EXISTING_CHECK_RUN_JOB_NAME)
-			if (existingId === null) {
-				throw new Error(`No active check run named "${EXISTING_CHECK_RUN_JOB_NAME}" found for head SHA ${headSha}. The workflow must create a check run with this name before invoking CI Agent.`)
-			}
-			return existingId
-		},
-		() => submitPrReview(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, configuration.github, model, maxTokens, profile),
-	)
-}
-
+// workspaceDirectory is advisory and only appears in diagnostics.
+// The working directory is captured where the git spawner is created, so a misaligned argument here surfaces as a misleading message instead of a read from the wrong directory.
 export async function runOnLocalDiff(dependencies: OrchestratorDependencies, configuration: LocalDiffConfiguration, userAgentsDirectory: string, builtinAgentsDirectory: string, model: string, maxTokens: number, workspaceDirectory: string, profile: ProviderProfile): Promise<string> {
 	await validateGitEnvironment(dependencies, configuration.baseCommit, configuration.headCommit, workspaceDirectory)
 
@@ -145,6 +92,7 @@ export async function runOnLocalDiff(dependencies: OrchestratorDependencies, con
 
 	if (diffText.trim() === "") return "No files changed, nothing to review"
 
-	const aiResult = await runAnalysis(dependencies, configuration.agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, maxTokens, profile)
+	const agents = await loadSelectedAgents(dependencies, userAgentsDirectory, builtinAgentsDirectory, () => configuration.agents)
+	const aiResult = await runAnalysis(dependencies, agents, userAgentsDirectory, builtinAgentsDirectory, diffText, configuration.baseCommit, model, maxTokens, profile)
 	return formatReviewForConsole(aiResult)
 }

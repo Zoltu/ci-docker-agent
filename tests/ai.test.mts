@@ -4,6 +4,7 @@ import type { Fetch, Random, Sleep } from "../source/agent-loop.mts"
 import { IDENTITY_PROFILE } from "../source/provider-profiles.mts"
 import type { Agent } from "../source/agents.mts"
 import type { DebugWriter } from "../source/debug.mts"
+import type { Logger } from "../source/logger.mts"
 import type { SpawnGit, GitDiffResult } from "../source/diff.mts"
 import { createMockLogger, createMockAgentFetch, makeBaseCommitContext, buildContentSse } from "./helpers.mts"
 
@@ -211,6 +212,21 @@ describe("analyze", () => {
 
 		expect(result.body).toBe("Review complete")
 		expect(result.comments).toEqual([])
+	})
+
+	it("escapes an agent name so a prompt file name cannot forge a log line", async () => {
+		const fetch = createMockAgentFetch(buildContentSse(JSON.stringify({ body: "Review complete", comments: [] })))
+		const logLines: string[] = []
+		const recordingLogger: Logger = { log: (...data: unknown[]) => { logLines.push(data.join(" ")) } }
+		const agents: Agent[] = [{ name: "Security\nFORGED", prompt: "Check security" }]
+		const aggregator: Agent = { name: "Aggregator", prompt: "Aggregate" }
+
+		await analyze({ fetch, spawnGit: noopSpawnGit, logger: recordingLogger, debugWriter: noopDebugWriter, sleep: instantSleep, random: fixedRandom }, makeBaseCommitContext(), SAMPLE_DIFF, agents, aggregator, "abc123", "test-model", 100_000, IDENTITY_PROFILE)
+
+		expect(logLines).toContain("Using agents: Security\\u000aFORGED")
+		expect(logLines).toContain("Building prompt for Security\\u000aFORGED")
+		expect(logLines).toContain("Running agent Security\\u000aFORGED")
+		expect(logLines.some(line => line.includes("\n"))).toBe(false)
 	})
 
 	it("passes agent outputs to aggregator prompt", async () => {

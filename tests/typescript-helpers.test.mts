@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { assertNever, applyJitter, computeExponentialBackoff, deepMerge, errorMessage, guard, includes, isArray, isArrayOf, isInteger, isLiteral, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, optional, parseCommaSeparatedList, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
+import { assertNever, applyJitter, computeExponentialBackoff, deepMerge, errorMessage, guard, includes, isArray, isArrayOf, isInteger, isLiteral, isNumber, isObjectOf, isReadonlyArray, isRecord, isString, optional, parseCommaSeparatedList, sanitizeForSingleLine, sleepWithSignal, type Guard } from "../source/typescript-helpers.mts"
 
 describe("includes", () => {
 	it("returns true when needle is in haystack", () => {
@@ -46,6 +46,53 @@ describe("parseCommaSeparatedList", () => {
 
 	it("handles single item", () => {
 		expect(parseCommaSeparatedList("hello")).toEqual(["hello"])
+	})
+})
+
+describe("sanitizeForSingleLine", () => {
+	it("returns text without control characters unchanged", () => {
+		expect(sanitizeForSingleLine("Reviewer - Security")).toBe("Reviewer - Security")
+	})
+
+	it("escapes a newline so it cannot forge an extra line", () => {
+		expect(sanitizeForSingleLine("Reviewers - Evil\nFORGED")).toBe("Reviewers - Evil\\u000aFORGED")
+	})
+
+	it("escapes a backslash so a literal escape sequence cannot pass for an escaped hazard", () => {
+		expect(sanitizeForSingleLine("Evil\\u000aFORGED")).toBe("Evil\\\\u000aFORGED")
+	})
+
+	it("keeps a literal escape sequence distinct from an escaped hazard with the same rendering", () => {
+		expect(sanitizeForSingleLine("Evil\\u000aFORGED")).not.toBe(sanitizeForSingleLine("Evil\nFORGED"))
+	})
+
+	it("escapes carriage returns, tabs, and other C0 controls", () => {
+		expect(sanitizeForSingleLine("a\rb\tc\u0000d")).toBe("a\\u000db\\u0009c\\u0000d")
+	})
+
+	it("escapes DEL and C1 controls", () => {
+		expect(sanitizeForSingleLine("a\u007fb\u0085c\u009fd")).toBe("a\\u007fb\\u0085c\\u009fd")
+	})
+
+	it("escapes zero-width characters", () => {
+		expect(sanitizeForSingleLine("a\u200bb\u200dc")).toBe("a\\u200bb\\u200dc")
+	})
+
+	it("escapes bidi overrides and bidi marks", () => {
+		expect(sanitizeForSingleLine("\u202a\u202b\u202c\u202d\u202e")).toBe("\\u202a\\u202b\\u202c\\u202d\\u202e")
+		expect(sanitizeForSingleLine("\u2066\u2067\u2068\u2069")).toBe("\\u2066\\u2067\\u2068\\u2069")
+	})
+
+	it("escapes the bidi marks LRM, RLM, and ALM", () => {
+		expect(sanitizeForSingleLine("\u200e\u200f\u061c")).toBe("\\u200e\\u200f\\u061c")
+	})
+
+	it("escapes the byte order mark", () => {
+		expect(sanitizeForSingleLine("\uFEFFReview Start")).toBe("\\ufeffReview Start")
+	})
+
+	it("escapes the Unicode line and paragraph separators", () => {
+		expect(sanitizeForSingleLine("a\u2028b\u2029c")).toBe("a\\u2028b\\u2029c")
 	})
 })
 
