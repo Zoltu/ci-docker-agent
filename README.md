@@ -82,11 +82,11 @@ A `TRIGGER_LABEL` is matched against `Review Start` ignoring case, and any other
 
 ## Agents
 
-Agents are prompts that review the diff; an `Aggregator` merges their results into the review and runs last.
+Agents are prompts that review the diff in parallel; an `Aggregator` merges their results into the review and runs last.
 
 ### Custom Agents
 
-Create one `.ci-agents/<Name>.md` file per reviewer agent, for example with GitHub's `Add file` button, which creates the `.ci-agents/` folder along with the file; the file name without `.md` is the agent name.
+Create one `.ci-agents/<Name>.md` file per reviewer agent, the file name without `.md` is the agent name.
 Commit them to the branch your pull requests target.
 Without `.ci-agents/`, the built-in `Default` is the only reviewer.
 
@@ -95,7 +95,7 @@ For Modes 1 and 2, choose them explicitly:
 
 - `AGENTS` - Comma-separated agent names to run (optional, defaults to every agent in `.ci-agents/`).
 
-To override the `Aggregator`, add `.ci-agents/Aggregator.md`; [./agents/Aggregator.md](./agents/Aggregator.md) shows a JSON-returning example.
+To override the `Aggregator`, add `.ci-agents/Aggregator.md`; [./agents/Aggregator.md](./agents/Aggregator.md) shows a proper JSON-returning example.
 
 ## Output
 
