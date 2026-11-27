@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { buildReviewPayload, formatReviewForConsole, type AiReviewResult } from "../source/review.mts"
-import type { ReviewerCoverage } from "../source/agents.mts"
+import type { ReviewerCoverage } from "../source/reviewer-coverage.mts"
 
 const REVIEW_HEADING = "## CI Agent Review"
 

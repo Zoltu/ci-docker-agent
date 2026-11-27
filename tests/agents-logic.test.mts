@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { buildAgentPrompt, loadReviewerRun, selectableAgentNames, type Agent, type AgentReader, type PromptMessage } from "../source/agents.mts"
+import { buildAgentPrompt, loadReviewerRun, loadSelectedAgents, type Agent, type AgentReader, type PromptMessage } from "../source/agents.mts"
 import { makeAgent, makeBaseCommitContext } from "./helpers.mts"
 
 const SAMPLE_DIFF = [
@@ -26,6 +26,17 @@ async function resolvedReviewerNames(userAgents: readonly Agent[]): Promise<read
 	}
 	const reviewerRun = await loadReviewerRun({ readAgents }, referenceUserDirectory, referenceBuiltinDirectory, () => "run all agents")
 	return reviewerRun.agents.map(agent => agent.name)
+}
+
+// The offered list is reachable only through the exported entry point, and it is the production contract because the label selector receives exactly it and returns a subset of it.
+async function offeredAgentNames(userAgents: readonly Agent[], builtinAgents: readonly Agent[]): Promise<readonly string[]> {
+	let offered: readonly string[] | undefined
+	const readAgents: AgentReader = async directory => directory === referenceUserDirectory ? [...userAgents] : [...builtinAgents]
+	await loadSelectedAgents({ readAgents }, referenceUserDirectory, referenceBuiltinDirectory, names => {
+		offered = names
+		return names
+	})
+	return offered!
 }
 
 describe("buildAgentPrompt", () => {
@@ -204,56 +215,56 @@ describe("buildAgentPrompt", () => {
 	})
 })
 
-describe("selectableAgentNames", () => {
-	it("excludes the aggregator so no available-agent message advertises it", () => {
-		const result = selectableAgentNames(
+describe("loadSelectedAgents offered agent names", () => {
+	it("excludes the aggregator so no available-agent message advertises it", async () => {
+		const offered = await offeredAgentNames(
 			[makeAgent({ name: "Security" })],
 			[makeAgent({ name: "Default" }), makeAgent({ name: "Aggregator" })],
 		)
 
-		expect(result).toEqual(["Security", "Default"])
+		expect(offered).toEqual(["Security", "Default"])
 	})
 
-	it("excludes the aggregator in any capitalization", () => {
-		const result = selectableAgentNames([], [makeAgent({ name: "aggregator" }), makeAgent({ name: "Default" })])
+	it("excludes the aggregator in any capitalization", async () => {
+		const offered = await offeredAgentNames([], [makeAgent({ name: "aggregator" }), makeAgent({ name: "Default" })])
 
-		expect(result).toEqual(["Default"])
+		expect(offered).toEqual(["Default"])
 	})
 
-	it("names a user agent that shadows a builtin name once", () => {
-		const result = selectableAgentNames(
+	it("names a user agent that shadows a builtin name once", async () => {
+		const offered = await offeredAgentNames(
 			[makeAgent({ name: "Default", prompt: "User default prompt." })],
 			[makeAgent({ name: "Default", prompt: "Builtin default prompt." })],
 		)
 
-		expect(result).toEqual(["Default"])
+		expect(offered).toEqual(["Default"])
 	})
 
-	it("names a user agent that shadows a builtin name in different capitalization once", () => {
-		const result = selectableAgentNames([makeAgent({ name: "default" })], [makeAgent({ name: "Default" })])
+	it("names a user agent that shadows a builtin name in different capitalization once", async () => {
+		const offered = await offeredAgentNames([makeAgent({ name: "default" })], [makeAgent({ name: "Default" })])
 
-		expect(result).toEqual(["default"])
+		expect(offered).toEqual(["default"])
 	})
 
-	it("lists user agents before builtin agents", () => {
-		const result = selectableAgentNames([makeAgent({ name: "Security" })], [makeAgent({ name: "Architect" })])
+	it("lists user agents before builtin agents", async () => {
+		const offered = await offeredAgentNames([makeAgent({ name: "Security" })], [makeAgent({ name: "Architect" })])
 
-		expect(result).toEqual(["Security", "Architect"])
+		expect(offered).toEqual(["Security", "Architect"])
 	})
 
-	it("returns nothing when every agent is the aggregator", () => {
-		expect(selectableAgentNames([makeAgent({ name: "Aggregator" })], [makeAgent({ name: "aggregator" })])).toEqual([])
+	it("returns nothing when every agent is the aggregator", async () => {
+		expect(await offeredAgentNames([makeAgent({ name: "Aggregator" })], [makeAgent({ name: "aggregator" })])).toEqual([])
 	})
 
-	it("rejects two prompt files whose names differ only by case", () => {
+	it("rejects two prompt files whose names differ only by case", async () => {
 		// A selector label matches a name case-sensitively against this list, so a list built from both files would accept the label and run only the one the map kept.
-		expect(() => selectableAgentNames([makeAgent({ name: "Security" }), makeAgent({ name: "security", prompt: "Lowercase prompt." })], [])).toThrow(
+		await expect(offeredAgentNames([makeAgent({ name: "Security" }), makeAgent({ name: "security", prompt: "Lowercase prompt." })], [])).rejects.toThrow(
 			'Duplicate agent prompt file names: "Security" and "security". Two prompt files whose names differ only by case are one reviewer, so only one of them would ever run; rename or delete one of them.'
 		)
 	})
 
-	it("rejects two builtin prompt files whose names differ only by case", () => {
-		expect(() => selectableAgentNames([], [makeAgent({ name: "Security" }), makeAgent({ name: "SECURITY" })])).toThrow(
+	it("rejects two builtin prompt files whose names differ only by case", async () => {
+		await expect(offeredAgentNames([], [makeAgent({ name: "Security" }), makeAgent({ name: "SECURITY" })])).rejects.toThrow(
 			'Duplicate agent prompt file names: "Security" and "SECURITY"'
 		)
 	})

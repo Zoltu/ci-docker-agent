@@ -1,4 +1,4 @@
-import type { ReviewerCoverage } from "./agents.mts"
+import type { ReviewerCoverage } from "./reviewer-coverage.mts"
 import type { GitHubReviewPayload, LineComment } from "./github-types.mts"
 import { sanitizeForSingleLine } from "./typescript-helpers.mts"
 

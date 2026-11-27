@@ -1,4 +1,5 @@
 import type { BaseCommitContext } from "./base-commit.mts"
+import type { ReviewerCoverage } from "./reviewer-coverage.mts"
 import { readdir } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -12,11 +13,6 @@ export interface Agent {
 }
 
 export type AgentReader = (directory: string) => Promise<Agent[]>
-
-// A full claim carries only the number of reviewers that ran; a partial claim carries the reviewers that ran and the number the pull request could run, which is the union of those reviewers and the ones a run with no selector labels would use.
-export type ReviewerCoverage =
-	| { readonly kind: "full"; readonly reviewerCount: number }
-	| { readonly kind: "partial"; readonly ranReviewerNames: readonly string[]; readonly possibleReviewerCount: number }
 
 // A run's agents together with the coverage claim about those agents; `loadReviewerRun` is what pairs them, because both fields are plain data and the types cannot stop a caller from assembling another pair.
 export interface ReviewerRun {
@@ -80,7 +76,7 @@ function assertDistinctAgentNames(agents: readonly Agent[]): void {
 
 // The aggregator prompt file sits in an agent directory too, so without this the available-agent list would advertise a selector that always fails.
 // A user prompt can shadow a builtin name, so each name appears once, in the order the directories are passed; a collision inside one directory is a duplicate prompt instead, which the next selector label would otherwise resolve against only one of.
-export function selectableAgentNames(userAgents: readonly Agent[], builtinAgents: readonly Agent[]): readonly string[] {
+function selectableAgentNames(userAgents: readonly Agent[], builtinAgents: readonly Agent[]): readonly string[] {
 	assertDistinctAgentNames(userAgents)
 	assertDistinctAgentNames(builtinAgents)
 
