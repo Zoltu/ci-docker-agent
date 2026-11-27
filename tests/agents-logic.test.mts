@@ -28,13 +28,15 @@ async function resolvedReviewerNames(userAgents: readonly Agent[]): Promise<read
 	return reviewerRun.agents.map(agent => agent.name)
 }
 
-// The offered list is reachable only through the exported entry point, and it is the production contract because the label selector receives exactly it and returns a subset of it.
+// The offered list is reachable only through the exported entry point, and it is the production contract because the label selector receives exactly it and selects from it.
 async function offeredAgentNames(userAgents: readonly Agent[], builtinAgents: readonly Agent[]): Promise<readonly string[]> {
 	let offered: readonly string[] | undefined
 	const readAgents: AgentReader = async directory => directory === referenceUserDirectory ? [...userAgents] : [...builtinAgents]
 	await loadSelectedAgents({ readAgents }, referenceUserDirectory, referenceBuiltinDirectory, names => {
 		offered = names
-		return names
+		// An empty offer must select nothing, because the sentinel would resolve the built-in `Default` agent and these fixtures provide no prompt for it.
+		if (names.length === 0) return []
+		return "run all agents"
 	})
 	return offered!
 }
